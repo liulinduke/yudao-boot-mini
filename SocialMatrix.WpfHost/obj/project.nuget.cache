@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "dgSpecHash": "1uJpQ4fcFJo=",
+  "success": true,
+  "projectFilePath": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\SocialMatrix.WpfHost.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\10378\\.nuget\\packages\\cefsharp.common.netcore\\131.3.10\\cefsharp.common.netcore.131.3.10.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\cefsharp.wpf.netcore\\131.3.10\\cefsharp.wpf.netcore.131.3.10.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\chromiumembeddedframework.runtime\\131.3.1\\chromiumembeddedframework.runtime.131.3.1.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\chromiumembeddedframework.runtime.win-arm64\\131.3.1\\chromiumembeddedframework.runtime.win-arm64.131.3.1.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\chromiumembeddedframework.runtime.win-x64\\131.3.1\\chromiumembeddedframework.runtime.win-x64.131.3.1.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\chromiumembeddedframework.runtime.win-x86\\131.3.1\\chromiumembeddedframework.runtime.win-x86.131.3.1.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\microsoft.web.webview2\\1.0.2365.46\\microsoft.web.webview2.1.0.2365.46.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\10378\\.nuget\\packages\\system.security.cryptography.protecteddata\\8.0.0\\system.security.cryptography.protecteddata.8.0.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1603",
+      "level": "Warning",
+      "message": "SocialMatrix.WpfHost 依赖于 CefSharp.Wpf.NETCore (>= 131.3.7)，但没有找到 CefSharp.Wpf.NETCore 131.3.7。已改为解析 CefSharp.Wpf.NETCore 131.3.10。",
+      "projectPath": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\SocialMatrix.WpfHost.csproj",
+      "warningLevel": 1,
+      "filePath": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\SocialMatrix.WpfHost.csproj",
+      "libraryId": "CefSharp.Wpf.NETCore",
+      "targetGraphs": [
+        "net8.0-windows7.0"
+      ]
+    }
+  ]
+}

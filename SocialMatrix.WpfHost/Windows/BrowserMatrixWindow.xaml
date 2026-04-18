@@ -1,0 +1,15 @@
+<Window x:Class="SocialMatrix.WpfHost.Windows.BrowserMatrixWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="浏览器矩阵 - SocialMatrix" 
+        Height="700" Width="1200"
+        WindowStartupLocation="CenterScreen">
+    
+    <Grid>
+        <!-- 滚动容器，支持超过 12 个浏览器 -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <!-- 动态网格布局，会根据浏览器数量自动调整 -->
+            <WrapPanel x:Name="BrowserGrid" Margin="10" Orientation="Horizontal" />
+        </ScrollViewer>
+    </Grid>
+</Window>

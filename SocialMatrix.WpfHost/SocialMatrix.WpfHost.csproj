@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>SocialMatrix.WpfHost</RootNamespace>
+    <AssemblyName>SocialMatrix.WpfHost</AssemblyName>
+    <!-- 禁用自动框架兼容性检查 -->
+    <DisableImplicitFrameworkReferences>false</DisableImplicitFrameworkReferences>
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+    <!-- 允许不安全代码（CefSharp 需要） -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WebView2 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2365.46" />
+    <!-- CefSharp (131+ 完全支持 .NET 8) -->
+    <PackageReference Include="CefSharp.Wpf.NETCore" Version="131.3.7" />
+    <!-- JSON 处理 -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Windows API 支持 -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 打包时复制 Vue 构建产物 -->
+    <Content Include="wwwroot\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- 复制配置文件 -->
+    <Content Include="Config\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

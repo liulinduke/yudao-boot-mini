@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "description": "Facebook 粉丝数多语言关键词配置",
+  "keywords": {
+    "european": {
+      "english": ["followers", "follower"],
+      "french": ["abonnés", "abonné"],
+      "german": ["Follower", "Folger"],
+      "dutch": ["volgers"],
+      "italian": ["seguaci"],
+      "spanish": ["seguidores", "seguidor"],
+      "portuguese": ["seguidores"],
+      "polish": ["obserwujący", "obserwujących"],
+      "czech": ["sledující"],
+      "hungarian": ["követők"],
+      "romanian": ["urmăritori"],
+      "croatian": ["sljedbenici", "pratitelji"],
+      "estonian": ["jälgijat"],
+      "icelandic": ["aðendur"],
+      "irish": ["leanúna"],
+      "latvian": ["sekotāji"],
+      "lithuanian": ["stebėtojai"],
+      "albanian": ["ndjekës"],
+      "slovenian": ["sledi"],
+      "slovak": ["sledujúci"],
+      "turkish": ["takipçi"],
+      "greek": ["ακόλουθοι"]
+    },
+    "asian": {
+      "indonesian": ["pengikut"],
+      "malay": ["pengikut"],
+      "chinese_simplified": ["粉丝", "关注者"],
+      "chinese_traditional": ["粉絲", "關注者"],
+      "japanese": ["フォロワー", "フォロワー数"],
+      "korean": ["팔로워", "팔로워 수"],
+      "thai": ["ผู้ติดตาม"],
+      "vietnamese": ["người theo dõi"]
+    },
+    "units": {
+      "thousand": {
+        "indonesian": ["rb", "rbu", "ribu"],
+        "english": ["k", "K"],
+        "chinese": ["千", "k", "K"],
+        "japanese": ["千", "k", "K"],
+        "korean": ["천", "k", "K"]
+      },
+      "million": {
+        "indonesian": ["jt", "juta"],
+        "english": ["m", "M"],
+        "chinese": ["万", "百万", "m", "M"],
+        "japanese": ["万", "百万", "m", "M"],
+        "korean": ["만", "백만", "m", "M"]
+      },
+      "billion": {
+        "english": ["b", "B"],
+        "chinese": ["千万", "亿", "b", "B"],
+        "japanese": ["億", "b", "B"],
+        "korean": ["억", "b", "B"]
+      },
+      "trillion": {
+        "english": ["t", "T"],
+        "chinese": ["万亿", "t", "T"]
+      }
+    }
+  }
+}

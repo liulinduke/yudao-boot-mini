@@ -1,0 +1,118 @@
+package cn.iocoder.yudao.module.facebook.controller.admin.collectuser.vo;
+
+import lombok.*;
+import java.util.*;
+import io.swagger.v3.oas.annotations.media.Schema;
+import cn.iocoder.yudao.framework.common.pojo.PageParam;
+import org.springframework.format.annotation.DateTimeFormat;
+import java.time.LocalDateTime;
+
+import static cn.iocoder.yudao.framework.common.util.date.DateUtils.FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND;
+
+@Schema(description = "管理后台 - FB用户采集结果分页 Request VO")
+@Data
+public class FbCollectUserPageReqVO extends PageParam {
+
+    @Schema(description = "任务ID", example = "15717")
+    private Long taskId;
+
+    @Schema(description = "系统用户ID", example = "6714")
+    private Long userId;
+
+    @Schema(description = "部门ID", example = "9848")
+    private Long deptId;
+
+    @Schema(description = "FB账号", example = "20683")
+    private String fbAccount;
+
+    @Schema(description = "Facebook用户ID", example = "17574")
+    private String fbUserId;
+
+    @Schema(description = "用户名称", example = "李四")
+    private String userName;
+
+    @Schema(description = "主页链接", example = "https://www.iocoder.cn")
+    private String url;
+
+    @Schema(description = "数据类型(0个人 1公共)", example = "2")
+    private Integer dataType;
+
+    @Schema(description = "粉丝数")
+    private Integer followers;
+
+    @Schema(description = "所在地")
+    private String city;
+
+    @Schema(description = "居住地")
+    private String location;
+
+    @Schema(description = "家乡")
+    private String hometown;
+
+    @Schema(description = "手机1")
+    private String phonenumber;
+
+    @Schema(description = "手机2")
+    private String phonenumber2;
+
+    @Schema(description = "邮箱1")
+    private String email;
+
+    @Schema(description = "邮箱2")
+    private String email2;
+
+    @Schema(description = "微信")
+    private String wechat;
+
+    @Schema(description = "WhatsApp")
+    private String whatsapp;
+
+    @Schema(description = "Line")
+    private String line;
+
+    @Schema(description = "社交网站")
+    private String website;
+
+    @Schema(description = "签名/状态", example = "2")
+    private String profileStatus;
+
+    @Schema(description = "语言")
+    private String language;
+
+    @Schema(description = "性别")
+    private String gender;
+
+    @Schema(description = "婚姻状况")
+    private String relationship;
+
+    @Schema(description = "工作经历")
+    private String workExperience;
+
+    @Schema(description = "学历")
+    private String education;
+
+    @Schema(description = "最近发帖时间")
+    @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
+    private LocalDateTime[] lastPostTime;
+
+    @Schema(description = "最近帖子摘要")
+    private String lastPostSummary;
+
+    @Schema(description = "分组ID", example = "2232")
+    private Long groupId;
+
+    @Schema(description = "数据来源")
+    private String fromResource;
+
+    @Schema(description = "配置信息")
+    private String config;
+
+    @Schema(description = "同步时间")
+    @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
+    private LocalDateTime[] syncTime;
+
+    @Schema(description = "创建时间")
+    @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
+    private LocalDateTime[] createTime;
+
+}

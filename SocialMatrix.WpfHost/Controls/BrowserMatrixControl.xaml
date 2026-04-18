@@ -1,0 +1,10 @@
+<UserControl x:Class="SocialMatrix.WpfHost.Controls.BrowserMatrixControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:cef="clr-namespace:CefSharp.Wpf;assembly=CefSharp.Wpf">
+    
+    <!-- 12 宫格布局 (3 行 × 4 列) -->
+    <UniformGrid x:Name="BrowserGrid" Rows="3" Columns="4" Margin="10">
+        <!-- 浏览器格子会在代码中动态创建 -->
+    </UniformGrid>
+</UserControl>
