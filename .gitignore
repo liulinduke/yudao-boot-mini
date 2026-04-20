@@ -60,3 +60,6 @@ application-my.yaml
 # Exclude WPF build output
 SocialMatrix.WpfHost/bin/
 SocialMatrix.WpfHost/obj/
+
+# Exclude SQL files
+sql/
