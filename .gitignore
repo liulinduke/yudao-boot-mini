@@ -56,3 +56,7 @@ application-my.yaml
 # Exclude competitor folders and node_modules
 竞品/
 **/node_modules/
+
+# Exclude WPF build output
+SocialMatrix.WpfHost/bin/
+SocialMatrix.WpfHost/obj/
