@@ -81,6 +81,25 @@ public class FbCollectDO extends BaseDO {
      * 备注
      */
     private String remark;
-
+    
+    /**
+     * 总期望采集数量(所有明细之和)
+     */
+    private Integer totalExpectedCount;
+    
+    /**
+     * 总已采集数量(所有明细之和)
+     */
+    private Integer totalCollectedCount;
+    
+    /**
+     * 参与账号数量
+     */
+    private Integer accountCount;
+    
+    /**
+     * 采集链接数量
+     */
+    private Integer urlCount;
 
 }

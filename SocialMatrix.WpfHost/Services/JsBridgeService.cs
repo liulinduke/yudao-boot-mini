@@ -20,11 +20,21 @@ namespace SocialMatrix.WpfHost.Services
         /// <summary>
         /// Vue 调用此方法启动浏览器并开始自动化采集
         /// </summary>
-        public void StartBrowser(string accountId, string? cookie = null, string? searchUrl = null, int expectedCount = 100)
+        /// <param name="detailId">明细ID(不是taskId)</param>
+        /// <param name="accountId">账号ID(fbAccount)</param>
+        /// <param name="cookie">Cookie</param>
+        /// <param name="searchUrl">搜索URL</param>
+        /// <param name="expectedCount">期望采集数量</param>
+        /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1)
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                _mainWindow.CreateBrowserForAccount(accountId, cookie, searchUrl, expectedCount);
+                _mainWindow.CreateBrowserForAccount(detailId, accountId, 
+                    string.IsNullOrEmpty(cookie) ? null : cookie, 
+                    string.IsNullOrEmpty(searchUrl) ? null : searchUrl, 
+                    expectedCount,
+                    taskType: taskType);
             });
         }
 

@@ -41,7 +41,7 @@ public class FbCollectController {
     @PostMapping("/create")
     @Operation(summary = "创建FB采集任务")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect:create')")
-    public CommonResult<Long> createFbCollect(@Valid @RequestBody FbCollectSaveReqVO createReqVO) {
+    public CommonResult<FbCollectCreateRespVO> createFbCollect(@Valid @RequestBody FbCollectSaveReqVO createReqVO) {
         return success(fbCollectService.createFbCollect(createReqVO));
     }
 

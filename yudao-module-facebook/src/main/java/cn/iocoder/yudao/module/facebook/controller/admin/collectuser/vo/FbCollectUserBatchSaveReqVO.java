@@ -11,9 +11,9 @@ import java.util.List;
 @Data
 public class FbCollectUserBatchSaveReqVO {
 
-    @Schema(description = "任务ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "15717")
-    @NotNull(message = "任务ID不能为空")
-    private Long taskId;
+    @Schema(description = "明细ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "123456")
+    @NotNull(message = "明细ID不能为空")
+    private Long detailId;
 
     @Schema(description = "采集结果列表", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotEmpty(message = "采集结果列表不能为空")

@@ -11,11 +11,13 @@ import java.time.LocalDateTime;
 @Data
 public class FbCollectUserSaveReqVO {
 
-    @Schema(description = "结果ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "31032")
-    private Long id;
+    @Schema(description = "Facebook用户ID(业务ID)", requiredMode = Schema.RequiredMode.REQUIRED, example = "61578035879774")
+    private String id;
 
-    @Schema(description = "任务ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "15717")
-    @NotNull(message = "任务ID不能为空")
+    @Schema(description = "用户名称(Facebook返回的name)", example = "ADC")
+    private String name;
+
+    @Schema(description = "任务ID", example = "15717")
     private Long taskId;
 
     @Schema(description = "系统用户ID", example = "6714")
@@ -24,8 +26,7 @@ public class FbCollectUserSaveReqVO {
     @Schema(description = "部门ID", example = "9848")
     private Long deptId;
 
-    @Schema(description = "FB账号", requiredMode = Schema.RequiredMode.REQUIRED, example = "20683")
-    @NotEmpty(message = "FB账号不能为空")
+    @Schema(description = "FB账号", example = "20683")
     private String fbAccount;
 
     @Schema(description = "Facebook用户ID", example = "17574")
@@ -33,6 +34,9 @@ public class FbCollectUserSaveReqVO {
 
     @Schema(description = "用户名称", example = "李四")
     private String userName;
+
+    @Schema(description = "头像URL")
+    private String avatar;
 
     @Schema(description = "主页链接", example = "https://www.iocoder.cn")
     private String url;
@@ -78,6 +82,12 @@ public class FbCollectUserSaveReqVO {
 
     @Schema(description = "签名/状态", example = "2")
     private String profileStatus;
+
+    @Schema(description = "片段文本(Facebook返回的snippet)", example = "Ikuti")
+    private String snippet;
+
+    @Schema(description = "类别/认证信息(Facebook返回的category)", example = "Organisasi Politik")
+    private String category;
 
     @Schema(description = "语言")
     private String language;

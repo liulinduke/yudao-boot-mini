@@ -18,8 +18,11 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, ChromiumWebBrowser> _browsers = new();
         private readonly Dictionary<string, bool> _browserInitialized = new(); // 跟踪指纹注入状态
         
+        // 当前明细ID
+        public string? CurrentDetailId { get; set; }
+        
         // 采集结果回调
-        public event Action<string, string>? OnCollectionComplete; // (accountId, jsonData)
+        public event Action<string, string, string>? OnCollectionComplete; // (detailId, accountId, jsonData)
         public event Action<string, string>? OnCollectionError;    // (accountId, errorMessage)
 
         public BrowserMatrixWindow()
@@ -37,11 +40,25 @@ namespace SocialMatrix.WpfHost.Windows
         /// 创建浏览器实例并启动自动化采集
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com", 
-            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null)
+            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1)
         {
+            // 如果浏览器已存在，检查是否需要重新采集
             if (_browsers.ContainsKey(accountId))
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的浏览器已存在");
+                
+                // 如果提供了新的搜索 URL，重新启动采集
+                if (!string.IsNullOrEmpty(searchUrl))
+                {
+                    var existingBrowser = _browsers[accountId];
+                    System.Diagnostics.Debug.WriteLine($"🔄 为已存在的浏览器启动新采集: {searchUrl}");
+                    
+                    // 异步启动采集（不阻塞）
+                    Task.Run(async () =>
+                    {
+                        await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType);
+                    });
+                }
                 return;
             }
 
@@ -117,7 +134,7 @@ namespace SocialMatrix.WpfHost.Windows
                             // 3. 如果 Cookie 有效且提供了搜索 URL，启动自动化采集
                             if (isCookieValid && !string.IsNullOrEmpty(searchUrl))
                             {
-                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount);
+                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType);
                             }
                         }
                     }
@@ -422,7 +439,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// 启动自动化采集
         /// </summary>
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId, 
-            string searchUrl, int expectedCount)
+            string searchUrl, int expectedCount, int taskType = 1)
         {
             try
             {
@@ -493,8 +510,8 @@ namespace SocialMatrix.WpfHost.Windows
                     return;
                 }
 
-                // 3. 注入采集脚本
-                var collectScript = GenerateCollectScript(expectedCount);
+                // 3. 注入采集脚本（根据任务类型）
+                var collectScript = GenerateCollectScript(expectedCount, taskType);
                 var result = await browser.EvaluateScriptAsync(collectScript);
 
                 if (result.Success && result.Result != null)
@@ -502,8 +519,8 @@ namespace SocialMatrix.WpfHost.Windows
                     var jsonData = result.Result.ToString();
                     System.Diagnostics.Debug.WriteLine($"✅ 采集完成，数据长度: {jsonData.Length}");
 
-                    // 4. 触发回调，将数据传回
-                    OnCollectionComplete?.Invoke(accountId, jsonData);
+                    // 4. 触发回调，将数据传回（包含 detailId）
+                    OnCollectionComplete?.Invoke(CurrentDetailId ?? "", accountId, jsonData);
                 }
                 else
                 {
@@ -519,9 +536,25 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 生成采集脚本（增强版 - 支持60+种语言）
+        /// 生成采集脚本（根据任务类型）
         /// </summary>
-        private string GenerateCollectScript(int expectedCount)
+        private string GenerateCollectScript(int expectedCount, int taskType = 1)
+        {
+            // 根据任务类型选择不同的解析器
+            if (taskType == 3) // 用户采集
+            {
+                return GenerateUserCollectScript(expectedCount);
+            }
+            else // 默认主页采集
+            {
+                return GeneratePageCollectScript(expectedCount);
+            }
+        }
+
+        /// <summary>
+        /// 生成主页采集脚本（增强版 - 支持60+种语言）
+        /// </summary>
+        private string GeneratePageCollectScript(int expectedCount)
         {
             // 从 JSON 文件加载关键词和单位
             var (keywords, units) = LoadFollowerKeywordsAndUnits();
@@ -913,6 +946,198 @@ namespace SocialMatrix.WpfHost.Windows
             }
         }
         
+        /// <summary>
+        /// 生成用户采集脚本
+        /// </summary>
+        private string GenerateUserCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+                    
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUrls = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // extractUserCardData 函数 - 专门解析用户卡片
+            js.AppendLine("        const extractUserCardData = (card) => {");
+            js.AppendLine("            try {");
+            // 提取用户名链接
+            js.AppendLine("                const nameLinkEl = card.querySelector('a[aria-hidden=\"true\"]');");
+            js.AppendLine("                if (!nameLinkEl) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = nameLinkEl.href;");
+            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const name = nameLinkEl.textContent.trim();");
+            js.AppendLine("                if (!name) return null;");
+            js.AppendLine("");
+            // 清理名称中的'已验证'标记
+            js.AppendLine("                const cleanName = name.replace(/\\s*(Akun Terverifikasi|Verified|Compte certifié)/gi, '').trim();");
+            js.AppendLine("                const isVerifiedInName = /akun terverifikasi|verified|compte certifi/i.test(name);");
+            js.AppendLine("");
+            // 提取头像
+            js.AppendLine("                const avatarLinkEl = card.querySelector('a[aria-label*=\"profil\"]') ||");
+            js.AppendLine("                                    card.querySelector('a[aria-label*=\"photo\"]');");
+            js.AppendLine("                ");
+            js.AppendLine("                let avatar = '';");
+            js.AppendLine("                if (avatarLinkEl) {");
+            js.AppendLine("                    const imgEl = avatarLinkEl.querySelector('image') || avatarLinkEl.querySelector('img');");
+            js.AppendLine("                    if (imgEl) {");
+            js.AppendLine("                        avatar = imgEl.getAttribute('xlink:href') || imgEl.src || '';");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            // 提取所有span元素
+            js.AppendLine("                const allSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
+            js.AppendLine("                ");
+            js.AppendLine("                let followers = '';");
+            js.AppendLine("                let location = '';");
+            js.AppendLine("                let bio = '';");
+            js.AppendLine("                let category = '';");
+            js.AppendLine("                ");
+            // 遍历所有span，查找粉丝数、位置、简介等信息
+            js.AppendLine("                for (let i = 0; i < allSpans.length; i++) {");
+            js.AppendLine("                    const span = allSpans[i];");
+            js.AppendLine("                    const text = span.textContent.trim();");
+            js.AppendLine("                    if (!text) continue;");
+            js.AppendLine("                    ");
+            // 检查是否包含粉丝数关键词（支持多种语言）
+            js.AppendLine("                    const followerPattern = /(\\d+[\\.,]?\\d*)\\s*(rb|ribu|jt|juta|k|m|b|t|pengikut|followers|follower|abonnes|seguidores|fans|千|万|百万|千万|亿)/i;");
+            js.AppendLine("                    const followerMatch = text.match(followerPattern);");
+            js.AppendLine("                    if (followerMatch && !followers) {");
+            js.AppendLine("                        followers = followerMatch[0].replace(/&nbsp;/g, ' ').trim();");
+            js.AppendLine("                        continue;");
+            js.AppendLine("                    }");
+            js.AppendLine("                    ");
+            // 提取位置信息（包含“Tinggal di”、“@”等关键词）
+            js.AppendLine("                    if ((text.includes('Tinggal di') || text.includes('@')) && !location) {");
+            js.AppendLine("                        location = text;");
+            js.AppendLine("                        continue;");
+            js.AppendLine("                    }");
+            js.AppendLine("                    ");
+            // 提取职业/类别（Kreator digital、Marketing Specialist等）
+            js.AppendLine("                    if ((text.includes('Kreator digital') || text.includes('di PT.') || text.includes('Founder') || text.includes('Blogger') || text.includes('Tokoh Publik')) && !category) {");
+            js.AppendLine("                        category = text.split('·')[0].trim();");
+            js.AppendLine("                        continue;");
+            js.AppendLine("                    }");
+            js.AppendLine("                    ");
+            // 提取简介（较长的文本，通常是最后一个span）
+            js.AppendLine("                    if (text.length > 20 && !bio && i >= allSpans.length - 2) {");
+            js.AppendLine("                        bio = text.substring(0, 200);");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("                ");
+            // 检查是否已验证
+            js.AppendLine("                const isVerified = isVerifiedInName ||");
+            js.AppendLine("                                  card.querySelector('[aria-label*=\"Verified\"]') !== null ||");
+            js.AppendLine("                                  card.querySelector('[aria-label*=\"verifi\"]') !== null ||");
+            js.AppendLine("                                  card.querySelector('svg[title*=\"Verified\"]') !== null ||");
+            js.AppendLine("                                  card.querySelector('svg[title*=\"Terverifikasi\"]') !== null;");
+            js.AppendLine("");
+            // 提取Facebook ID
+            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
+            js.AppendLine("                const id = idMatch ? idMatch[1] : (url.match(/facebook\\.com\\/([^\\/?]+)/) || [])[1] || '';");
+            js.AppendLine("");
+            js.AppendLine("                seenUrls.add(url);");
+            js.AppendLine("");
+            // 返回结果对象
+            js.AppendLine("                return {");
+            js.AppendLine("                    fbUserId: id,");
+            js.AppendLine("                    userName: cleanName,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    avatar: avatar,");
+            js.AppendLine("                    followers: followers,");
+            js.AppendLine("                    city: location,");
+            js.AppendLine("                    bio: bio || category,");
+            js.AppendLine("                    isVerified: isVerified,");
+            js.AppendLine("                    collectedAt: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract user failed:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 主循环 - 滚动加载
+            js.AppendLine("        const interval = setInterval(() => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
+            js.AppendLine("                let newItemsFound = 0;");
+            js.AppendLine("");
+            js.AppendLine("                cards.forEach(card => {");
+            js.AppendLine("                    if (results.length >= targetCount) return;");
+            js.AppendLine("");
+            js.AppendLine("                    const data = extractUserCardData(card);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newItemsFound++;");
+            js.AppendLine("                    }");
+            js.AppendLine("                });");
+            js.AppendLine("");
+            js.AppendLine("                if (newItemsFound > 0) {");
+            js.AppendLine("                    consecutiveNoNewItems = 0;");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    consecutiveNoNewItems++;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (results.length >= targetCount) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('User collection complete: ' + results.length + '/' + targetCount);");
+            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('User collection ended: ' + results.length + ' items');");
+            js.AppendLine("                    resolve(JSON.stringify(results));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
+            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
+            js.AppendLine("                scrollCount++;");
+            js.AppendLine("");
+            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
+            js.AppendLine("                clearInterval(interval);");
+            js.AppendLine("                setTimeout(() => {");
+            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
+            js.AppendLine("                }, nextDelay);");
+            js.AppendLine("");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('User collection error:', e);");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 2000);");
+            js.AppendLine("");
+                    
+            // 超时保护（5分钟）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            clearInterval(interval);");
+            js.AppendLine("            if (results.length > 0) {");
+            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' users');");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } else {");
+            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 300000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+
+            return js.ToString();
+        }
+
         /// <summary>
         /// 获取默认关键词（备用）
         /// </summary>

@@ -51,4 +51,7 @@ public class FbCollectSaveReqVO {
     @Schema(description = "备注", example = "你说的对")
     private String remark;
 
+    @Schema(description = "账号ID列表(批量创建时使用)", example = "[1, 2, 3]")
+    private List<Long> accountIds;
+
 }

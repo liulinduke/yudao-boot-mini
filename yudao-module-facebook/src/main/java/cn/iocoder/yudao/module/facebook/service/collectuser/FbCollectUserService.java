@@ -60,12 +60,12 @@ public interface FbCollectUserService {
     PageResult<FbCollectUserDO> getFbCollectUserPage(FbCollectUserPageReqVO pageReqVO);
 
     /**
-     * 批量保存FB用户采集结果
+     * 批量保存 FB 用户采集结果
      *
-     * @param taskId 任务ID
+     * @param detailId 明细ID
      * @param results 采集结果列表
      * @return 保存成功的数量
      */
-    Integer batchSaveFbCollectUser(Long taskId, List<FbCollectUserSaveReqVO> results);
+    Integer batchSaveFbCollectUser(Long detailId, List<FbCollectUserSaveReqVO> results);
 
 }

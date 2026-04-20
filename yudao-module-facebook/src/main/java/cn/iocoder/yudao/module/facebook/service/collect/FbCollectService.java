@@ -18,9 +18,9 @@ public interface FbCollectService {
      * 创建FB采集任务
      *
      * @param createReqVO 创建信息
-     * @return 编号
+     * @return 创建响应(包含主表ID和所有明细ID)
      */
-    Long createFbCollect(@Valid FbCollectSaveReqVO createReqVO);
+    FbCollectCreateRespVO createFbCollect(@Valid FbCollectSaveReqVO createReqVO);
 
     /**
      * 更新FB采集任务

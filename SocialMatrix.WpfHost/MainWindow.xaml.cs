@@ -59,8 +59,8 @@ namespace SocialMatrix.WpfHost
         /// <summary>
         /// 为指定账号创建浏览器实例（供 Vue 调用）
         /// </summary>
-        public void CreateBrowserForAccount(string accountId, string? cookie = null, 
-            string? searchUrl = null, int expectedCount = 100)
+        public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null, 
+            string? searchUrl = null, int expectedCount = 100, int taskType = 1)
         {
             // 如果窗口不存在，创建新窗口
             if (_browserMatrixWindow == null || !_browserMatrixWindow.IsVisible)
@@ -68,14 +68,14 @@ namespace SocialMatrix.WpfHost
                 _browserMatrixWindow = new BrowserMatrixWindow();
                 
                 // 监听采集完成事件
-                _browserMatrixWindow.OnCollectionComplete += (accId, jsonData) =>
+                _browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData) =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 账号={accId}, 数据长度={jsonData.Length}");
+                    System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}");
                     
                     // 将数据回传给 Vue
                     Dispatcher.Invoke(() =>
                     {
-                        ReturnCollectionDataToVue(accId, jsonData);
+                        ReturnCollectionDataToVue(dId, accId, jsonData);
                     });
                 };
                 
@@ -89,18 +89,21 @@ namespace SocialMatrix.WpfHost
 
             // 在矩阵窗口中创建浏览器并启动自动化采集
             _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com", 
-                cookie, searchUrl, expectedCount);
+                cookie, searchUrl, expectedCount, taskType: taskType);
+            
+            // 保存 detailId 用于回传
+            _browserMatrixWindow.CurrentDetailId = detailId;
             
             // 激活窗口（置顶）
             _browserMatrixWindow.Activate();
             
-            UpdateStatus($"已为账号 {accountId} 启动自动化采集");
+            UpdateStatus($"已为账号 {accountId} 启动自动化采集 (明细ID: {detailId}, 类型: {taskType})");
         }
 
         /// <summary>
         /// 将采集数据回传给 Vue
         /// </summary>
-        private void ReturnCollectionDataToVue(string accountId, string jsonData)
+        private void ReturnCollectionDataToVue(string detailId, string accountId, string jsonData)
         {
             try
             {
@@ -119,6 +122,7 @@ namespace SocialMatrix.WpfHost
                     setTimeout(() => {{
                         window.dispatchEvent(new CustomEvent('fb:collection:complete', {{
                             detail: {{
+                                detailId: '{detailId}',
                                 accountId: '{accountId}',
                                 data: {jsonData},
                                 timestamp: new Date().toISOString()
@@ -128,7 +132,7 @@ namespace SocialMatrix.WpfHost
                     }}, 100);
                 ";
                 VueWebView.CoreWebView2.ExecuteScriptAsync(script);
-                System.Diagnostics.Debug.WriteLine($"✅ 已将采集数据回传给 Vue (账号: {accountId})");
+                System.Diagnostics.Debug.WriteLine($"✅ 已将采集数据回传给 Vue (明细ID: {detailId}, 账号: {accountId})");
             }
             catch (Exception ex)
             {

@@ -50,9 +50,17 @@ public class FbCollectUserDO extends BaseDO {
      */
     private String fbUserId;
     /**
+     * 账户类别(Facebook返回的category)
+     */
+    private String category;
+    /**
      * 用户名称
      */
     private String userName;
+    /**
+     * 头像URL
+     */
+    private String avatar;
     /**
      * 主页链接
      */
