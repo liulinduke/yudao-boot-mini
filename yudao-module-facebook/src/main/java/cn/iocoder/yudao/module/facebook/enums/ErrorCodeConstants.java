@@ -12,6 +12,13 @@ public interface ErrorCodeConstants {
     ErrorCode FB_ACCOUNT_NOT_EXISTS = new ErrorCode(2_001_000_000, "FB账号不存在");
     ErrorCode FB_COLLECT_NOT_EXISTS = new ErrorCode(2_002_000_000, "FB采集任务不存在");
     ErrorCode FB_COLLECT_USER_NOT_EXISTS = new ErrorCode(2_003_000_000, "FB采集任务用户不存在");
+    ErrorCode FB_COLLECT_POST_NOT_EXISTS = new ErrorCode(2_004_000_000, "FB采集任务帖子不存在");
+    ErrorCode FB_COLLECT_GROUP_NOT_EXISTS = new ErrorCode(2_005_000_000, "FB采集任务群组不存在");
+
+    // 运营任务错误码
+    ErrorCode OPERATION_TASK_NOT_EXISTS = new ErrorCode(2_006_000_000, "运营任务不存在");
+    ErrorCode OPERATION_TASK_DETAIL_NOT_EXISTS = new ErrorCode(2_006_001_000, "运营任务明细不存在");
+
 
 
 

@@ -76,7 +76,7 @@ export const FbCollectUserApi = {
   },
 
   // 批量保存采集结果
-  batchSaveFbCollectUser: async (data: { taskId: number; results: any[] }) => {
+  batchSaveFbCollectUser: async (data: { detailId: number; results: any[] }) => {
     return await request.post({ url: `/facebook/fb-collect-user/batch-save`, data })
   },
 }

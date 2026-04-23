@@ -131,7 +131,8 @@ export enum DICT_TYPE {
   SYSTEM_SOCIAL_TYPE = 'system_social_type',
 
   // ========== FB 模块 ==========
-  FB_SEARCH_TYPE = 'fb_search_type',
+  FB_SEARCH_TYPE = 'fb_search_type', // FB搜索方式(0链接/1关键词)
+  FB_COLLECT_TYPE = 'fb_collect_type', // FB采集类型(1主页/2帖子/3用户等)
   SYS_COLLECT_STATUS = 'sys_collect_status',
   FB_PAGE_TYPE = 'fb_page_type',
 

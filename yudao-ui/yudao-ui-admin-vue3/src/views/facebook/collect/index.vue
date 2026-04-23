@@ -5,7 +5,10 @@
       <el-col :span="8">
         <ContentWrap>
           <div class="function-section">
-            <h3 class="section-title">采集功能</h3>
+            <h3 class="section-title">
+              <el-icon :size="20"><Tools /></el-icon>
+              <span class="ml-6px">采集工具</span>
+            </h3>
             <div class="function-grid">
               <FunctionCard
                 v-for="(func, index) in functions"
@@ -25,9 +28,15 @@
       <!-- 右侧：任务列表 -->
       <el-col :span="16">
         <ContentWrap>
+          <div class="task-section">
+            <h3 class="section-title">
+              <el-icon :size="20"><Tickets /></el-icon>
+              <span class="ml-6px">任务列表</span>
+            </h3>
+          </div>
           <!-- 搜索工作栏 -->
           <el-form
-            class="-mb-15px"
+            class="search-form"
             :model="queryParams"
             ref="queryFormRef"
             :inline="true"
@@ -41,7 +50,7 @@
                 class="!w-140px"
               >
                 <el-option
-                  v-for="dict in getIntDictOptions(DICT_TYPE.FB_SEARCH_TYPE)"
+                  v-for="dict in getIntDictOptions(DICT_TYPE.FB_COLLECT_TYPE)"
                   :key="dict.value"
                   :label="dict.label"
                   :value="dict.value"
@@ -112,14 +121,14 @@
             <el-table-column type="selection" width="55" />
             <el-table-column label="任务类型" align="center" prop="taskType" width="100">
               <template #default="scope">
-                <dict-tag :type="DICT_TYPE.FB_SEARCH_TYPE" :value="scope.row.taskType" />
+                <dict-tag :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
               </template>
             </el-table-column>
             <el-table-column
               label="采集链接"
               align="center"
               prop="searchUrl"
-              min-width="200"
+              min-width="140"
               show-overflow-tooltip
             />
             <el-table-column label="期望/已采" align="center" width="120">
@@ -141,6 +150,7 @@
                 <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="scope.row.status" />
               </template>
             </el-table-column>
+            <el-table-column label="备注" prop="remark" min-width="100" show-overflow-tooltip />
             <el-table-column
               label="创建时间"
               align="center"
@@ -148,15 +158,10 @@
               :formatter="dateFormatter"
               width="160"
             />
-            <el-table-column label="操作" align="center" width="150" fixed="right">
+            <el-table-column label="操作" align="center" width="120" fixed="right">
               <template #default="scope">
-                <el-button
-                  link
-                  type="primary"
-                  @click="openForm('update', scope.row.id)"
-                  v-hasPermi="['facebook:fb-collect:update']"
-                >
-                  编辑
+                <el-button link type="primary" @click="openForm('view', scope.row.id)">
+                  详情
                 </el-button>
                 <el-button
                   link
@@ -192,9 +197,13 @@ import { dateFormatter } from '@/utils/formatTime'
 import download from '@/utils/download'
 import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
 import { FbCollectUserApi } from '@/api/facebook/collectuser'
+import { FbCollectGroupApi } from '@/api/facebook/fbcollectgroup'
+import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
-import { onCollectionComplete } from '@/utils/wpfBridge'
+import { onCollectionComplete, closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
+import request from '@/config/axios'
+import { Connection, Tools, Tickets } from '@element-plus/icons-vue'
 
 /** FB采集任务 - 左右布局 */
 defineOptions({ name: 'FbCollect' })
@@ -207,23 +216,31 @@ defineOptions({ name: 'FbCollect' })
  */
 const parseFollowers = (followersRaw: string): number | null => {
   if (!followersRaw) return null
-  
+
   try {
     // 提取数字部分（包括小数点）
     const numberPart = followersRaw.replace(/[^\d.]/g, '')
     if (!numberPart) return null
-    
+
     let number = parseFloat(numberPart)
-    
+
     // 判断单位（不区分大小写）
     const lowerCase = followersRaw.toLowerCase()
-    
-    if (lowerCase.includes('rb') || lowerCase.includes('ribu') || 
-        lowerCase.includes('rbu') || lowerCase.includes('천')) {
+
+    if (
+      lowerCase.includes('rb') ||
+      lowerCase.includes('ribu') ||
+      lowerCase.includes('rbu') ||
+      lowerCase.includes('천')
+    ) {
       // 千
       number *= 1000
-    } else if (lowerCase.includes('jt') || lowerCase.includes('juta') || 
-               lowerCase.includes('만') || lowerCase.includes('万')) {
+    } else if (
+      lowerCase.includes('jt') ||
+      lowerCase.includes('juta') ||
+      lowerCase.includes('만') ||
+      lowerCase.includes('万')
+    ) {
       // 万
       number *= 10000
     } else if (lowerCase.includes('백만') || lowerCase.includes('百万')) {
@@ -248,7 +265,49 @@ const parseFollowers = (followersRaw: string): number | null => {
       // T = 万亿
       number *= 1000000000000
     }
-    
+
+    return Math.floor(number)
+  } catch (e) {
+    return null
+  }
+}
+
+/**
+ * 解析群组成员数字符串为整数
+ * 支持格式：4,3 rb anggota, 18 rb anggota, 6,7 rb anggota 等印尼语格式
+ * @param memberRaw 原文（如："4,3 rb anggota", "18 rb anggota"）
+ * @return 解析后的数字，失败返回 null
+ */
+const parseMemberQuantity = (memberRaw: string): number | null => {
+  if (!memberRaw) return null
+
+  try {
+    // 替换逗号为小数点（印尼语使用逗号作为小数点）
+    const normalized = memberRaw.replace(',', '.')
+
+    // 提取数字部分（包括小数点）
+    const numberPart = normalized.replace(/[^\d.]/g, '')
+    if (!numberPart) return null
+
+    let number = parseFloat(numberPart)
+
+    // 判断单位（不区分大小写）
+    const lowerCase = memberRaw.toLowerCase()
+
+    if (lowerCase.includes('rb') || lowerCase.includes('ribu') || lowerCase.includes('anggota')) {
+      // rb = ribu = 千
+      number *= 1000
+    } else if (lowerCase.includes('jt') || lowerCase.includes('juta')) {
+      // jt = juta = 万
+      number *= 10000
+    } else if (lowerCase.includes('k')) {
+      // K = 千
+      number *= 1000
+    } else if (lowerCase.includes('m')) {
+      // M = 百万
+      number *= 1000000
+    }
+
     return Math.floor(number)
   } catch (e) {
     return null
@@ -279,14 +338,28 @@ const functions = [
     title: '用户采集',
     icon: 'ep:user-filled',
     description: '采集Facebook用户资料',
-    disabled: false
+    disabled: false // 启用用户采集
   },
   {
     type: 'groups',
     title: '群组采集',
     icon: 'ep:user',
     description: '采集Facebook群组信息',
-    disabled: true
+    disabled: false
+  },
+  {
+    type: 'group-members',
+    title: '群组成员采集',
+    icon: 'ep:connection',
+    description: '采集Facebook群组成员',
+    disabled: false
+  },
+  {
+    type: 'user-relations',
+    title: '用户关系采集',
+    icon: 'ep:user-group',
+    description: '采集粉丝/关注/好友',
+    disabled: false
   },
   {
     type: 'events',
@@ -355,7 +428,9 @@ const getTaskTypeByFunction = (funcType: string): number => {
     users: 3,
     groups: 4,
     events: 5,
-    comments: 6
+    comments: 6,
+    'group-members': 7,
+    'user-relations': 8
   }
   return typeMap[funcType] || 1
 }
@@ -446,23 +521,106 @@ onMounted(() => {
 
     try {
       const results = data.results || []
-      console.log(`📊 采集数据: ${results.length} 条`)
+      const detailId = data.detailId // WPF返回明细ID(不是taskId)
+      const accountId = data.accountId // WPF返回的accountId
+      const taskType = data.taskType // 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
+      console.log(
+        `📊 采集数据: ${results.length} 条, 明细ID: ${detailId}, 账号ID: ${accountId}, 任务类型: ${taskType}`
+      )
 
-      // 前端解析 followers：将字符串转换为数字
-      const parsedResults = results.map((item: any) => {
-        if (item.followers && typeof item.followers === 'string') {
-          item.followers = parseFollowers(item.followers)
-        }
-        return item
-      })
+      // 根据不同的任务类型调用不同的保存API
+      if (taskType === 2) {
+        // 帖子采集 - 解析并保存帖子数据
+        const parsedResults = results.map((item: any) => {
+          // 解析转发数：将 "1.5K", "2M" 等格式转换为数字
+          if (item.reshareCount && typeof item.reshareCount === 'string') {
+            item.reshareCount = parseFollowers(item.reshareCount)
+          }
+          // 解析评论数
+          if (item.commentCount && typeof item.commentCount === 'string') {
+            item.commentCount = parseFollowers(item.commentCount)
+          }
+          // 解析点赞数
+          if (item.reactionCount && typeof item.reactionCount === 'string') {
+            item.reactionCount = parseFollowers(item.reactionCount)
+          }
+          return item
+        })
 
-      // 调用封装好的API保存采集结果
-      await FbCollectUserApi.batchSaveFbCollectUser({
-        taskId: data.taskId,
-        results: parsedResults
-      })
+        await FbCollectPostApi.batchSaveFbCollectPost({
+          detailId: detailId,
+          results: parsedResults
+        })
 
-      message.success(`任务 ${data.taskId} 采集完成，共采集 ${parsedResults.length} 条数据`)
+        message.success(`明细 ${detailId} 帖子采集完成，共采集 ${parsedResults.length} 条数据`)
+      } else if (taskType === 4) {
+        // 群组采集 - 解析并保存群组数据
+        const parsedResults = results.map((item: any) => {
+          // 解析成员数：将 "4,3 rb" 或 "18 rb" 等格式转换为数字
+          if (item.memberQuantity && typeof item.memberQuantity === 'string') {
+            item.memberQuantity = parseMemberQuantity(item.memberQuantity)
+          }
+          return item
+        })
+
+        await FbCollectGroupApi.batchSaveFbCollectGroup({
+          detailId: detailId,
+          results: parsedResults
+        })
+
+        message.success(`明细 ${detailId} 群组采集完成，共采集 ${parsedResults.length} 条数据`)
+      } else if (taskType === 7) {
+        // 群组成员采集 - 复用用户采集的保存接口
+        const parsedResults = results.map((item: any) => {
+          // 解析粉丝数（如果有）
+          if (item.followers && typeof item.followers === 'string') {
+            item.followers = parseFollowers(item.followers)
+          }
+          return item
+        })
+
+        await FbCollectUserApi.batchSaveFbCollectUser({
+          detailId: detailId,
+          results: parsedResults
+        })
+
+        message.success(`明细 ${detailId} 群成员采集完成，共采集 ${parsedResults.length} 条数据`)
+      } else if (taskType === 8) {
+        // 用户关系采集 - 复用用户采集的保存接口
+        const parsedResults = results.map((item: any) => {
+          // 解析粉丝数（如果有）
+          if (item.followers && typeof item.followers === 'string') {
+            item.followers = parseFollowers(item.followers)
+          }
+          return item
+        })
+
+        await FbCollectUserApi.batchSaveFbCollectUser({
+          detailId: detailId,
+          results: parsedResults
+        })
+
+        message.success(`明细 ${detailId} 用户关系采集完成，共采集 ${parsedResults.length} 条数据`)
+      } else {
+        // 用户采集 - 解析并保存用户数据
+        const parsedResults = results.map((item: any) => {
+          // 解析粉丝数
+          if (item.followers && typeof item.followers === 'string') {
+            item.followers = parseFollowers(item.followers)
+          }
+          return item
+        })
+
+        await FbCollectUserApi.batchSaveFbCollectUser({
+          detailId: detailId,
+          results: parsedResults
+        })
+
+        message.success(`明细 ${detailId} 采集完成，共采集 ${parsedResults.length} 条数据`)
+      }
+
+      // 🔄 检查该账号是否有下一个待执行的任务
+      await checkAndStartNextTask(accountId)
 
       // 刷新列表
       await getList()
@@ -472,6 +630,46 @@ onMounted(() => {
     }
   })
 })
+
+/**
+ * 检查并启动账号的下一个任务
+ */
+const checkAndStartNextTask = async (accountId: string) => {
+  try {
+    // 查询该账号的所有待执行明细(status=0)
+    const response = await request.get({
+      url: '/facebook/fb-collect-detail/pending',
+      params: { fbAccount: accountId }
+    })
+
+    const pendingDetails = response.data || []
+
+    if (pendingDetails.length > 0) {
+      // 有下一个任务,复用浏览器继续采集
+      const nextDetail = pendingDetails[0]
+      console.log(`✅ 发现下一个任务: 明细ID=${nextDetail.id}, URL=${nextDetail.searchUrl}`)
+
+      // 启动下一个采集(复用已打开的浏览器)
+      startBrowserCollect(
+        String(nextDetail.id),
+        accountId,
+        null,
+        nextDetail.searchUrl,
+        nextDetail.expectedCount,
+        nextDetail.taskType || 1 // 传递任务类型
+      )
+
+      message.info(`账号 ${accountId} 继续采集下一个链接...`)
+    } else {
+      // 没有下一个任务,关闭浏览器
+      console.log(`✅ 账号 ${accountId} 所有任务已完成,关闭浏览器`)
+      //closeBrowser(accountId)
+      message.success(`账号 ${accountId} 所有任务已完成`)
+    }
+  } catch (error) {
+    console.error('检查下一个任务失败:', error)
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -479,21 +677,20 @@ onMounted(() => {
   .section-title {
     margin: 0 0 16px 0;
     color: var(--el-text-color-primary);
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
-    position: relative;
-    padding-left: 12px;
+    display: flex;
+    align-items: center;
+    line-height: 1;
 
-    &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 4px;
-      height: 16px;
-      background-color: var(--el-color-primary);
-      border-radius: 2px;
+    .el-icon {
+      display: flex;
+      align-items: center;
+    }
+
+    span {
+      display: flex;
+      align-items: center;
     }
   }
 
@@ -501,6 +698,36 @@ onMounted(() => {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
+  }
+}
+
+.task-section {
+  .section-title {
+    margin: 0 0 16px 0;
+    color: var(--el-text-color-primary);
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    line-height: 1;
+
+    .el-icon {
+      display: flex;
+      align-items: center;
+    }
+
+    span {
+      display: flex;
+      align-items: center;
+    }
+  }
+}
+
+// 右侧搜索区域和表格之间的分隔线
+:deep(.el-col:last-child) {
+  .el-form {
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--el-border-color);
   }
 }
 </style>

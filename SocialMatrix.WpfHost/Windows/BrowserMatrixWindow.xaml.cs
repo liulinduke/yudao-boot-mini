@@ -541,9 +541,29 @@ namespace SocialMatrix.WpfHost.Windows
         private string GenerateCollectScript(int expectedCount, int taskType = 1)
         {
             // 根据任务类型选择不同的解析器
-            if (taskType == 3) // 用户采集
+            if (taskType == 2) // 帖子采集
+            {
+                return GeneratePostCollectScript(expectedCount);
+            }
+            else if (taskType == 3) // 用户采集
             {
                 return GenerateUserCollectScript(expectedCount);
+            }
+            else if (taskType == 4) // 群组采集
+            {
+                return GenerateGroupCollectScript(expectedCount);
+            }
+            else if (taskType == 7) // 群组成员采集
+            {
+                return GenerateGroupMemberCollectScript(expectedCount);
+            }
+            else if (taskType == 8) // 用户关系采集
+            {
+                return GenerateUserRelationCollectScript(expectedCount);
+            }
+            else if (taskType == 9) // 链接加组
+            {
+                return GenerateAddGroupCollectScript(expectedCount);
             }
             else // 默认主页采集
             {
@@ -1135,6 +1155,827 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("    });");
             js.AppendLine("})();");
 
+            return js.ToString();
+        }
+
+        /// <summary>
+        /// 生成帖子采集脚本
+        /// </summary>
+        private string GeneratePostCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+            
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUrls = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 提取帖子数据的函数
+            js.AppendLine("        const extractPostData = (card) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 提取帖子链接");
+            js.AppendLine("                const postLinkEl = card.querySelector('a[href*=\"/posts/\"]') ||");
+            js.AppendLine("                                  card.querySelector('a[href*=\"/permalink/\"]') ||");
+            js.AppendLine("                                  card.querySelector('a[href*=\"/photos/\"]');");
+            js.AppendLine("                if (!postLinkEl) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = postLinkEl.href;");
+            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取发帖人");
+            js.AppendLine("                const authorEl = card.querySelector('a[aria-label*=\", lihat cerita\"]') ||");
+            js.AppendLine("                               card.querySelector('strong a');");
+            js.AppendLine("                const postUser = authorEl ? authorEl.textContent.trim() : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取群组名称");
+            js.AppendLine("                const groupLinkEl = card.querySelector('a[href*=\"/groups/\"]');");
+            js.AppendLine("                const groupName = groupLinkEl ? groupLinkEl.textContent.trim() : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取帖子内容");
+            js.AppendLine("                const contentEl = card.querySelector('[data-ad-comet-preview=\"message\"]');");
+            js.AppendLine("                const postContent = contentEl ? contentEl.textContent.trim().substring(0, 500) : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取点赞数、评论数、转发数（返回原始字符串，由前端解析）");
+            js.AppendLine("                let reactionCount = '';");
+            js.AppendLine("                let commentCount = '';");
+            js.AppendLine("                let reshareCount = '';");
+            js.AppendLine("");
+            js.AppendLine("                // 查找所有数字span");
+            js.AppendLine("                const numberSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
+            js.AppendLine("                for (const span of numberSpans) {");
+            js.AppendLine("                    const text = span.textContent.trim();");
+            js.AppendLine("                    if (!text || !/^[\\d]/.test(text)) continue;");
+            js.AppendLine("");
+            js.AppendLine("                    // 提取带单位的原始字符串（如 \"1.5K\", \"27\", \"48\"）");
+            js.AppendLine("                    const numMatch = text.match(/^([\\d]+[\\.,]?\\d*\\s*[kKmMrbjtRBJT]*)/);");
+            js.AppendLine("                    if (!numMatch) continue;");
+            js.AppendLine("");
+            js.AppendLine("                    const rawValue = numMatch[1].trim();");
+            js.AppendLine("");
+            js.AppendLine("                    // 根据上下文判断是哪个计数");
+            js.AppendLine("                    const parentText = span.parentElement?.textContent || '';");
+            js.AppendLine("                    if (parentText.includes('komentar') || parentText.includes('comment')) {");
+            js.AppendLine("                        commentCount = rawValue;");
+            js.AppendLine("                    } else if (parentText.includes('bagikan') || parentText.includes('share')) {");
+            js.AppendLine("                        reshareCount = rawValue;");
+            js.AppendLine("                    } else if (parentText.includes('suka') || parentText.includes('like') || parentText.includes('reaksi')) {");
+            js.AppendLine("                        reactionCount = rawValue;");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取帖子ID");
+            js.AppendLine("                const itemIdMatch = url.match(/(?:posts|permalink|photos)\\/([^\\/?]+)/);");
+            js.AppendLine("                const itemId = itemIdMatch ? itemIdMatch[1] : '';");
+            js.AppendLine("");
+            js.AppendLine("                seenUrls.add(url);");
+            js.AppendLine("");
+            js.AppendLine("                return {");
+            js.AppendLine("                    itemId: itemId,");
+            js.AppendLine("                    postUser: postUser,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    fromResource: groupName ? 'group' : 'page',");
+            js.AppendLine("                    groupName: groupName,");
+            js.AppendLine("                    reshareCount: reshareCount,");
+            js.AppendLine("                    commentCount: commentCount,");
+            js.AppendLine("                    reactionCount: reactionCount,");
+            js.AppendLine("                    usedCount: 0,");
+            js.AppendLine("                    postContent: postContent,");
+            js.AppendLine("                    fbAccount: '',");
+            js.AppendLine("                    postCreateTime: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract post failed:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 主循环 - 滚动加载
+            js.AppendLine("        const interval = setInterval(() => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
+            js.AppendLine("                let newItemsFound = 0;");
+            js.AppendLine("");
+            js.AppendLine("                cards.forEach(card => {");
+            js.AppendLine("                    if (results.length >= targetCount) return;");
+            js.AppendLine("");
+            js.AppendLine("                    const data = extractPostData(card);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newItemsFound++;");
+            js.AppendLine("                    }");
+            js.AppendLine("                });");
+            js.AppendLine("");
+            js.AppendLine("                if (newItemsFound > 0) {");
+            js.AppendLine("                    consecutiveNoNewItems = 0;");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    consecutiveNoNewItems++;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (results.length >= targetCount) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Post collection complete: ' + results.length + '/' + targetCount);");
+            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Post collection ended: ' + results.length + ' items');");
+            js.AppendLine("                    resolve(JSON.stringify(results));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
+            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
+            js.AppendLine("                scrollCount++;");
+            js.AppendLine("");
+            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
+            js.AppendLine("                clearInterval(interval);");
+            js.AppendLine("                setTimeout(() => {");
+            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
+            js.AppendLine("                }, nextDelay);");
+            js.AppendLine("");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('Post collection error:', e);");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 2000);");
+            js.AppendLine("");
+            
+            // 超时保护（5分钟）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            clearInterval(interval);");
+            js.AppendLine("            if (results.length > 0) {");
+            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' posts');");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } else {");
+            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 300000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+            
+            return js.ToString();
+        }
+
+        /// <summary>
+        /// 生成群组采集脚本
+        /// </summary>
+        private string GenerateGroupCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+            
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUrls = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 提取群组数据的函数
+            js.AppendLine("        const extractGroupData = (card) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 提取群组链接");
+            js.AppendLine("                const groupLinkEl = card.querySelector('a[href*=\"/groups/\"]');");
+            js.AppendLine("                if (!groupLinkEl) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = groupLinkEl.href.split('?')[0];");
+            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取群组名称");
+            js.AppendLine("                const groupName = groupLinkEl.textContent.trim();");
+            js.AppendLine("                if (!groupName) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取群组类型（公开/私密）");
+            js.AppendLine("                let type = 'Publik';");
+            js.AppendLine("                const typeEl = card.querySelector('[aria-label*=\"Publik\"], [aria-label*=\"Private\"], [aria-label*=\"Tertutup\"]');");
+            js.AppendLine("                if (typeEl) {");
+            js.AppendLine("                    const ariaLabel = typeEl.getAttribute('aria-label') || '';");
+            js.AppendLine("                    if (ariaLabel.includes('Private') || ariaLabel.includes('Tertutup')) {");
+            js.AppendLine("                        type = 'Private';");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取成员数和活跃度");
+            js.AppendLine("                let memberQuantity = '';");
+            js.AppendLine("                let activeQuantity = '';");
+            js.AppendLine("");
+            js.AppendLine("                const allSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
+            js.AppendLine("                for (const span of allSpans) {");
+            js.AppendLine("                    const text = span.textContent.trim();");
+            js.AppendLine("                    if (!text) continue;");
+            js.AppendLine("");
+            js.AppendLine("                    // 匹配成员数：如 \"2 rb anggota\", \"18 rb anggota\"");
+            js.AppendLine("                    const memberMatch = text.match(/([\\d]+[\\.,]?\\d*)\\s*(rb|jt|anggota|members?)/i);");
+            js.AppendLine("                    if (memberMatch && !memberQuantity) {");
+            js.AppendLine("                        memberQuantity = text;");
+            js.AppendLine("                        continue;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    // 匹配活跃度：如 \"2 postingan per hari\"");
+            js.AppendLine("                    const activeMatch = text.match(/[\\d]+\\s*(postingan|posts?).*?(hari|day|minggu|week)/i);");
+            js.AppendLine("                    if (activeMatch && !activeQuantity) {");
+            js.AppendLine("                        activeQuantity = text;");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                seenUrls.add(url);");
+            js.AppendLine("");
+            js.AppendLine("                return {");
+            js.AppendLine("                    groupName: groupName,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    type: type,");
+            js.AppendLine("                    memberQuantity: memberQuantity,");
+            js.AppendLine("                    activeQuantity: activeQuantity,");
+            js.AppendLine("                    collectedAt: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract group failed:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 主循环 - 滚动加载
+            js.AppendLine("        const interval = setInterval(() => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
+            js.AppendLine("                let newItemsFound = 0;");
+            js.AppendLine("");
+            js.AppendLine("                cards.forEach(card => {");
+            js.AppendLine("                    if (results.length >= targetCount) return;");
+            js.AppendLine("");
+            js.AppendLine("                    const data = extractGroupData(card);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newItemsFound++;");
+            js.AppendLine("                    }");
+            js.AppendLine("                });");
+            js.AppendLine("");
+            js.AppendLine("                if (newItemsFound > 0) {");
+            js.AppendLine("                    consecutiveNoNewItems = 0;");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    consecutiveNoNewItems++;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (results.length >= targetCount) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Group collection complete: ' + results.length + '/' + targetCount);");
+            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Group collection ended: ' + results.length + ' items');");
+            js.AppendLine("                    resolve(JSON.stringify(results));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
+            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
+            js.AppendLine("                scrollCount++;");
+            js.AppendLine("");
+            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
+            js.AppendLine("                clearInterval(interval);");
+            js.AppendLine("                setTimeout(() => {");
+            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
+            js.AppendLine("                }, nextDelay);");
+            js.AppendLine("");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('Group collection error:', e);");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 2000);");
+            js.AppendLine("");
+            
+            // 超时保护（5分钟）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            clearInterval(interval);");
+            js.AppendLine("            if (results.length > 0) {");
+            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' groups');");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } else {");
+            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 300000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+            
+            return js.ToString();
+        }
+
+        /// <summary>
+        /// 生成群组成员采集脚本
+        /// </summary>
+        private string GenerateGroupMemberCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+            
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUserIds = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 提取群组成员数据的函数
+            js.AppendLine("        const extractMemberData = (listItem) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 提取用户链接");
+            js.AppendLine("                const userLinkEl = listItem.querySelector('a[href*=\"/user/\"]');");
+            js.AppendLine("                if (!userLinkEl) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = userLinkEl.href.split('?')[0];");
+            js.AppendLine("                if (!url || seenUserIds.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取用户名");
+            js.AppendLine("                const userName = userLinkEl.textContent.trim();");
+            js.AppendLine("                if (!userName) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 从URL中提取FB用户ID");
+            js.AppendLine("                const userIdMatch = url.match(/\\/user\\/(\\d+)/);");
+            js.AppendLine("                const fbUserId = userIdMatch ? userIdMatch[1] : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取其他信息（加入时间、工作/学校等）");
+            js.AppendLine("                const infoDivs = listItem.querySelectorAll('div > div > div > div > div');");
+            js.AppendLine("                let joinTime = '';");
+            js.AppendLine("                let workInfo = '';");
+            js.AppendLine("                let location = '';");
+            js.AppendLine("");
+            js.AppendLine("                for (const div of infoDivs) {");
+            js.AppendLine("                    const text = div.textContent.trim();");
+            js.AppendLine("                    if (!text) continue;");
+            js.AppendLine("");
+            js.AppendLine("                    // 检测加入时间（包含'加入'关键词）");
+            js.AppendLine("                    if (text.includes('加入') && !joinTime) {");
+            js.AppendLine("                        joinTime = text;");
+            js.AppendLine("                    }");
+            js.AppendLine("                    // 检测工作信息（包含'在'和'工作'）");
+            js.AppendLine("                    else if ((text.includes('在') && text.includes('工作')) || text.includes('studied at')) {");
+            js.AppendLine("                        workInfo = text;");
+            js.AppendLine("                    }");
+            js.AppendLine("                    // 其他文本可能是地点");
+            js.AppendLine("                    else if (!joinTime && !workInfo && text.length > 2) {");
+            js.AppendLine("                        location = text;");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                seenUserIds.add(url);");
+            js.AppendLine("");
+            js.AppendLine("                return {");
+            js.AppendLine("                    fbUserId: fbUserId,");
+            js.AppendLine("                    userName: userName,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    location: location,");
+            js.AppendLine("                    workExperience: workInfo,");
+            js.AppendLine("                    dataType: 1,");
+            js.AppendLine("                    fromResource: 'group_member',");
+            js.AppendLine("                    syncTime: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract member failed:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 主循环 - 滚动加载
+            js.AppendLine("        const interval = setInterval(() => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 查找所有 listitem 元素");
+            js.AppendLine("                const listItems = document.querySelectorAll('div[role=\"listitem\"]');");
+            js.AppendLine("                let newItemsFound = 0;");
+            js.AppendLine("");
+            js.AppendLine("                listItems.forEach(item => {");
+            js.AppendLine("                    if (results.length >= targetCount) return;");
+            js.AppendLine("");
+            js.AppendLine("                    const data = extractMemberData(item);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newItemsFound++;");
+            js.AppendLine("                    }");
+            js.AppendLine("                });");
+            js.AppendLine("");
+            js.AppendLine("                if (newItemsFound > 0) {");
+            js.AppendLine("                    consecutiveNoNewItems = 0;");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    consecutiveNoNewItems++;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (results.length >= targetCount) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Group member collection complete: ' + results.length + '/' + targetCount);");
+            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('Group member collection ended: ' + results.length + ' items');");
+            js.AppendLine("                    resolve(JSON.stringify(results));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
+            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
+            js.AppendLine("                scrollCount++;");
+            js.AppendLine("");
+            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
+            js.AppendLine("                clearInterval(interval);");
+            js.AppendLine("                setTimeout(() => {");
+            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
+            js.AppendLine("                }, nextDelay);");
+            js.AppendLine("");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('Group member collection error:', e);");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 2000);");
+            js.AppendLine("");
+            
+            // 超时保护（5分钟）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            clearInterval(interval);");
+            js.AppendLine("            if (results.length > 0) {");
+            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' members');");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } else {");
+            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 300000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+            
+            return js.ToString();
+        }
+
+        /// <summary>
+        /// 生成用户关系采集脚本（粉丝/关注/好友）
+        /// </summary>
+        private string GenerateUserRelationCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+            
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUserIds = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 提取用户关系数据的函数
+            js.AppendLine("        const extractUserData = (container) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 查找用户链接");
+            js.AppendLine("                const userLinkEl = container.querySelector('a[href*=\"/profile.php?id=\"]') ||");
+            js.AppendLine("                                  container.querySelector('a[href*=\"/user/\"]');");
+            js.AppendLine("                if (!userLinkEl) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = userLinkEl.href.split('?')[0];");
+            js.AppendLine("                if (!url || seenUserIds.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取用户名");
+            js.AppendLine("                const userName = userLinkEl.textContent.trim();");
+            js.AppendLine("                if (!userName) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 从URL中提取FB用户ID");
+            js.AppendLine("                let fbUserId = '';");
+            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
+            js.AppendLine("                if (idMatch) {");
+            js.AppendLine("                    fbUserId = idMatch[1];");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    const userIdMatch = url.match(/\\/user\\/(\\d+)/);");
+            js.AppendLine("                    fbUserId = userIdMatch ? userIdMatch[1] : '';");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取头像");
+            js.AppendLine("                const imgEl = container.querySelector('img');");
+            js.AppendLine("                const avatar = imgEl ? (imgEl.src || '') : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 判断关系类型（根据URL参数）");
+            js.AppendLine("                let fromResource = 'peer_follower';");
+            js.AppendLine("                if (window.location.href.includes('&sk=following')) {");
+            js.AppendLine("                    fromResource = 'peer_following';");
+            js.AppendLine("                } else if (window.location.href.includes('&sk=friends')) {");
+            js.AppendLine("                    fromResource = 'peer_friend';");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                seenUserIds.add(url);");
+            js.AppendLine("");
+            js.AppendLine("                return {");
+            js.AppendLine("                    fbUserId: fbUserId,");
+            js.AppendLine("                    userName: userName,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    avatar: avatar,");
+            js.AppendLine("                    dataType: 1,");
+            js.AppendLine("                    fromResource: fromResource,");
+            js.AppendLine("                    syncTime: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract user relation failed:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 主循环 - 滚动加载
+            js.AppendLine("        const interval = setInterval(() => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 查找所有用户容器元素");
+            js.AppendLine("                const containers = document.querySelectorAll('div[class*=\"x6s0dn4\"]');");
+            js.AppendLine("                let newItemsFound = 0;");
+            js.AppendLine("");
+            js.AppendLine("                containers.forEach(container => {");
+            js.AppendLine("                    if (results.length >= targetCount) return;");
+            js.AppendLine("");
+            js.AppendLine("                    const data = extractUserData(container);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newItemsFound++;");
+            js.AppendLine("                    }");
+            js.AppendLine("                });");
+            js.AppendLine("");
+            js.AppendLine("                if (newItemsFound > 0) {");
+            js.AppendLine("                    consecutiveNoNewItems = 0;");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    consecutiveNoNewItems++;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (results.length >= targetCount) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('User relation collection complete: ' + results.length + '/' + targetCount);");
+            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
+            js.AppendLine("                    clearInterval(interval);");
+            js.AppendLine("                    console.log('User relation collection ended: ' + results.length + ' items');");
+            js.AppendLine("                    resolve(JSON.stringify(results));");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
+            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
+            js.AppendLine("                scrollCount++;");
+            js.AppendLine("");
+            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
+            js.AppendLine("                clearInterval(interval);");
+            js.AppendLine("                setTimeout(() => {");
+            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
+            js.AppendLine("                }, nextDelay);");
+            js.AppendLine("");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('User relation collection error:', e);");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 2000);");
+            js.AppendLine("");
+            
+            // 超时保护（5分钟）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            clearInterval(interval);");
+            js.AppendLine("            if (results.length > 0) {");
+            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' users');");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } else {");
+            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 300000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+            
+            return js.ToString();
+        }
+
+        /// <summary>
+        /// 生成链接加组采集脚本（直接访问群组页面并执行加组操作）
+        /// 注意：C#层面已经通过IsLoading智能等待页面加载完成，这里不需要再等待
+        /// </summary>
+        private string GenerateAddGroupCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+                    
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 获取当前用户信息
+            js.AppendLine("        const getCurrentUserInfo = () => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                const currentUrl = window.location.href.split('?')[0];");
+            js.AppendLine("                const userIdMatch = currentUrl.match(/[?&]id=(\\d+)/);");
+            js.AppendLine("                const accountId = userIdMatch ? userIdMatch[1] : '';");
+            js.AppendLine("                return { accountId, targetUrl: currentUrl };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Get user info failed:', e);");
+            js.AppendLine("                return { accountId: '', targetUrl: window.location.href };");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 查找并点击加入群组按钮
+            js.AppendLine("        const findAndClickJoinButton = () => {");
+            js.AppendLine("            return new Promise((resolve) => {");
+            js.AppendLine("                try {");
+            js.AppendLine("                    // 首先检查是否已经是'Joined'状态（已加入）");
+            js.AppendLine("                    const joinedEl = Array.from(document.querySelectorAll('span')).find(el => {");
+            js.AppendLine("                        return el.textContent.trim() === 'Joined';");
+            js.AppendLine("                    });");
+            js.AppendLine("                    ");
+            js.AppendLine("                    if (joinedEl) {");
+            js.AppendLine("                        console.log('Already joined this group');");
+            js.AppendLine("                        resolve({ success: true, status: 3, reason: 'Already joined' });");
+            js.AppendLine("                        return;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    // 检查是否是'pending'状态（待审核）");
+            js.AppendLine("                    const pendingEl = Array.from(document.querySelectorAll('span')).find(el => {");
+            js.AppendLine("                        return el.textContent.includes('membership is pending');");
+            js.AppendLine("                    });");
+            js.AppendLine("                    ");
+            js.AppendLine("                    if (pendingEl) {");
+            js.AppendLine("                        console.log('Membership is pending approval');");
+            js.AppendLine("                        resolve({ success: true, status: 3, reason: 'Pending approval' });");
+            js.AppendLine("                        return;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    // 查找'Join group'按钮（使用aria-label精确定位）");
+            js.AppendLine("                    const joinButton = document.querySelector('[aria-label=\"Join group\"]');");
+            js.AppendLine("                    ");
+            js.AppendLine("                    if (!joinButton) {");
+            js.AppendLine("                        console.warn('Join button not found');");
+            js.AppendLine("                        resolve({ success: false, reason: 'No join button found' });");
+            js.AppendLine("                        return;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    // 点击加入按钮");
+            js.AppendLine("                    joinButton.click();");
+            js.AppendLine("                    console.log('Clicked join button');");
+            js.AppendLine("");
+            js.AppendLine("                    // 等待3-4秒后检查结果（无需处理弹窗）");
+            js.AppendLine("                    setTimeout(() => {");
+            js.AppendLine("                        checkJoinResult(resolve);");
+            js.AppendLine("                    }, randomDelay(3000, 4000));");
+            js.AppendLine("                } catch (e) {");
+            js.AppendLine("                    console.error('Find join button error:', e);");
+            js.AppendLine("                    resolve({ success: false, reason: e.message });");
+            js.AppendLine("                }");
+            js.AppendLine("            });");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 检查加组结果（点击按钮后直接检查）
+            js.AppendLine("        const checkJoinResult = (resolve) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 检查是否显示'Joined'（已成功加入）");
+            js.AppendLine("                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => {");
+            js.AppendLine("                    return el.textContent.trim() === 'Joined';");
+            js.AppendLine("                });");
+            js.AppendLine("                ");
+            js.AppendLine("                if (joinedEl) {");
+            js.AppendLine("                    console.log('Successfully joined the group');");
+            js.AppendLine("                    resolve({ success: true, status: 1, reason: 'Joined successfully' });");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 检查是否显示'pending'（待审核）");
+            js.AppendLine("                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => {");
+            js.AppendLine("                    return el.textContent.includes('membership is pending');");
+            js.AppendLine("                });");
+            js.AppendLine("                ");
+            js.AppendLine("                if (pendingEl) {");
+            js.AppendLine("                    console.log('Membership request is pending approval');");
+            js.AppendLine("                    resolve({ success: true, status: 3, reason: 'Pending approval' });");
+            js.AppendLine("                    return;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 如果没有找到明确的状态，假设成功");
+            js.AppendLine("                console.log('Join operation completed, status unclear');");
+            js.AppendLine("                resolve({ success: true, status: 1, reason: 'Completed' });");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('Check result error:', e);");
+            js.AppendLine("                resolve({ success: false, reason: e.message });");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 提取群组信息
+            js.AppendLine("        const extractGroupInfo = () => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                const groupUrl = window.location.href.split('?')[0];");
+            js.AppendLine("                const groupIdMatch = groupUrl.match(/\\/groups\\/(\\d+)/);");
+            js.AppendLine("                const groupId = groupIdMatch ? groupIdMatch[1] : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 尝试提取群组名称");
+            js.AppendLine("                let groupName = '';");
+            js.AppendLine("                const titleEl = document.querySelector('h1, [data-testid=\"group_name\"]');");
+            js.AppendLine("                if (titleEl) {");
+            js.AppendLine("                    groupName = titleEl.textContent.trim();");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                return { groupId, groupName, groupUrl };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.warn('Extract group info failed:', e);");
+            js.AppendLine("                return { groupId: '', groupName: '', groupUrl: window.location.href };");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 主执行逻辑（无需等待页面加载，C#已处理）
+            js.AppendLine("        const executeJoinGroup = async () => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                console.log('Starting join group operation...');");
+            js.AppendLine("");
+            js.AppendLine("                // 获取用户信息");
+            js.AppendLine("                const userInfo = getCurrentUserInfo();");
+            js.AppendLine("");
+            js.AppendLine("                // 获取群组信息");
+            js.AppendLine("                const groupInfo = extractGroupInfo();");
+            js.AppendLine("");
+            js.AppendLine("                // 执行加组操作");
+            js.AppendLine("                const result = await findAndClickJoinButton();");
+            js.AppendLine("");
+            js.AppendLine("                // 构建结果对象");
+            js.AppendLine("                const joinResult = {");
+            js.AppendLine("                    accountId: userInfo.accountId,");
+            js.AppendLine("                    targetUrl: userInfo.targetUrl,");
+            js.AppendLine("                    groupId: groupInfo.groupId,");
+            js.AppendLine("                    groupName: groupInfo.groupName,");
+            js.AppendLine("                    groupUrl: groupInfo.groupUrl,");
+            js.AppendLine("                    joinStatus: result.status || (result.success ? 1 : 2),");
+            js.AppendLine("                    failReason: result.reason || '',");
+            js.AppendLine("                    joinTime: new Date().toISOString(),");
+            js.AppendLine("                    syncTime: new Date().toISOString()");
+            js.AppendLine("                };");
+            js.AppendLine("");
+            js.AppendLine("                results.push(joinResult);");
+            js.AppendLine("");
+            js.AppendLine("                console.log('Join result:', joinResult);");
+            js.AppendLine("");
+            js.AppendLine("                // 返回结果");
+            js.AppendLine("                resolve(JSON.stringify(results));");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('Execute join group error:', e);");
+            js.AppendLine("                reject(new Error(e.message));");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 立即启动执行（页面已由C#智能等待加载完成）
+            js.AppendLine("        executeJoinGroup();");
+            js.AppendLine("");
+                    
+            // 超时保护（30秒）
+            js.AppendLine("        setTimeout(() => {");
+            js.AppendLine("            if (results.length === 0) {");
+            js.AppendLine("                reject(new Error('Join group timeout'));");
+            js.AppendLine("            }");
+            js.AppendLine("        }, 30000);");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+                    
             return js.ToString();
         }
 
