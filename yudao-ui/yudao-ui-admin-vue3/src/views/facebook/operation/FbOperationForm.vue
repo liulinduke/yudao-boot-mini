@@ -1,5 +1,9 @@
 <template>
-  <Dialog :title="dialogTitle" v-model="dialogVisible" :width="formType === 'view' ? '90%' : '700px'">
+  <Dialog
+    :title="dialogTitle"
+    v-model="dialogVisible"
+    :width="formType === 'view' ? '90%' : '700px'"
+  >
     <div v-loading="formLoading">
       <!-- 主表信息 -->
       <el-card class="mb-4" v-if="formType === 'view' && taskDetail">
@@ -22,17 +26,27 @@
             <el-tag v-else-if="taskDetail.task?.status === 3" type="warning">已停止</el-tag>
             <el-tag v-else-if="taskDetail.task?.status === 4" type="danger">失败</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="期望数量">{{ taskDetail.task?.expectedCount || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="实际完成">{{ taskDetail.task?.actualCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="期望数量">{{
+            taskDetail.task?.expectedCount || 0
+          }}</el-descriptions-item>
+          <el-descriptions-item label="实际完成">{{
+            taskDetail.task?.actualCount || 0
+          }}</el-descriptions-item>
           <el-descriptions-item label="进度">
-            <el-progress 
-              :percentage="getTotalProgress()" 
+            <el-progress
+              :percentage="getTotalProgress()"
               :status="taskDetail.task?.status === 2 ? 'success' : undefined"
             />
           </el-descriptions-item>
-          <el-descriptions-item label="开始时间">{{ formatDate(taskDetail.task?.startTime) }}</el-descriptions-item>
-          <el-descriptions-item label="结束时间">{{ formatDate(taskDetail.task?.endTime) }}</el-descriptions-item>
-          <el-descriptions-item label="备注" :span="3">{{ taskDetail.task?.remark || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{
+            formatDate(taskDetail.task?.startTime)
+          }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{
+            formatDate(taskDetail.task?.endTime)
+          }}</el-descriptions-item>
+          <el-descriptions-item label="备注" :span="3">{{
+            taskDetail.task?.remark || '-'
+          }}</el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -45,7 +59,7 @@
         v-if="formType === 'create'"
       >
         <!-- 风控警告 -->
-        <div v-if="formData.taskType === 1" style="margin-bottom: 12px;">
+        <div v-if="formData.taskType === 1" style="margin-bottom: 12px">
           <el-alert
             title="建议每个账号每日加组不超过10个，避免触发风控机制"
             type="warning"
@@ -91,9 +105,7 @@
                 已选择 {{ selectedGroups.length }} 个群组，将自动对每个群组的成员执行加组操作
               </div>
             </div>
-            <div v-else class="text-gray-400 text-sm mt-2">
-              暂未选择群组，请点击上方按钮选择
-            </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择群组，请点击上方按钮选择 </div>
           </div>
         </el-form-item>
 
@@ -116,8 +128,8 @@
             </el-table-column>
             <el-table-column label="进度" width="150">
               <template #default="scope">
-                <el-progress 
-                  :percentage="getDetailProgress(scope.row)" 
+                <el-progress
+                  :percentage="getDetailProgress(scope.row)"
                   :status="scope.row.status === 2 ? 'success' : undefined"
                   :stroke-width="12"
                 />
@@ -139,9 +151,19 @@
           <el-table :data="resultList" stripe border max-height="500">
             <el-table-column label="Facebook ID" prop="accountId" width="180" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
-            <el-table-column label="用户链接" prop="targetUrl" min-width="250" show-overflow-tooltip />
+            <el-table-column
+              label="用户链接"
+              prop="targetUrl"
+              min-width="250"
+              show-overflow-tooltip
+            />
             <el-table-column label="群组名称" prop="groupName" width="150" />
-            <el-table-column label="群组链接" prop="groupUrl" min-width="250" show-overflow-tooltip />
+            <el-table-column
+              label="群组链接"
+              prop="groupUrl"
+              min-width="250"
+              show-overflow-tooltip
+            />
             <el-table-column label="加组状态" width="100">
               <template #default="scope">
                 <el-tag v-if="scope.row.joinStatus === 0" type="info">待处理</el-tag>
@@ -150,7 +172,12 @@
                 <el-tag v-else-if="scope.row.joinStatus === 3" type="warning">已加入</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="失败原因" prop="failReason" min-width="150" show-overflow-tooltip />
+            <el-table-column
+              label="失败原因"
+              prop="failReason"
+              min-width="150"
+              show-overflow-tooltip
+            />
             <el-table-column label="加入时间" prop="joinTime" width="160">
               <template #default="scope">
                 {{ formatDate(scope.row.joinTime) }}
@@ -159,11 +186,76 @@
           </el-table>
           <el-empty v-if="resultList.length === 0" description="暂无加组数据" />
         </el-tab-pane>
+
+        <!-- Tab 3: 转帖结果（仅转帖任务显示） -->
+        <el-tab-pane
+          v-if="taskDetail?.task?.taskType === 2"
+          label="🔄 转帖结果"
+          name="repostResults"
+        >
+          <el-table :data="repostResultList" stripe border max-height="500">
+            <el-table-column label="Facebook ID" prop="accountId" width="180" />
+            <el-table-column label="FB账号" prop="fbAccount" width="150" />
+            <el-table-column
+              label="帖子链接"
+              prop="postUrl"
+              min-width="250"
+              show-overflow-tooltip
+            />
+            <el-table-column label="操作类型" width="140">
+              <template #default="scope">
+                <el-tag v-if="scope.row.actionType === 1" type="primary">点赞</el-tag>
+                <el-tag v-else-if="scope.row.actionType === 2" type="success">转发到动态</el-tag>
+                <el-tag v-else-if="scope.row.actionType === 3" type="warning"
+                  >转帖到个人中心</el-tag
+                >
+                <el-tag v-else-if="scope.row.actionType === 4" type="info">转贴到好友</el-tag>
+                <el-tag v-else-if="scope.row.actionType === 5" type="danger">转发到群组</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="目标名称"
+              prop="targetName"
+              min-width="150"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              label="目标链接"
+              prop="targetUrl"
+              min-width="250"
+              show-overflow-tooltip
+            />
+            <el-table-column label="状态" width="100">
+              <template #default="scope">
+                <el-tag v-if="scope.row.status === 0" type="info">待处理</el-tag>
+                <el-tag v-else-if="scope.row.status === 1" type="success">成功</el-tag>
+                <el-tag v-else-if="scope.row.status === 2" type="danger">失败</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="失败原因"
+              prop="failReason"
+              min-width="150"
+              show-overflow-tooltip
+            />
+            <el-table-column label="执行时间" prop="executeTime" width="160">
+              <template #default="scope">
+                {{ formatDate(scope.row.executeTime) }}
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="repostResultList.length === 0" description="暂无转帖数据" />
+        </el-tab-pane>
       </el-tabs>
     </div>
 
     <template #footer>
-      <el-button type="primary" @click="submitForm" :loading="formLoading" v-if="formType === 'create'">
+      <el-button
+        type="primary"
+        @click="submitForm"
+        :loading="formLoading"
+        v-if="formType === 'create'"
+      >
         确 定
       </el-button>
       <el-button @click="dialogVisible = false">关 闭</el-button>
@@ -171,10 +263,7 @@
   </Dialog>
 
   <!-- 群组选择器组件 -->
-  <GroupSelector
-    v-model="groupSelectorVisible"
-    @confirm="handleGroupConfirm"
-  />
+  <GroupSelector v-model="groupSelectorVisible" @confirm="handleGroupConfirm" />
 </template>
 
 <script setup lang="ts">
@@ -202,6 +291,7 @@ const activeTab = ref('details')
 const taskDetail = ref<FbOperationTaskDetailRespVO | null>(null)
 const detailList = ref<any[]>([])
 const resultList = ref<any[]>([])
+const repostResultList = ref<any[]>([]) // 转帖结果列表
 
 const formData = ref({
   id: undefined,
@@ -259,6 +349,12 @@ const open = async (type: string, id?: number, taskTypeValue?: number) => {
       taskDetail.value = data
       detailList.value = data.details || []
       resultList.value = data.results || []
+      // 如果是转帖任务，加载转帖结果
+      if (data.task?.taskType === 2 && data.results) {
+        repostResultList.value = data.results as any[]
+      } else {
+        repostResultList.value = []
+      }
     } finally {
       formLoading.value = false
     }
@@ -286,29 +382,31 @@ const emit = defineEmits(['success'])
 const submitForm = async () => {
   if (!formRef.value) return
   await formRef.value.validate()
-  
+
   formLoading.value = true
   try {
     // 自动生成任务名称
     const taskNamePrefix = formData.value.taskType === 1 ? '链接加组' : '运营任务'
-    const timestamp = new Date().toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).replace(/[\/\s:]/g, '')
-    
+    const timestamp = new Date()
+      .toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+      .replace(/[\/\s:]/g, '')
+
     const data = {
       ...formData.value,
       taskName: `${taskNamePrefix}_${timestamp}`,
       expectedCount: selectedGroups.value.length // 期望数量 = 选择的群组数量
     } as unknown as FbOperationTaskSaveReqVO
-    
+
     const result = await createFbOperationTask(data)
     const respData = result.data || result
-    
+
     message.success('任务创建成功')
     dialogVisible.value = false
     emit('success')
@@ -333,6 +431,7 @@ const resetForm = () => {
   taskDetail.value = null
   detailList.value = []
   resultList.value = []
+  repostResultList.value = []
   activeTab.value = 'details'
   formRef.value?.resetFields()
 }
@@ -340,17 +439,18 @@ const resetForm = () => {
 /** 计算总进度 */
 const getTotalProgress = () => {
   if (!taskDetail.value?.task || !taskDetail.value.task.expectedCount) return 0
-  return Math.min(100, Math.round(
-    ((taskDetail.value.task.actualCount || 0) / taskDetail.value.task.expectedCount) * 100
-  ))
+  return Math.min(
+    100,
+    Math.round(
+      ((taskDetail.value.task.actualCount || 0) / taskDetail.value.task.expectedCount) * 100
+    )
+  )
 }
 
 /** 计算明细进度 */
 const getDetailProgress = (detail: any) => {
   if (!detail.expectedCount) return 0
-  return Math.min(100, Math.round(
-    ((detail.actualCount || 0) / detail.expectedCount) * 100
-  ))
+  return Math.min(100, Math.round(((detail.actualCount || 0) / detail.expectedCount) * 100))
 }
 
 /** 格式化日期 */
@@ -374,11 +474,11 @@ const openGroupSelector = () => {
 
 /** 移除已选择的群组 */
 const removeSelectedGroup = (groupId: number) => {
-  const index = selectedGroups.value.findIndex(g => g.id === groupId)
+  const index = selectedGroups.value.findIndex((g) => g.id === groupId)
   if (index > -1) {
     selectedGroups.value.splice(index, 1)
     if (selectedGroups.value.length > 0) {
-      formData.value.targetGroupIds = selectedGroups.value.map(g => g.id).join(',')
+      formData.value.targetGroupIds = selectedGroups.value.map((g) => g.id).join(',')
     } else {
       formData.value.targetGroupIds = ''
     }
@@ -388,7 +488,7 @@ const removeSelectedGroup = (groupId: number) => {
 /** 确认群组选择 */
 const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   selectedGroups.value = groups
-  formData.value.targetGroupIds = groups.map(g => g.id).join(',')
+  formData.value.targetGroupIds = groups.map((g) => g.id).join(',')
   message.success(`已选择 ${groups.length} 个群组`)
 }
 </script>

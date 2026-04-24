@@ -66,4 +66,11 @@ public interface FbOperationTaskService {
      */
     List<FbOperationTaskDetailItemRespVO> getPendingDetails(String accountId);
 
+    /**
+     * 批量保存转帖结果
+     *
+     * @param batchSaveReqVO 批量保存请求
+     */
+    void batchSaveRepostResult(@Valid FbRepostResultBatchSaveReqVO batchSaveReqVO);
+
 }

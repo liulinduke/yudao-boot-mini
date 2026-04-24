@@ -159,6 +159,9 @@
 
     <!-- 表单弹窗：添加/修改 -->
     <FbOperationForm ref="formRef" @success="getList" />
+    
+    <!-- 转帖表单弹窗 -->
+    <RepostForm ref="repostFormRef" @success="getList" />
   </div>
 </template>
 
@@ -168,6 +171,7 @@ import { Operation, List } from '@element-plus/icons-vue'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
+import RepostForm from './RepostForm.vue'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
@@ -191,7 +195,7 @@ const operationTools = [
     type: 'repost',
     title: '转贴',
     icon: 'ep:share',
-    disabled: true
+    disabled: false // 启用转帖功能
   },
   {
     type: 'mass-message',
@@ -237,7 +241,13 @@ const selectTool = (type: string) => {
     return
   }
   activeTool.value = type
-  formRef.value.open('create', undefined, getTaskTypeByTool(type))
+  
+  // 如果是转帖，打开转帖表单
+  if (type === 'repost') {
+    repostFormRef.value.open()
+  } else {
+    formRef.value.open('create', undefined, getTaskTypeByTool(type))
+  }
 }
 
 /** 根据工具类型获取任务类型 */
@@ -280,6 +290,7 @@ const handleQuery = () => {
 
 /** 添加/修改操作 */
 const formRef = ref()
+const repostFormRef = ref()
 const openForm = (type: string, id?: number) => {
   formRef.value.open(type, id)
 }

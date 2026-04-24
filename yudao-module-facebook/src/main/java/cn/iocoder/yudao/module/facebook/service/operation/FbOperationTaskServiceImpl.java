@@ -7,9 +7,11 @@ import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationAddGroupResultDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbRepostResultDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationAddGroupResultMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbRepostResultMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,9 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
     @Resource
     private FbOperationAddGroupResultMapper addGroupResultMapper;
+
+    @Resource
+    private FbRepostResultMapper repostResultMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -194,6 +199,57 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     public List<FbOperationTaskDetailItemRespVO> getPendingDetails(String accountId) {
         List<FbOperationTaskDetailDO> details = operationTaskDetailMapper.selectPendingDetailsByAccountId(accountId);
         return BeanUtils.toBean(details, FbOperationTaskDetailItemRespVO.class);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchSaveRepostResult(FbRepostResultBatchSaveReqVO batchSaveReqVO) {
+        Long detailId = batchSaveReqVO.getDetailId();
+
+        // 获取明细信息
+        FbOperationTaskDetailDO detail = operationTaskDetailMapper.selectById(detailId);
+        if (detail == null) {
+            throw exception(OPERATION_TASK_DETAIL_NOT_EXISTS);
+        }
+
+        // 批量保存转帖结果
+        List<FbRepostResultDO> results = batchSaveReqVO.getResults().stream()
+                .map(item -> {
+                    FbRepostResultDO result = new FbRepostResultDO();
+                    result.setDetailId(detailId);
+                    result.setTaskId(detail.getTaskId());
+                    result.setAccountId(item.getAccountId());
+                    result.setFbAccount(item.getFbAccount());
+                    result.setPostUrl(item.getPostUrl());
+                    result.setActionType(item.getActionType());
+                    result.setTargetType(item.getTargetType());
+                    result.setTargetId(item.getTargetId());
+                    result.setTargetName(item.getTargetName());
+                    result.setTargetUrl(item.getTargetUrl());
+                    result.setStatus(item.getStatus());
+                    result.setFailReason(item.getFailReason());
+                    result.setExecuteTime(item.getExecuteTime());
+                    result.setRemark(item.getRemark());
+                    return result;
+                })
+                .collect(Collectors.toList());
+
+        repostResultMapper.insertBatch(results);
+
+        // 更新明细的实际完成数量和状态
+        int successCount = (int) results.stream()
+                .filter(r -> r.getStatus() != null && r.getStatus() == 1) // 1-成功
+                .count();
+
+        detail.setActualCount(detail.getActualCount() + successCount);
+        if (detail.getActualCount() >= detail.getExpectedCount()) {
+            detail.setStatus(2); // 已完成
+            detail.setEndTime(LocalDateTime.now());
+        }
+        operationTaskDetailMapper.updateById(detail);
+
+        // 更新主任务的统计信息
+        updateTaskStatistics(detail.getTaskId());
     }
 
     /**

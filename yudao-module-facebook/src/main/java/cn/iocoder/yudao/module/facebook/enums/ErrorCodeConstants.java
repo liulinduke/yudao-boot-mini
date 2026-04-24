@@ -19,6 +19,10 @@ public interface ErrorCodeConstants {
     ErrorCode OPERATION_TASK_NOT_EXISTS = new ErrorCode(2_006_000_000, "运营任务不存在");
     ErrorCode OPERATION_TASK_DETAIL_NOT_EXISTS = new ErrorCode(2_006_001_000, "运营任务明细不存在");
 
+    // 话术库错误码
+    ErrorCode SCRIPT_GROUP_NOT_EXISTS = new ErrorCode(2_007_000_000, "话术分组不存在");
+    ErrorCode SCRIPT_NOT_EXISTS = new ErrorCode(2_007_001_000, "话术内容不存在");
+
 
 
 

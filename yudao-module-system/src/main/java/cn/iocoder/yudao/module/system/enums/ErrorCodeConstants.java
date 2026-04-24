@@ -168,4 +168,11 @@ public interface ErrorCodeConstants {
     // ========== 站内信发送 1-002-028-000 ==========
     ErrorCode NOTIFY_SEND_TEMPLATE_PARAM_MISS = new ErrorCode(1_002_028_000, "模板参数({})缺失");
 
+    // ========== 话术分组 1-002-029-000 ==========
+    ErrorCode SCRIPT_GROUP_NOT_EXISTS = new ErrorCode(1_002_029_000, "话术分组不存在");
+    ErrorCode SCRIPT_GROUP_NAME_DUPLICATE = new ErrorCode(1_002_029_001, "已经存在该名字的话术分组");
+
+    // ========== 话术内容 1-002-030-000 ==========
+    ErrorCode SCRIPT_NOT_EXISTS = new ErrorCode(1_002_030_000, "话术内容不存在");
+
 }

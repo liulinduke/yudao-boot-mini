@@ -47,6 +47,22 @@ public class FbOperationTaskDetailDO extends TenantBaseDO {
      */
     private String targetGroupIds;
     /**
+     * 帖子链接
+     */
+    private String postUrl;
+    /**
+     * 执行项配置（JSON格式）
+     */
+    private String actionConfig;
+    /**
+     * 评论话术
+     */
+    private String commentScript;
+    /**
+     * 话术库ID
+     */
+    private Long scriptLibraryId;
+    /**
      * 期望数量
      */
     private Integer expectedCount;

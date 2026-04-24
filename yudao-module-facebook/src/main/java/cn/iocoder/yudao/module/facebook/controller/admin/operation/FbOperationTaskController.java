@@ -82,4 +82,12 @@ public class FbOperationTaskController {
         return success(operationTaskService.getPendingDetails(accountId));
     }
 
+    @PostMapping("/batch-save-repost-result")
+    @Operation(summary = "批量保存转帖结果")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")
+    public CommonResult<Boolean> batchSaveRepostResult(@Valid @RequestBody FbRepostResultBatchSaveReqVO batchSaveReqVO) {
+        operationTaskService.batchSaveRepostResult(batchSaveReqVO);
+        return success(true);
+    }
+
 }
