@@ -15,7 +15,6 @@ export interface FbScriptVO {
 
 export interface FbScriptPageReqVO extends PageParam {
   groupId?: number
-  scriptTitle?: string
   contentType?: number
 }
 

@@ -8,9 +8,9 @@
       v-loading="formLoading"
     >
       <!-- 风控警告 -->
-      <div style="margin-bottom: 12px;">
+      <div style="margin-bottom: 12px">
         <el-alert
-          title="建议每个账号每日转帖操作不超过20次，避免触发风控机制"
+          title="建议每个账号每日转帖操作不超过10次，避免触发风控机制"
           type="warning"
           :closable="false"
           show-icon
@@ -51,15 +51,15 @@
           <!-- 第一行：点赞、转发到动态、转帖到个人中心 -->
           <div class="mb-10px flex items-center">
             <el-checkbox v-model="selectedActions" :label="1" class="mr-20px">点赞</el-checkbox>
-            <el-checkbox v-model="selectedActions" :label="2" class="mr-20px">转发到动态</el-checkbox>
+            <el-checkbox v-model="selectedActions" :label="2" class="mr-20px"
+              >转发到动态</el-checkbox
+            >
             <el-checkbox v-model="selectedActions" :label="3">转帖到个人中心</el-checkbox>
           </div>
-          
+
           <!-- 第二行：转贴到好友 + 数量 -->
           <div class="mb-10px">
-            <el-checkbox v-model="selectedActions" :label="4">
-              转贴到好友
-            </el-checkbox>
+            <el-checkbox v-model="selectedActions" :label="4"> 转贴到好友 </el-checkbox>
             <el-input-number
               v-if="selectedActions.includes(4)"
               v-model="actionConfig.shareToFriendCount"
@@ -69,12 +69,10 @@
               class="ml-10px"
             />
           </div>
-          
+
           <!-- 第三行：转发到群组 + 数量 + 选择按钮 -->
           <div class="mb-10px">
-            <el-checkbox v-model="selectedActions" :label="5">
-              转发到群组
-            </el-checkbox>
+            <el-checkbox v-model="selectedActions" :label="5"> 转发到群组 </el-checkbox>
             <el-input-number
               v-if="selectedActions.includes(5)"
               v-model="actionConfig.shareToGroupCount"
@@ -96,7 +94,9 @@
 
           <!-- 已选群组展示 -->
           <div v-if="selectedGroups.length > 0" class="mt-10px">
-            <div class="text-sm text-gray-600 mb-5px">已选择 {{ selectedGroups.length }} 个群组：</div>
+            <div class="text-sm text-gray-600 mb-5px"
+              >已选择 {{ selectedGroups.length }} 个群组：</div
+            >
             <el-tag
               v-for="group in selectedGroups.slice(0, 10)"
               :key="group.groupId"
@@ -114,43 +114,54 @@
         </div>
       </el-form-item>
 
-      <!-- 评论话术 -->
+      <!-- 评论话术配置 -->
       <el-form-item label="评论话术" prop="commentScript">
-        <el-input
-          v-model="formData.commentScript"
-          type="textarea"
-          :rows="3"
-          placeholder="请输入评论话术，或从下方话术库选择（二选一）"
-          :disabled="!!formData.scriptLibraryId"
-        />
-      </el-form-item>
+        <div class="w-full">
+          <!-- 选择方式 -->
+          <el-radio-group v-model="commentScriptType" class="mb-10px">
+            <el-radio label="manual">手动输入</el-radio>
+            <el-radio label="library">从话术库选择</el-radio>
+          </el-radio-group>
 
-      <!-- 话术库选择 -->
-      <el-form-item label="话术库" prop="scriptLibraryId">
-        <el-select
-          v-model="formData.scriptLibraryId"
-          placeholder="请选择话术库，选择后将自动填充到评论话术（与上方二选一）"
-          style="width: 100%"
-          clearable
-          filterable
-          @change="handleScriptLibraryChange"
-        >
-          <el-option
-            v-for="script in scriptList"
-            :key="script.id"
-            :label="script.scriptTitle || script.scriptContent?.substring(0, 50)"
-            :value="script.id"
+          <!-- 手动输入模式 -->
+          <el-input
+            v-if="commentScriptType === 'manual'"
+            v-model="formData.commentScript"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入评论话术内容"
           />
-        </el-select>
+
+          <!-- 话术库选择模式 -->
+          <div v-else>
+            <el-button type="primary" @click="openScriptSelector">
+              <Icon icon="ep:search" class="mr-5px" /> 选择话术
+            </el-button>
+
+            <!-- 已选话术展示 -->
+            <div v-if="selectedScriptInfo" class="mt-10px p-10px bg-gray-50 rounded">
+              <div class="flex justify-between items-start">
+                <div class="flex-1">
+                  <div class="text-sm font-medium mb-5px">{{
+                    selectedScriptInfo.scriptTitle || '无标题'
+                  }}</div>
+                  <div class="text-xs text-gray-600 line-clamp-2">{{
+                    selectedScriptInfo.scriptContent
+                  }}</div>
+                </div>
+                <el-tag size="small" class="ml-10px">
+                  {{ getContentTypeText(selectedScriptInfo.contentType) }}
+                </el-tag>
+              </div>
+            </div>
+            <div v-else class="mt-10px text-sm text-gray-400"> 未选择话术 </div>
+          </div>
+        </div>
       </el-form-item>
 
       <!-- 备注 -->
       <el-form-item label="备注" prop="remark">
-        <el-input
-          v-model="formData.remark"
-          type="textarea"
-          placeholder="请输入备注"
-        />
+        <el-input v-model="formData.remark" type="textarea" placeholder="请输入备注" />
       </el-form-item>
     </el-form>
 
@@ -164,8 +175,12 @@
   <GroupSelectorForRepost
     v-model="groupSelectorVisible"
     :selected-group-ids="selectedGroupIds"
+    :account-ids="formData.accountIds"
     @confirm="handleGroupConfirm"
   />
+
+  <!-- 话术选择器 -->
+  <ScriptSelector v-model="scriptSelectorVisible" @confirm="handleScriptConfirm" />
 </template>
 
 <script setup lang="ts">
@@ -174,16 +189,15 @@ import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import { ScriptApi } from '@/api/facebook/script'
 import { FbOperationAddGroupResultApi } from '@/api/facebook/operation/addgroupresult'
-import {
-  createFbOperationTask,
-  FbOperationTaskSaveReqVO
-} from '@/api/facebook/operation'
+import { createFbOperationTask, FbOperationTaskSaveReqVO } from '@/api/facebook/operation'
 import GroupSelectorForRepost from './GroupSelectorForRepost.vue'
+import ScriptSelector from './ScriptSelector.vue'
 
 const message = useMessage()
 const { t } = useI18n()
 
 const dialogVisible = ref(false)
+const dialogTitle = ref('创建转帖任务')
 const formLoading = ref(false)
 const formRef = ref()
 
@@ -195,6 +209,9 @@ const formData = ref({
   scriptLibraryId: undefined as number | undefined,
   remark: ''
 })
+
+// 评论话术类型：manual-手动输入，library-话术库
+const commentScriptType = ref<'manual' | 'library'>('manual')
 
 // 执行项配置
 const selectedActions = ref<number[]>([])
@@ -208,10 +225,12 @@ const actionConfig = ref({
 const selectedGroups = ref<any[]>([])
 const groupSelectorVisible = ref(false)
 
+// 话术选择
+const scriptSelectorVisible = ref(false)
+const selectedScriptInfo = ref<any>(null)
+
 // 账号列表
 const accounts = ref<any[]>([])
-// 话术列表
-const scriptList = ref<any[]>([])
 
 // 表单验证规则
 const formRules = reactive({
@@ -224,14 +243,14 @@ const formRules = reactive({
 
 // 计算已选群组ID列表
 const selectedGroupIds = computed(() => {
-  return selectedGroups.value.map(g => g.groupId)
+  return selectedGroups.value.map((g) => g.groupId)
 })
 
 /** 打开弹窗 */
 const open = async () => {
   dialogVisible.value = true
   resetForm()
-  await Promise.all([loadAccounts(), loadScripts()])
+  await loadAccounts()
 }
 
 defineExpose({ open })
@@ -251,19 +270,27 @@ const loadAccounts = async () => {
   }
 }
 
-/** 加载话术列表 */
-const loadScripts = async () => {
-  try {
-    const data = await ScriptApi.getScriptPage({ pageNo: 1, pageSize: 100 })
-    if (data && data.list && Array.isArray(data.list)) {
-      scriptList.value = data.list
-    } else {
-      scriptList.value = []
-    }
-  } catch (error) {
-    console.error('加载话术列表失败:', error)
-    scriptList.value = []
+/** 打开话术选择器 */
+const openScriptSelector = () => {
+  scriptSelectorVisible.value = true
+}
+
+/** 确认话术选择 */
+const handleScriptConfirm = (script: any) => {
+  formData.value.scriptLibraryId = script.id
+  selectedScriptInfo.value = script
+  message.success(`已选择话术：${script.scriptTitle || '无标题'}`)
+}
+
+/** 获取内容类型文本 */
+const getContentTypeText = (type: number) => {
+  const typeMap: Record<number, string> = {
+    1: '文本',
+    2: '图文',
+    3: '视频',
+    4: '音频'
   }
+  return typeMap[type] || '未知'
 }
 
 /** 打开群组选择器 */
@@ -273,7 +300,7 @@ const openGroupSelector = () => {
 
 /** 移除已选群组 */
 const removeSelectedGroup = (groupId: string) => {
-  const index = selectedGroups.value.findIndex(g => g.groupId === groupId)
+  const index = selectedGroups.value.findIndex((g) => g.groupId === groupId)
   if (index > -1) {
     selectedGroups.value.splice(index, 1)
   }
@@ -285,27 +312,11 @@ const handleGroupConfirm = (groups: any[]) => {
   message.success(`已选择 ${groups.length} 个群组`)
 }
 
-/** 话术库选择变化 */
-const handleScriptLibraryChange = (scriptId: number | undefined) => {
-  if (scriptId) {
-    // 找到选中的话术
-    const selectedScript = scriptList.value.find(s => s.id === scriptId)
-    if (selectedScript) {
-      // 将话术内容填充到评论话术
-      formData.value.commentScript = selectedScript.scriptContent
-      message.success('已自动填充话术内容')
-    }
-  } else {
-    // 清空话术库选择时，允许手动输入
-    formData.value.commentScript = ''
-  }
-}
-
 /** 提交表单 */
 const emit = defineEmits(['success'])
 const submitForm = async () => {
   if (!formRef.value) return
-  
+
   // 验证执行项
   if (selectedActions.value.length === 0) {
     message.warning('请至少选择一个执行项')
@@ -323,14 +334,16 @@ const submitForm = async () => {
   formLoading.value = true
   try {
     // 生成任务名称
-    const timestamp = new Date().toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).replace(/[\/\s:]/g, '')
+    const timestamp = new Date()
+      .toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+      .replace(/[\/\s:]/g, '')
 
     // 构建执行项配置JSON
     const configData = {
@@ -345,22 +358,26 @@ const submitForm = async () => {
     if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length
     if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length
     if (selectedActions.value.includes(3)) expectedCount += formData.value.accountIds.length // 转帖到个人中心不需要数量
-    if (selectedActions.value.includes(4)) expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length
-    if (selectedActions.value.includes(5)) expectedCount += selectedGroups.value.length * formData.value.accountIds.length
+    if (selectedActions.value.includes(4))
+      expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length
+    if (selectedActions.value.includes(5))
+      expectedCount += selectedGroups.value.length * formData.value.accountIds.length
 
-    const data = {
+    // 根据话术类型设置参数
+    const submitData = {
       taskType: 2, // 转贴任务
       taskName: `转帖_${timestamp}`,
       accountIds: formData.value.accountIds,
       postUrl: formData.value.postUrl,
       actionConfig: JSON.stringify(configData),
-      commentScript: formData.value.commentScript,
-      scriptLibraryId: formData.value.scriptLibraryId,
+      commentScript: commentScriptType.value === 'manual' ? formData.value.commentScript : '',
+      scriptLibraryId:
+        commentScriptType.value === 'library' ? formData.value.scriptLibraryId : undefined,
       expectedCount: expectedCount,
       remark: formData.value.remark
     } as unknown as FbOperationTaskSaveReqVO
 
-    await createFbOperationTask(data)
+    await createFbOperationTask(submitData)
     message.success('任务创建成功')
     dialogVisible.value = false
     emit('success')
@@ -385,6 +402,8 @@ const resetForm = () => {
     shareToGroupCount: 1
   }
   selectedGroups.value = []
+  selectedScriptInfo.value = null
+  commentScriptType.value = 'manual'
   formRef.value?.resetFields()
 }
 </script>

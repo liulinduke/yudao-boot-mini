@@ -1,22 +1,84 @@
 <template>
   <ContentWrap>
-    <!-- 搜索工作栏 -->
-    <el-form
-      class="-mb-15px"
-      :model="queryParams"
-      ref="queryFormRef"
-      :inline="true"
-      label-width="68px"
-    >
-      <el-form-item label="FB账号" prop="fbAccount">
-        <el-input
-          v-model="queryParams.fbAccount"
-          placeholder="请输入FB账号"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
+    <div class="flex gap-4" style="height: calc(100vh - 200px);">
+      <!-- 左侧：账号分组 -->
+      <div class="w-250px flex-shrink-0">
+        <el-card class="h-full" body-style="padding: 10px;">
+          <template #header>
+            <div class="flex justify-between items-center">
+              <span class="font-bold">账号分组</span>
+              <el-button type="primary" size="small" @click="openGroupForm('create')">
+                <Icon icon="ep:plus" />
+              </el-button>
+            </div>
+          </template>
+          
+          <el-scrollbar height="calc(100% - 50px)">
+            <div
+              v-for="group in groupList"
+              :key="group.id"
+              class="group-item p-2 rounded cursor-pointer mb-2 transition-all"
+              :class="{ 'bg-blue-50 border-blue-400': selectedGroupId === group.id, 'hover:bg-gray-50 border-transparent': selectedGroupId !== group.id }"
+              @click="handleSelectGroup(group.id)"
+            >
+              <div class="flex justify-between items-center">
+                <span class="text-sm">{{ group.groupName }}</span>
+                <div class="flex gap-1">
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    @click.stop="openGroupForm('update', group.id)"
+                  >
+                    <Icon icon="ep:edit" />
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    size="small"
+                    @click.stop="handleDeleteGroup(group.id)"
+                  >
+                    <Icon icon="ep:delete" />
+                  </el-button>
+                </div>
+              </div>
+              <div class="text-xs text-gray-400 mt-1">
+                {{ group.description || '暂无描述' }}
+              </div>
+            </div>
+            
+            <div
+              v-if="!selectedGroupId"
+              class="group-item p-2 rounded cursor-pointer mb-2 bg-blue-50 border-blue-400"
+              @click="handleSelectGroup(null)"
+            >
+              <div class="flex justify-between items-center">
+                <span class="text-sm font-bold">全部账号</span>
+              </div>
+            </div>
+          </el-scrollbar>
+        </el-card>
+      </div>
+
+      <!-- 右侧：账号列表 -->
+      <div class="flex-1 flex flex-col">
+        <!-- 搜索工作栏 -->
+        <el-form
+          class="-mb-15px"
+          :model="queryParams"
+          ref="queryFormRef"
+          :inline="true"
+          label-width="68px"
+        >
+          <el-form-item label="FB账号" prop="fbAccount">
+            <el-input
+              v-model="queryParams.fbAccount"
+              placeholder="请输入FB账号"
+              clearable
+              @keyup.enter="handleQuery"
+              class="!w-240px"
+            />
+          </el-form-item>
       <el-form-item label="密码" prop="password">
         <el-input
           v-model="queryParams.password"
@@ -44,182 +106,41 @@
           class="!w-240px"
         />
       </el-form-item>
-      <el-form-item label="账户分组" prop="groupId">
-        <el-input
-          v-model="queryParams.groupId"
-          placeholder="请输入账户分组"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="账户状态" prop="status">
-        <el-select
-          v-model="queryParams.status"
-          placeholder="请选择账户状态"
-          clearable
-          class="!w-240px"
-        >
-          <el-option label="请选择字典生成" value="" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="备注" prop="remark">
-        <el-input
-          v-model="queryParams.remark"
-          placeholder="请输入备注"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="cookie" prop="cookie">
-        <el-input
-          v-model="queryParams.cookie"
-          placeholder="请输入cookie"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="用户代理" prop="userAgent">
-        <el-input
-          v-model="queryParams.userAgent"
-          placeholder="请输入用户代理"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="2FA" prop="tfa">
-        <el-input
-          v-model="queryParams.tfa"
-          placeholder="请输入2FA"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="邮件信息" prop="email">
-        <el-input
-          v-model="queryParams.email"
-          placeholder="请输入邮件信息"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="邮箱密码" prop="emailPassword">
-        <el-input
-          v-model="queryParams.emailPassword"
-          placeholder="请输入邮箱密码"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="设备ID" prop="deviceId">
-        <el-input
-          v-model="queryParams.deviceId"
-          placeholder="请输入设备ID"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="设备名称" prop="deviceName">
-        <el-input
-          v-model="queryParams.deviceName"
-          placeholder="请输入设备名称"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="异常原因" prop="reason">
-        <el-input
-          v-model="queryParams.reason"
-          placeholder="请输入异常原因"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="代理" prop="proxy">
-        <el-input
-          v-model="queryParams.proxy"
-          placeholder="请输入代理"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="代理ID" prop="proxyId">
-        <el-input
-          v-model="queryParams.proxyId"
-          placeholder="请输入代理ID"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="注册日期" prop="creationDate">
-        <el-date-picker
-          v-model="queryParams.creationDate"
-          value-format="YYYY-MM-DD HH:mm:ss"
-          type="daterange"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          :default-time="[new Date('1 00:00:00'), new Date('1 23:59:59')]"
-          class="!w-220px"
-        />
-      </el-form-item>
-      <el-form-item label="创建时间" prop="createTime">
-        <el-date-picker
-          v-model="queryParams.createTime"
-          value-format="YYYY-MM-DD HH:mm:ss"
-          type="daterange"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          :default-time="[new Date('1 00:00:00'), new Date('1 23:59:59')]"
-          class="!w-220px"
-        />
-      </el-form-item>
-      <el-form-item>
-        <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
-        <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
-        <el-button
-          type="primary"
-          plain
-          @click="openForm('create')"
-          v-hasPermi="['facebook:fb-account:create']"
-        >
-          <Icon icon="ep:plus" class="mr-5px" /> 新增
-        </el-button>
-        <el-button
-          type="success"
-          plain
-          @click="handleExport"
-          :loading="exportLoading"
-          v-hasPermi="['facebook:fb-account:export']"
-        >
-          <Icon icon="ep:download" class="mr-5px" /> 导出
-        </el-button>
-        <el-button
-            type="danger"
-            plain
-            :disabled="isEmpty(checkedIds)"
-            @click="handleDeleteBatch"
-            v-hasPermi="['facebook:fb-account:delete']"
-        >
-          <Icon icon="ep:delete" class="mr-5px" /> 批量删除
-        </el-button>
-      </el-form-item>
-    </el-form>
-  </ContentWrap>
+          <el-form-item>
+            <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
+            <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
+            <el-button
+              type="primary"
+              plain
+              @click="openForm('create')"
+              v-hasPermi="['facebook:fb-account:create']"
+            >
+              <Icon icon="ep:plus" class="mr-5px" /> 新增
+            </el-button>
+            <el-button
+              type="success"
+              plain
+              @click="handleExport"
+              :loading="exportLoading"
+              v-hasPermi="['facebook:fb-account:export']"
+            >
+              <Icon icon="ep:download" class="mr-5px" /> 导出
+            </el-button>
+            <el-button
+                type="danger"
+                plain
+                :disabled="isEmpty(checkedIds)"
+                @click="handleDeleteBatch"
+                v-hasPermi="['facebook:fb-account:delete']"
+            >
+              <Icon icon="ep:delete" class="mr-5px" /> 批量删除
+            </el-button>
+          </el-form-item>
+        </el-form>
 
-  <!-- 列表 -->
-  <ContentWrap>
-    <el-table
+        <!-- 列表 -->
+        <div class="flex-1 mt-4">
+          <el-table
         row-key="id"
         v-loading="loading"
         :data="list"
@@ -233,8 +154,8 @@
       <el-table-column label="密码" align="center" prop="password" />
       <el-table-column label="地区" align="center" prop="area" />
       <el-table-column label="好友数" align="center" prop="friends" />
-      <el-table-column label="账户分组" align="center" prop="groupId" />
-      <el-table-column label="账户状态" align="center" prop="status" />
+          <el-table-column label="账户分组" align="center" prop="groupName" />
+          <el-table-column label="账户状态" align="center" prop="status" />
       <el-table-column label="备注" align="center" prop="remark" />
       <el-table-column label="cookie" align="center" prop="cookie" />
       <el-table-column label="用户代理" align="center" prop="userAgent" />
@@ -280,18 +201,24 @@
           </el-button>
         </template>
       </el-table-column>
-    </el-table>
-    <!-- 分页 -->
-    <Pagination
-      :total="total"
-      v-model:page="queryParams.pageNo"
-      v-model:limit="queryParams.pageSize"
-      @pagination="getList"
-    />
+          </el-table>
+          <!-- 分页 -->
+          <Pagination
+            :total="total"
+            v-model:page="queryParams.pageNo"
+            v-model:limit="queryParams.pageSize"
+            @pagination="getList"
+          />
+        </div>
+      </div>
+    </div>
   </ContentWrap>
 
   <!-- 表单弹窗：添加/修改 -->
   <FbAccountForm ref="formRef" @success="getList" />
+  
+  <!-- 分组表单弹窗 -->
+  <AccountGroupForm ref="groupFormRef" @success="loadGroups" />
 </template>
 
 <script setup lang="ts">
@@ -299,7 +226,11 @@ import { isEmpty } from '@/utils/is'
 import { dateFormatter } from '@/utils/formatTime'
 import download from '@/utils/download'
 import { FbAccountApi, FbAccount } from '@/api/facebook/account'
+import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import FbAccountForm from './FbAccountForm.vue'
+import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
+import { useMessage } from '@/hooks/web/useMessage'
+import { useI18n } from '@/hooks/web/useI18n'
 
 /** FB账号 列表 */
 defineOptions({ name: 'FbAccount' })
@@ -317,7 +248,7 @@ const queryParams = reactive({
   password: undefined,
   area: undefined,
   friends: undefined,
-  groupId: undefined,
+  groupId: undefined as number | null | undefined,
   status: undefined,
   remark: undefined,
   cookie: undefined,
@@ -336,6 +267,11 @@ const queryParams = reactive({
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
 
+// 分组相关
+const groupList = ref<any[]>([])
+const selectedGroupId = ref<number | null>(null)
+const groupFormRef = ref()
+
 /** 查询列表 */
 const getList = async () => {
   loading.value = true
@@ -346,6 +282,23 @@ const getList = async () => {
   } finally {
     loading.value = false
   }
+}
+
+/** 加载分组列表 */
+const loadGroups = async () => {
+  try {
+    const data = await AccountGroupApi.getAllEnabledGroups()
+    groupList.value = data || []
+  } catch (error) {
+    console.error('加载分组失败:', error)
+  }
+}
+
+/** 选择分组 */
+const handleSelectGroup = (groupId: number | null) => {
+  selectedGroupId.value = groupId
+  queryParams.groupId = groupId
+  handleQuery()
 }
 
 /** 搜索按钮操作 */
@@ -411,8 +364,30 @@ const handleExport = async () => {
   }
 }
 
+/** 打开分组表单 */
+const openGroupForm = (type: string, id?: number) => {
+  groupFormRef.value.open(type, id)
+}
+
+/** 删除分组 */
+const handleDeleteGroup = async (id: number) => {
+  try {
+    await message.delConfirm()
+    await AccountGroupApi.deleteAccountGroup(id)
+    message.success('删除成功')
+    await loadGroups()
+    // 如果删除的是当前选中的分组，切换到全部
+    if (selectedGroupId.value === id) {
+      selectedGroupId.value = null
+      queryParams.groupId = null
+      await getList()
+    }
+  } catch {}
+}
+
 /** 初始化 **/
 onMounted(() => {
+  loadGroups()
   getList()
 })
 </script>

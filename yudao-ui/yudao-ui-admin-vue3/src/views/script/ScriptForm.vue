@@ -23,16 +23,7 @@
       <el-form-item label="内容类型" prop="contentType">
         <el-radio-group v-model="formData.contentType">
           <el-radio :label="1">文本</el-radio>
-          <el-radio :label="2">图文</el-radio>
-          <el-radio :label="3">视频</el-radio>
-          <el-radio :label="4">音频</el-radio>
         </el-radio-group>
-      </el-form-item>
-      <el-form-item label="附件" prop="attachments">
-        <el-input v-model="formData.attachments" type="textarea" :rows="3" placeholder="请输入附件JSON格式" />
-        <div class="mt-2 text-xs text-gray-400">
-          格式示例: [{"type":"image","url":"https://...","desc":"描述"}]
-        </div>
       </el-form-item>
       <el-form-item label="顺序发送" prop="sendSequence">
         <el-switch v-model="formData.sendSequence" />
@@ -46,8 +37,10 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="submitForm" type="primary" :disabled="formLoading">确 定</el-button>
-      <el-button @click="dialogVisible = false">取 消</el-button>
+      <div class="flex justify-center">
+        <el-button @click="submitForm" type="primary" :disabled="formLoading">确 定</el-button>
+        <el-button @click="dialogVisible = false">取 消</el-button>
+      </div>
     </template>
   </Dialog>
 </template>

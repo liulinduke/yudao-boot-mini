@@ -22,10 +22,10 @@
       </el-form>
 
       <!-- 已选账号提示 -->
-      <div v-if="accountIds.length > 0" class="mb-10px p-10px bg-blue-50 rounded">
+      <div v-if="props.accountIds && props.accountIds.length > 0" class="mb-10px p-10px bg-blue-50 rounded">
         <div class="text-sm text-gray-700">
           <span class="font-medium">已选账号：</span>
-          {{ accountIds.length }} 个
+          {{ props.accountIds.length }} 个
         </div>
       </div>
 

@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { useMessage } from '@/hooks/web/useMessage'

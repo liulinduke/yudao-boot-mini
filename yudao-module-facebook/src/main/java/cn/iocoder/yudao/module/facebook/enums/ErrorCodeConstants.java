@@ -23,7 +23,14 @@ public interface ErrorCodeConstants {
     ErrorCode SCRIPT_GROUP_NOT_EXISTS = new ErrorCode(2_007_000_000, "话术分组不存在");
     ErrorCode SCRIPT_NOT_EXISTS = new ErrorCode(2_007_001_000, "话术内容不存在");
 
+    // 全局配置错误码
+    ErrorCode GLOBAL_CONFIG_NOT_EXISTS = new ErrorCode(2_008_000_000, "全局配置不存在");
 
+    // 账号分组错误码
+    ErrorCode ACCOUNT_GROUP_NOT_EXISTS = new ErrorCode(2_009_000_000, "账号分组不存在");
 
+    // 群发私信任务错误码
+    ErrorCode DM_TASK_NOT_EXISTS = new ErrorCode(2_010_000_000, "群发私信任务不存在");
+    ErrorCode DM_TASK_DETAIL_NOT_EXISTS = new ErrorCode(2_010_001_000, "群发私信任务明细不存在");
 
 }
