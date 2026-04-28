@@ -133,7 +133,7 @@
             />
             <el-table-column label="期望/已采" align="center" width="120">
               <template #default="scope">
-                {{ scope.row.expectedCount }}/{{ scope.row.collectedCount }}
+                {{ scope.row.totalExpectedCount }}/{{ scope.row.totalCollectedCount }}
               </template>
             </el-table-column>
             <el-table-column label="进度" align="center" width="120">

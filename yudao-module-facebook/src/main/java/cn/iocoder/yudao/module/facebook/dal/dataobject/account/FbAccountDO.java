@@ -97,6 +97,10 @@ public class FbAccountDO extends TenantBaseDO {
      */
     private Long proxyId;
     /**
+     * 语言设置：1-英文，2-中文
+     */
+    private Integer language;
+    /**
      * 注册日期
      */
     private LocalDateTime creationDate;

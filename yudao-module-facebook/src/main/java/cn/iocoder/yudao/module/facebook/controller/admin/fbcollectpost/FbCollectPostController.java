@@ -26,6 +26,7 @@ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
 import static cn.iocoder.yudao.framework.apilog.core.enums.OperateTypeEnum.*;
 
 import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectpost.vo.*;
+import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectpost.vo.FbCollectPostBatchSaveReqVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.module.facebook.service.fbcollectpost.FbCollectPostService;
 
@@ -99,6 +100,14 @@ public class FbCollectPostController {
         // 导出 Excel
         ExcelUtils.write(response, "FB帖子采集结果.xls", "数据", FbCollectPostRespVO.class,
                         BeanUtils.toBean(list, FbCollectPostRespVO.class));
+    }
+
+    @PostMapping("/batch-save")
+    @Operation(summary = "批量保存FB帖子采集结果")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect-post:create')")
+    public CommonResult<Integer> batchSaveFbCollectPost(@Valid @RequestBody FbCollectPostBatchSaveReqVO batchSaveReqVO) {
+        Integer count = fbCollectPostService.batchSaveFbCollectPost(batchSaveReqVO.getDetailId(), batchSaveReqVO.getResults());
+        return success(count);
     }
 
 }

@@ -7,10 +7,13 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskSaveReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskRespVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskPageReqVO;
+import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskDetailRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -48,6 +51,9 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
     @Resource
     private FacebookDailyLimitService dailyLimitService;
+
+    @Resource
+    private FbAccountMapper accountMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -127,6 +133,47 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         respVO.setTargetUserIds(JSONUtil.toList(task.getTargetUserIds(), String.class));
         respVO.setScripts(JSONUtil.toList(task.getScripts(), String.class));
         respVO.setAccountIds(JSONUtil.toList(task.getAccountIds(), String.class));
+        
+        // 查询任务明细列表
+        List<FbDmTaskDetailDO> details = dmTaskDetailMapper.selectListByTaskId(id);
+        if (CollUtil.isNotEmpty(details)) {
+            // 收集所有账号ID
+            Set<String> accountIds = details.stream()
+                    .map(FbDmTaskDetailDO::getAccountId)
+                    .collect(Collectors.toSet());
+            
+            // 批量查询账号信息（获取cookie）
+            Map<String, String> cookieMap = new HashMap<>();
+            if (!accountIds.isEmpty()) {
+                List<FbAccountDO> accounts = accountMapper.selectList(
+                    new LambdaQueryWrapper<FbAccountDO>()
+                        .in(FbAccountDO::getFbAccount, accountIds)
+                );
+                cookieMap = accounts.stream()
+                    .filter(acc -> acc.getCookie() != null)
+                    .collect(Collectors.toMap(
+                        FbAccountDO::getFbAccount,
+                        FbAccountDO::getCookie,
+                        (v1, v2) -> v1 // 如果有重复，保留第一个
+                    ));
+            }
+            
+            // 转换为RespVO并填充cookie
+            final Map<String, String> finalCookieMap = cookieMap;
+            List<FbDmTaskDetailRespVO> detailRespVOs = details.stream()
+                    .map(detail -> {
+                        FbDmTaskDetailRespVO detailVO = BeanUtils.toBean(detail, FbDmTaskDetailRespVO.class);
+                        // 从账号表中获取cookie
+                        detailVO.setCookie(finalCookieMap.getOrDefault(detail.getAccountId(), ""));
+                        return detailVO;
+                    })
+                    .collect(Collectors.toList());
+            
+            respVO.setDetails(detailRespVOs);
+        } else {
+            respVO.setDetails(new ArrayList<>());
+        }
+        
         return respVO;
     }
 
@@ -150,7 +197,19 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         dmTaskMapper.updateById(task);
 
         log.info("启动群发私信任务，任务ID: {}", taskId);
-        // TODO: 这里可以触发WPF执行任务的逻辑
+        
+        // 获取任务明细列表
+        List<FbDmTaskDetailDO> details = dmTaskDetailMapper.selectListByTaskId(taskId);
+        if (CollUtil.isEmpty(details)) {
+            log.warn("任务 {} 没有明细数据", taskId);
+            return;
+        }
+        
+        log.info("任务 {} 共有 {} 条私信需要发送", taskId, details.size());
+        
+        // TODO: 这里触发WPF执行任务的逻辑
+        // 目前WPF已通过JsBridgeService.StartDmTask实现，前端可以直接调用
+        // 如果需要后端主动推送，可以集成WebSocket或MQTT
     }
 
     @Override

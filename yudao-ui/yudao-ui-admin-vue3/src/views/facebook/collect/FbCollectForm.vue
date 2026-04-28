@@ -1,5 +1,9 @@
 <template>
-  <Dialog :title="dialogTitle" v-model="dialogVisible" :width="formType === 'view' ? '90%' : '700px'">
+  <Dialog
+    :title="dialogTitle"
+    v-model="dialogVisible"
+    :width="formType === 'view' ? '90%' : '700px'"
+  >
     <div v-loading="formLoading">
       <!-- 主表信息 -->
       <el-card class="mb-4" v-if="formType === 'view' && taskDetail">
@@ -16,20 +20,36 @@
           <el-descriptions-item label="状态">
             <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="taskDetail.status" />
           </el-descriptions-item>
-          <el-descriptions-item label="总期望数量">{{ taskDetail.totalExpectedCount || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="总已采集">{{ taskDetail.totalCollectedCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="总期望数量">{{
+            taskDetail.totalExpectedCount || 0
+          }}</el-descriptions-item>
+          <el-descriptions-item label="总已采集">{{
+            taskDetail.totalCollectedCount || 0
+          }}</el-descriptions-item>
           <el-descriptions-item label="进度">
-            <el-progress 
-              :percentage="getTotalProgress()" 
+            <el-progress
+              :percentage="getTotalProgress()"
               :status="taskDetail.status === 2 ? 'success' : undefined"
             />
           </el-descriptions-item>
-          <el-descriptions-item label="账号数量">{{ taskDetail.accountCount || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="链接数量">{{ taskDetail.urlCount || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ formatDate(taskDetail.createTime) }}</el-descriptions-item>
-          <el-descriptions-item label="开始时间">{{ formatDate(taskDetail.startTime) }}</el-descriptions-item>
-          <el-descriptions-item label="结束时间">{{ formatDate(taskDetail.endTime) }}</el-descriptions-item>
-          <el-descriptions-item label="备注" :span="3">{{ taskDetail.remark || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="账号数量">{{
+            taskDetail.accountCount || 0
+          }}</el-descriptions-item>
+          <el-descriptions-item label="链接数量">{{
+            taskDetail.urlCount || 0
+          }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{
+            formatDate(taskDetail.createTime)
+          }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{
+            formatDate(taskDetail.startTime)
+          }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{
+            formatDate(taskDetail.endTime)
+          }}</el-descriptions-item>
+          <el-descriptions-item label="备注" :span="3">{{
+            taskDetail.remark || '-'
+          }}</el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -63,8 +83,17 @@
         </el-form-item>
 
         <!-- 搜索方式和关键词（群成员采集和用户关系采集不显示） -->
-        <el-form-item v-if="formData.taskType !== 7 && formData.taskType !== 8" label="搜索方式" prop="searchType">
-          <el-select v-model="formData.searchType" placeholder="请选择搜索方式" style="width: 100%" @change="handleSearchTypeChange">
+        <el-form-item
+          v-if="formData.taskType !== 7 && formData.taskType !== 8"
+          label="搜索方式"
+          prop="searchType"
+        >
+          <el-select
+            v-model="formData.searchType"
+            placeholder="请选择搜索方式"
+            style="width: 100%"
+            @change="handleSearchTypeChange"
+          >
             <el-option
               v-for="dict in getIntDictOptions(DICT_TYPE.FB_SEARCH_TYPE)"
               :key="dict.value"
@@ -75,7 +104,11 @@
         </el-form-item>
 
         <!-- 关键词输入框(仅当searchType=1且taskType不是7或8时显示) -->
-        <el-form-item v-if="formData.searchType === 1 && formData.taskType !== 7 && formData.taskType !== 8" label="关键词" prop="keyword">
+        <el-form-item
+          v-if="formData.searchType === 1 && formData.taskType !== 7 && formData.taskType !== 8"
+          label="关键词"
+          prop="keyword"
+        >
           <el-input
             v-model="formData.keyword"
             type="textarea"
@@ -86,7 +119,11 @@
         </el-form-item>
 
         <!-- 采集链接输入框(仅当searchType=0且taskType不是7或8时显示) -->
-        <el-form-item v-if="formData.searchType === 0 && formData.taskType !== 7 && formData.taskType !== 8" label="采集链接" prop="searchUrl">
+        <el-form-item
+          v-if="formData.searchType === 0 && formData.taskType !== 7 && formData.taskType !== 8"
+          label="采集链接"
+          prop="searchUrl"
+        >
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
@@ -104,7 +141,11 @@
         </el-form-item>
 
         <!-- 手动输入链接模式 -->
-        <el-form-item v-if="formData.taskType === 7 && groupInputMode === 'manual'" label="采集链接" prop="searchUrl">
+        <el-form-item
+          v-if="formData.taskType === 7 && groupInputMode === 'manual'"
+          label="采集链接"
+          prop="searchUrl"
+        >
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
@@ -114,7 +155,10 @@
         </el-form-item>
 
         <!-- 从群组选择模式 -->
-        <el-form-item v-if="formData.taskType === 7 && groupInputMode === 'select'" label="选择群组">
+        <el-form-item
+          v-if="formData.taskType === 7 && groupInputMode === 'select'"
+          label="选择群组"
+        >
           <div class="w-full">
             <el-button type="primary" @click="openGroupSelector" class="mb-2">
               <Icon icon="ep:plus" class="mr-5px" /> 选择群组
@@ -130,9 +174,7 @@
                 {{ group.groupName }}
               </el-tag>
             </div>
-            <div v-else class="text-gray-400 text-sm mt-2">
-              暂未选择群组，请点击上方按钮选择
-            </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择群组，请点击上方按钮选择 </div>
           </div>
         </el-form-item>
 
@@ -154,7 +196,11 @@
         </el-form-item>
 
         <!-- 手动输入链接模式 -->
-        <el-form-item v-if="formData.taskType === 8 && userInputMode === 'manual'" label="采集链接" prop="searchUrl">
+        <el-form-item
+          v-if="formData.taskType === 8 && userInputMode === 'manual'"
+          label="采集链接"
+          prop="searchUrl"
+        >
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
@@ -180,9 +226,7 @@
                 {{ user.userName }}
               </el-tag>
             </div>
-            <div v-else class="text-gray-400 text-sm mt-2">
-              暂未选择用户，请点击上方按钮选择
-            </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择用户，请点击上方按钮选择 </div>
           </div>
         </el-form-item>
 
@@ -214,9 +258,13 @@
         <!-- Tab 1: 采集明细 -->
         <el-tab-pane label="📊 采集明细" name="details">
           <el-table :data="detailList" stripe border max-height="500">
-            <el-table-column label="明细ID" prop="id" width="100" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
-            <el-table-column label="采集链接" prop="searchUrl" min-width="300" show-overflow-tooltip />
+            <el-table-column
+              label="采集链接"
+              prop="searchUrl"
+              min-width="300"
+              show-overflow-tooltip
+            />
             <el-table-column label="期望/已采" width="120">
               <template #default="scope">
                 {{ scope.row.expectedCount }}/{{ scope.row.collectedCount || 0 }}
@@ -224,8 +272,8 @@
             </el-table-column>
             <el-table-column label="进度" width="150">
               <template #default="scope">
-                <el-progress 
-                  :percentage="getDetailProgress(scope.row)" 
+                <el-progress
+                  :percentage="getDetailProgress(scope.row)"
                   :status="scope.row.status === 2 ? 'success' : undefined"
                   :stroke-width="12"
                 />
@@ -241,7 +289,46 @@
 
         <!-- Tab 2: 采集结果 -->
         <el-tab-pane label="👥 采集结果" name="results">
-          <el-table :data="filteredUserList" stripe border max-height="500">
+          <!-- 帖子采集结果显示 -->
+          <el-table
+            v-if="taskDetail?.taskType === 2"
+            :data="filteredUserList"
+            stripe
+            border
+            max-height="500"
+          >
+            <el-table-column label="发帖人" prop="postUser" width="150" />
+            <el-table-column label="帖子链接" prop="url" min-width="250" show-overflow-tooltip />
+            <el-table-column label="来源" prop="fromResource" width="100" />
+            <el-table-column label="群组名称" prop="groupName" width="150" show-overflow-tooltip />
+            <el-table-column label="点赞数" prop="reactionCount" width="100" />
+            <el-table-column label="评论数" prop="commentCount" width="100" />
+            <el-table-column label="转发数" prop="reshareCount" width="100" />
+            <el-table-column
+              label="帖子内容"
+              prop="postContent"
+              min-width="300"
+              show-overflow-tooltip
+            />
+          </el-table>
+
+          <!-- 群组采集结果显示 -->
+          <el-table
+            v-else-if="taskDetail?.taskType === 4"
+            :data="filteredUserList"
+            stripe
+            border
+            max-height="500"
+          >
+            <el-table-column label="群组名称" prop="groupName" width="200" />
+            <el-table-column label="群组链接" prop="url" min-width="300" show-overflow-tooltip />
+            <el-table-column label="类型" prop="type" width="100" />
+            <el-table-column label="成员数" prop="memberQuantity" width="120" />
+            <el-table-column label="活跃度" prop="activeQuantity" width="150" />
+          </el-table>
+
+          <!-- 用户采集结果显示（默认） -->
+          <el-table v-else :data="filteredUserList" stripe border max-height="500">
             <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
             <el-table-column label="用户名" prop="userName" width="150" />
             <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
@@ -250,6 +337,7 @@
             <el-table-column label="邮箱" prop="email" width="180" />
             <el-table-column label="电话" prop="phonenumber" width="130" />
           </el-table>
+
           <el-pagination
             v-if="userList.length > 0"
             class="mt-4"
@@ -267,7 +355,12 @@
     </div>
 
     <template #footer>
-      <el-button type="primary" @click="submitForm" :loading="formLoading" v-if="formType === 'create'">
+      <el-button
+        type="primary"
+        @click="submitForm"
+        :loading="formLoading"
+        v-if="formType === 'create'"
+      >
         确 定
       </el-button>
       <el-button @click="dialogVisible = false">关 闭</el-button>
@@ -275,16 +368,10 @@
   </Dialog>
 
   <!-- 群组选择器组件 -->
-  <GroupSelector
-    v-model="groupSelectorVisible"
-    @confirm="handleGroupConfirm"
-  />
+  <GroupSelector v-model="groupSelectorVisible" @confirm="handleGroupConfirm" />
 
   <!-- 用户选择器组件 -->
-  <UserSelector
-    v-model="userSelectorVisible"
-    @confirm="handleUserConfirm"
-  />
+  <UserSelector v-model="userSelectorVisible" @confirm="handleUserConfirm" />
 </template>
 
 <script setup lang="ts">
@@ -294,6 +381,7 @@ import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
+import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
 import { startBrowserCollect } from '@/utils/wpfBridge'
 import { DICT_TYPE, getIntDictOptions } from '@/utils/dict'
 import { useI18n } from '@/hooks/web/useI18n'
@@ -337,15 +425,15 @@ const formRules = reactive({
   accountIds: [{ required: true, message: '请选择采集账号', trigger: 'change' }],
   taskType: [{ required: true, message: '请选择采集类型', trigger: 'change' }],
   searchType: [
-    { 
-      required: true, 
-      message: '请选择搜索方式', 
+    {
+      required: true,
+      message: '请选择搜索方式',
       trigger: 'change',
       validator: (rule: any, value: any, callback: any) => {
         // 群成员采集和用户关系采集不需要验证搜索方式
         if (formData.value.taskType === 7 || formData.value.taskType === 8) {
           callback()
-        } else if (!value) {
+        } else if (value === undefined || value === null) {
           callback(new Error('请选择搜索方式'))
         } else {
           callback()
@@ -354,9 +442,9 @@ const formRules = reactive({
     }
   ],
   keyword: [
-    { 
-      required: true, 
-      message: '请输入搜索关键词', 
+    {
+      required: true,
+      message: '请输入搜索关键词',
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
         // 群成员采集和用户关系采集不需要验证关键词
@@ -434,10 +522,10 @@ const open = async (type: string, id?: number, taskTypeValue?: number) => {
       const data = await FbCollectApi.getFbCollect(id)
       taskDetail.value = data
       formData.value = data
-      
+
       // 加载明细列表
       await loadDetailList(id)
-      
+
       // 加载采集结果
       await loadUserList(id)
     } finally {
@@ -448,15 +536,31 @@ const open = async (type: string, id?: number, taskTypeValue?: number) => {
 defineExpose({ open }) // 提供 open 方法，用于打开弹窗
 
 /** 加载明细列表 */
-const loadDetailList = async (taskId: number) => {
+const loadDetailList = async (taskId: number | string) => {
   try {
+    console.log('🔍 加载明细列表, taskId:', taskId, 'type:', typeof taskId)
     const response = await request.get({
       url: '/facebook/fb-collect-detail/list-by-task',
-      params: { taskId }
+      params: { taskId } // 直接传递,让qs库处理
     })
-    detailList.value = response.data || []
+    console.log('📦 API响应:', response)
+    console.log('📦 响应类型:', Array.isArray(response) ? 'Array' : typeof response)
+
+    // response 已经是数据本身(拦截器已处理)
+    let dataList = []
+    if (Array.isArray(response)) {
+      dataList = response
+    } else if (response && response.data && Array.isArray(response.data)) {
+      dataList = response.data
+    } else if (response && response.list && Array.isArray(response.list)) {
+      dataList = response.list
+    }
+
+    console.log('✅ 明细列表加载成功, 数量:', dataList.length)
+    console.log('📋 第一条数据:', dataList[0])
+    detailList.value = dataList
   } catch (error) {
-    console.error('加载明细列表失败:', error)
+    console.error('❌ 加载明细列表失败:', error)
     detailList.value = []
   }
 }
@@ -464,30 +568,51 @@ const loadDetailList = async (taskId: number) => {
 /** 加载采集结果 */
 const loadUserList = async (taskId: number) => {
   try {
-    // 一次性加载所有数据(后端限制pageSize最大200)
-    const allUsers: any[] = []
+    // 根据任务类型加载不同的采集结果
+    const taskType = taskDetail.value?.taskType
+    const allResults: any[] = []
     let pageNo = 1
     const pageSize = 200
-    
+
     while (true) {
-      const response = await FbCollectUserApi.getFbCollectUserPage({
-        pageNo,
-        pageSize,
-        taskId
-      })
-      
+      let response: any
+
+      // 根据任务类型调用不同的API
+      if (taskType === 2) {
+        // 帖子采集 - 查询 fb_collect_post 表
+        response = await FbCollectPostApi.getFbCollectPostPage({
+          pageNo,
+          pageSize,
+          taskId
+        })
+      } else if (taskType === 4) {
+        // 群组采集 - 查询 fb_collect_group 表
+        response = await FbCollectGroupApi.getFbCollectGroupPage({
+          pageNo,
+          pageSize,
+          taskId
+        })
+      } else {
+        // 用户采集等其他类型 - 查询 fb_collect_user 表
+        response = await FbCollectUserApi.getFbCollectUserPage({
+          pageNo,
+          pageSize,
+          taskId
+        })
+      }
+
       const list = response.list || []
-      allUsers.push(...list)
-      
+      allResults.push(...list)
+
       // 如果返回的数据少于pageSize,说明已经是最后一页
       if (list.length < pageSize) {
         break
       }
-      
+
       pageNo++
     }
-    
-    userList.value = allUsers
+
+    userList.value = allResults
     userPageNo.value = 1 // 重置页码
   } catch (error) {
     console.error('加载采集结果失败:', error)
@@ -589,14 +714,17 @@ const submitForm = async () => {
           String(fbAccount),
           null,
           firstDetail.searchUrl,
-          data.expectedCount
+          data.expectedCount,
+          data.taskType // 传递任务类型(1主页/2帖子/3用户等)
         )
         createdTasks.push({
           detailId: firstDetail.detailId,
           fbAccount: fbAccount,
           url: firstDetail.searchUrl
         })
-        console.log(`🚀 启动采集: 明细ID=${firstDetail.detailId}, 账号=${fbAccount}`)
+        console.log(
+          `🚀 启动采集: 明细ID=${firstDetail.detailId}, 账号=${fbAccount}, 类型=${data.taskType}`
+        )
       } catch (error) {
         console.error(`启动账号 ${fbAccount} 的浏览器失败:`, error)
         message.warning(`账号 ${fbAccount} 启动浏览器失败`)
@@ -644,17 +772,16 @@ const resetForm = () => {
 /** 计算总进度 */
 const getTotalProgress = () => {
   if (!taskDetail.value || !taskDetail.value.totalExpectedCount) return 0
-  return Math.min(100, Math.round(
-    (taskDetail.value.totalCollectedCount / taskDetail.value.totalExpectedCount) * 100
-  ))
+  return Math.min(
+    100,
+    Math.round((taskDetail.value.totalCollectedCount / taskDetail.value.totalExpectedCount) * 100)
+  )
 }
 
 /** 计算明细进度 */
 const getDetailProgress = (detail: any) => {
   if (!detail.expectedCount) return 0
-  return Math.min(100, Math.round(
-    ((detail.collectedCount || 0) / detail.expectedCount) * 100
-  ))
+  return Math.min(100, Math.round(((detail.collectedCount || 0) / detail.expectedCount) * 100))
 }
 
 /** 格式化日期 */
@@ -699,7 +826,7 @@ const getUrlPlaceholder = (taskType?: number) => {
 /** 根据taskType和关键词生成搜索URL */
 const generateSearchUrl = (taskType: number, keyword: string): string => {
   if (!keyword) return ''
-  
+
   // 根据不同的taskType生成不同的搜索URL
   const urlMap: Record<number, string> = {
     1: `https://www.facebook.com/search/pages?q=${encodeURIComponent(keyword)}`, // 主页采集
@@ -709,19 +836,22 @@ const generateSearchUrl = (taskType: number, keyword: string): string => {
     5: `https://www.facebook.com/search/events?q=${encodeURIComponent(keyword)}`, // 活动采集
     6: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}` // 评论采集(先搜索帖子)
   }
-  
+
   return urlMap[taskType] || urlMap[1]
 }
 
 /** 根据多个关键词生成多个URL(换行分隔) */
 const generateSearchUrls = (taskType: number, keywords: string): string => {
   if (!keywords) return ''
-  
+
   // 按换行符分割关键词,过滤空行
-  const keywordList = keywords.split('\n').map(k => k.trim()).filter(k => k)
-  
+  const keywordList = keywords
+    .split('\n')
+    .map((k) => k.trim())
+    .filter((k) => k)
+
   // 为每个关键词生成URL,再用换行符连接
-  return keywordList.map(keyword => generateSearchUrl(taskType, keyword)).join('\n')
+  return keywordList.map((keyword) => generateSearchUrl(taskType, keyword)).join('\n')
 }
 
 /** 处理搜索方式变化 */
@@ -754,12 +884,12 @@ const handleGroupInputModeChange = (mode: 'manual' | 'select') => {
 
 /** 移除已选择的群组 */
 const removeSelectedGroup = (groupId: number) => {
-  const index = selectedGroups.value.findIndex(g => g.id === groupId)
+  const index = selectedGroups.value.findIndex((g) => g.id === groupId)
   if (index > -1) {
     selectedGroups.value.splice(index, 1)
     // 重新生成链接
     if (selectedGroups.value.length > 0) {
-      const memberUrls = selectedGroups.value.map(group => {
+      const memberUrls = selectedGroups.value.map((group) => {
         const baseUrl = group.url.split('?')[0]
         return `${baseUrl}/members`
       })
@@ -773,16 +903,16 @@ const removeSelectedGroup = (groupId: number) => {
 /** 确认群组选择（组件回调） */
 const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   selectedGroups.value = groups
-  
+
   // 生成带/members后缀的采集链接
-  const memberUrls = groups.map(group => {
+  const memberUrls = groups.map((group) => {
     const baseUrl = group.url.split('?')[0] // 移除查询参数
     return `${baseUrl}/members`
   })
-  
+
   // 将URLs用换行符连接
   formData.value.searchUrl = memberUrls.join('\n')
-  
+
   message.success(`已选择 ${groups.length} 个群组，生成了 ${memberUrls.length} 个采集链接`)
 }
 
@@ -805,7 +935,7 @@ const handleUserInputModeChange = (mode: 'manual' | 'select') => {
 
 /** 移除已选择的用户 */
 const removeSelectedUser = (userId: number) => {
-  const index = selectedUsers.value.findIndex(u => u.id === userId)
+  const index = selectedUsers.value.findIndex((u) => u.id === userId)
   if (index > -1) {
     selectedUsers.value.splice(index, 1)
     // 重新生成链接
@@ -820,12 +950,12 @@ const removeSelectedUser = (userId: number) => {
 /** 生成用户关系采集链接 */
 const generateUserRelationUrls = () => {
   const urls: string[] = []
-  
-  selectedUsers.value.forEach(user => {
+
+  selectedUsers.value.forEach((user) => {
     const baseUrl = user.url.split('?')[0] // 移除查询参数
-    
+
     // 根据选中的关系类型生成不同的链接
-    relationTypes.value.forEach(relationType => {
+    relationTypes.value.forEach((relationType) => {
       let suffix = ''
       if (relationType === 'followers') {
         suffix = '&sk=followers'
@@ -834,36 +964,40 @@ const generateUserRelationUrls = () => {
       } else if (relationType === 'friends') {
         suffix = '&sk=friends'
       }
-      
+
       if (suffix) {
         urls.push(`${baseUrl}${suffix}`)
       }
     })
   })
-  
+
   formData.value.searchUrl = urls.join('\n')
 }
 
 /** 确认用户选择（组件回调） */
 const handleUserConfirm = (users: FbCollectUser[]) => {
   selectedUsers.value = users
-  
+
   if (relationTypes.value.length === 0) {
     message.warning('请至少选择一种关系类型')
     return
   }
-  
+
   // 生成带关系后缀的采集链接
   generateUserRelationUrls()
-  
+
   const relationNames = {
     followers: '粉丝',
     following: '关注',
     friends: '好友'
   }
-  const selectedRelations = relationTypes.value.map(t => relationNames[t as keyof typeof relationNames]).join('、')
-  
-  message.success(`已选择 ${users.length} 个用户，${selectedRelations}，生成了 ${formData.value.searchUrl.split('\n').length} 个采集链接`)
+  const selectedRelations = relationTypes.value
+    .map((t) => relationNames[t as keyof typeof relationNames])
+    .join('、')
+
+  message.success(
+    `已选择 ${users.length} 个用户，${selectedRelations}，生成了 ${formData.value.searchUrl.split('\n').length} 个采集链接`
+  )
 }
 
 // 监听keyword和taskType变化,自动生成URL
@@ -882,7 +1016,11 @@ watch(
   () => relationTypes.value,
   () => {
     // 只有在用户关系采集模式且从用户选择模式下才生效
-    if (formData.value.taskType === 8 && userInputMode.value === 'select' && selectedUsers.value.length > 0) {
+    if (
+      formData.value.taskType === 8 &&
+      userInputMode.value === 'select' &&
+      selectedUsers.value.length > 0
+    ) {
       generateUserRelationUrls()
     }
   },

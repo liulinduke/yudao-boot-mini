@@ -82,4 +82,19 @@ public class FbAccountServiceImpl implements FbAccountService {
         return fbAccountMapper.selectPage(pageReqVO);
     }
 
+    @Override
+    public void updateFbAccountLanguage(Long id, Integer language) {
+        // 校验存在
+        validateFbAccountExists(id);
+        // 校验语言值
+        if (language != 1 && language != 2) {
+            throw new IllegalArgumentException("语言设置只能是1(英文)或2(中文)");
+        }
+        // 更新语言字段
+        FbAccountDO updateObj = new FbAccountDO();
+        updateObj.setId(id);
+        updateObj.setLanguage(language);
+        fbAccountMapper.updateById(updateObj);
+    }
+
 }

@@ -21,6 +21,7 @@ export interface FbAccount {
           reason: string; // 异常原因
           proxy: string; // 代理
           proxyId: number; // 代理ID
+          language?: number; // 语言设置：1-英文，2-中文
           creationDate: string | Dayjs; // 注册日期
   }
 
@@ -59,5 +60,13 @@ export const FbAccountApi = {
   // 导出FB账号 Excel
   exportFbAccount: async (params) => {
     return await request.download({ url: `/facebook/fb-account/export-excel`, params })
+  },
+
+  // 更新FB账号语言设置
+  updateFbAccountLanguage: async (id: number, language: number) => {
+    return await request.put({ 
+      url: `/facebook/fb-account/update-language`, 
+      params: { id, language }
+    })
   },
 }

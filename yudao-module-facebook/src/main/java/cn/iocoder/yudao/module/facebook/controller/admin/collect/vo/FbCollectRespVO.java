@@ -51,6 +51,22 @@ public class FbCollectRespVO {
     @Schema(description = "已采集数量", example = "3037")
     @ExcelProperty("已采集数量")
     private Integer collectedCount;
+    
+    @Schema(description = "总期望采集数量(所有明细之和)", example = "100")
+    @ExcelProperty("总期望采集数量")
+    private Integer totalExpectedCount;
+    
+    @Schema(description = "总已采集数量(所有明细之和)", example = "50")
+    @ExcelProperty("总已采集数量")
+    private Integer totalCollectedCount;
+    
+    @Schema(description = "参与账号数量", example = "3")
+    @ExcelProperty("参与账号数量")
+    private Integer accountCount;
+    
+    @Schema(description = "采集链接数量", example = "2")
+    @ExcelProperty("采集链接数量")
+    private Integer urlCount;
 
     @Schema(description = "错误信息")
     @ExcelProperty("错误信息")
@@ -72,4 +88,4 @@ public class FbCollectRespVO {
     @ExcelProperty("创建时间")
     private LocalDateTime createTime;
 
-}
+}

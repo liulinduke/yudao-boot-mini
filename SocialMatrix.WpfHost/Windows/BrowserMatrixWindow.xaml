@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="浏览器矩阵 - SocialMatrix" 
         Height="700" Width="1200"
+        WindowState="Maximized"
         WindowStartupLocation="CenterScreen">
     
     <Grid>

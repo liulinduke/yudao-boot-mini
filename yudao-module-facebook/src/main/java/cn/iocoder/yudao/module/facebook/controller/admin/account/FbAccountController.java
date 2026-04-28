@@ -101,4 +101,14 @@ public class FbAccountController {
                         BeanUtils.toBean(list, FbAccountRespVO.class));
     }
 
+    @PutMapping("/update-language")
+    @Operation(summary = "更新FB账号语言设置")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> updateFbAccountLanguage(
+            @RequestParam("id") Long id,
+            @RequestParam("language") Integer language) {
+        fbAccountService.updateFbAccountLanguage(id, language);
+        return success(true);
+    }
+
 }

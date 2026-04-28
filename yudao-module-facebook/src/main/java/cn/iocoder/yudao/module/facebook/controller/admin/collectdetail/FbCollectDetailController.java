@@ -45,8 +45,10 @@ public class FbCollectDetailController {
     @Operation(summary = "根据任务ID查询明细列表")
     @Parameter(name = "taskId", description = "任务ID", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
-    public CommonResult<List<FbCollectDetailDO>> getDetailListByTaskId(@RequestParam("taskId") Long taskId) {
-        List<FbCollectDetailDO> list = fbCollectDetailService.getDetailListByTaskId(taskId);
+    public CommonResult<List<FbCollectDetailDO>> getDetailListByTaskId(@RequestParam("taskId") String taskId) {
+        // 将字符串转换为 Long，避免前端精度丢失
+        Long taskIdLong = Long.parseLong(taskId);
+        List<FbCollectDetailDO> list = fbCollectDetailService.getDetailListByTaskId(taskIdLong);
         return success(list);
     }
 }

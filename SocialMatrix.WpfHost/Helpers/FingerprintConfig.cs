@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using CefSharp;
+using CefSharp.Handler;
 using CefSharp.Wpf;
 
 namespace SocialMatrix.WpfHost.Helpers
@@ -17,6 +20,10 @@ namespace SocialMatrix.WpfHost.Helpers
         public double? Latitude { get; set; }    // 纬度（可选）
         public double? Longitude { get; set; }   // 经度（可选）
         public long? DeviceId { get; set; }      // 设备ID（用于生成固定的设备名称）
+        
+        // ==================== 全局配置（从后端读取）====================
+        public bool DisableImages { get; set; } = false;   // 不加载图片
+        public bool DisableVideos { get; set; } = false;   // 不加载视频
 
         // ==================== 自动推导 ====================
         /// <summary>语言（数据库没有经纬度，不注入语言，让浏览器通过代理IP自动检测）</summary>
@@ -112,7 +119,13 @@ namespace SocialMatrix.WpfHost.Helpers
             var script = BuildScript(config);
             await browser.EvaluateScriptAsync(script);
             
-            System.Diagnostics.Debug.WriteLine($"✅ 指纹注入: Language=自动检测, TZ=自动检测, DeviceName={config.DeviceName}");
+            // 设置请求处理器来禁用图片/视频
+            if (config.DisableImages || config.DisableVideos)
+            {
+                browser.RequestHandler = new ResourceFilterRequestHandler(config.DisableImages, config.DisableVideos);
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"✅ 指纹注入: Language=自动检测, TZ=自动检测, DeviceName={config.DeviceName}, DisableImages={config.DisableImages}, DisableVideos={config.DisableVideos}");
         }
 
         private static string BuildScript(FingerprintConfig config)
@@ -328,5 +341,102 @@ namespace SocialMatrix.WpfHost.Helpers
 
             return sb.ToString();
         }
+    }
+    
+    /// <summary>
+    /// 资源请求处理器 - 用于禁用图片/视频加载
+    /// </summary>
+    public class ResourceFilterRequestHandler : CefSharp.IRequestHandler
+    {
+        private readonly ResourceRequestHandler _resourceHandler;
+        
+        public ResourceFilterRequestHandler(bool disableImages, bool disableVideos)
+        {
+            _resourceHandler = new ResourceRequestHandler(disableImages, disableVideos);
+        }
+        
+        // IRequestHandler 方法实现 - 大部分使用默认行为
+        public bool OnBeforeBrowse(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, bool userGesture, bool isRedirect) => false;
+        public bool OnOpenUrlFromTab(IWebBrowser browserControl, IBrowser browser, IFrame frame, string targetUrl, WindowOpenDisposition targetDisposition, bool userGesture) => false;
+        public void OnDocumentAvailableInMainFrame(IWebBrowser browserControl, IBrowser browser) { }
+        public bool OnCertificateError(IWebBrowser browserControl, IBrowser browser, CefErrorCode errorCode, string requestUrl, ISslInfo sslInfo, IRequestCallback callback) { callback.Dispose(); return false; }
+        public bool OnSelectClientCertificate(IWebBrowser browserControl, IBrowser browser, bool isProxy, string host, int port, X509Certificate2Collection certificates, ISelectClientCertificateCallback callback) { callback.Dispose(); return false; }
+        public void OnPluginCrashed(IWebBrowser browserControl, IBrowser browser, string pluginPath) { }
+        public void OnRenderViewReady(IWebBrowser browserControl, IBrowser browser) { }
+        public void OnRenderProcessTerminated(IWebBrowser browserControl, IBrowser browser, CefTerminationStatus status, int errorCode, string errorMessage) { }
+        public void OnQuotaRequest(IWebBrowser browserControl, IBrowser browser, string originUrl, long newSize, IRequestCallback callback) { callback.Dispose(); }
+        public void OnLogin(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isRetry, string suggestedUserName, string suggestedPassword, IAuthCallback callback) { callback.Dispose(); }
+        public bool GetAuthCredentials(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isProxy, string host, int port, string realm, string scheme, IAuthCallback callback) { callback.Dispose(); return false; }
+        public bool OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, string url) => false;
+        public void OnConsoleMessage(IWebBrowser browserControl, IBrowser browser, ConsoleMessageEventArgs consoleMessageArgs) { }
+        
+        // 关键方法：返回资源请求处理器
+        public IResourceRequestHandler? GetResourceRequestHandler(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, bool isNavigation, bool isDownload, string requestInitiator, ref bool disableDefaultHandling)
+        {
+            return _resourceHandler;
+        }
+    }
+    
+    /// <summary>
+    /// 资源请求处理器 - 用于禁用图片/视频加载
+    /// </summary>
+    public class ResourceRequestHandler : CefSharp.IResourceRequestHandler
+    {
+        private readonly bool _disableImages;
+        private readonly bool _disableVideos;
+        
+        public ResourceRequestHandler(bool disableImages, bool disableVideos)
+        {
+            _disableImages = disableImages;
+            _disableVideos = disableVideos;
+        }
+        
+        public CefSharp.CefReturnValue OnBeforeResourceLoad(
+            IWebBrowser browserControl, 
+            IBrowser browser, 
+            IFrame frame, 
+            IRequest request, 
+            IRequestCallback callback)
+        {
+            var url = request.Url?.ToLower() ?? "";
+            
+            // 禁用图片
+            if (_disableImages)
+            {
+                if (url.EndsWith(".jpg") || url.EndsWith(".jpeg") || 
+                    url.EndsWith(".png") || url.EndsWith(".gif") || 
+                    url.EndsWith(".bmp") || url.EndsWith(".webp") ||
+                    url.EndsWith(".svg") || url.EndsWith(".ico"))
+                {
+                    System.Diagnostics.Debug.WriteLine($"🚫 已阻止图片加载: {url}");
+                    callback.Dispose();
+                    return CefSharp.CefReturnValue.Cancel;
+                }
+            }
+            
+            // 禁用视频
+            if (_disableVideos)
+            {
+                if (url.EndsWith(".mp4") || url.EndsWith(".webm") || 
+                    url.EndsWith(".avi") || url.EndsWith(".mov") || 
+                    url.EndsWith(".wmv") || url.EndsWith(".flv") ||
+                    url.EndsWith(".mkv"))
+                {
+                    System.Diagnostics.Debug.WriteLine($"🚫 已阻止视频加载: {url}");
+                    callback.Dispose();
+                    return CefSharp.CefReturnValue.Cancel;
+                }
+            }
+            
+            callback.Dispose();
+            return CefSharp.CefReturnValue.Continue;
+        }
+        
+        // 实现 IResourceRequestHandler 接口的其他方法（使用默认实现）
+        public void OnResourceRedirect(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, ref string newUrl) { }
+        public void OnResourceLoadComplete(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, UrlRequestStatus status, long receivedContentLength) { }
+        public void OnResourceLoadCleared(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response) { }
+        public IResponseFilter? GetResourceResponseFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response) => null;
+        public void OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, IFrame frame, string url) { }
     }
 }

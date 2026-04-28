@@ -79,77 +79,62 @@
               class="!w-240px"
             />
           </el-form-item>
-      <el-form-item label="密码" prop="password">
-        <el-input
-          v-model="queryParams.password"
-          placeholder="请输入密码"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="地区" prop="area">
-        <el-input
-          v-model="queryParams.area"
-          placeholder="请输入地区"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
-      <el-form-item label="好友数" prop="friends">
-        <el-input
-          v-model="queryParams.friends"
-          placeholder="请输入好友数"
-          clearable
-          @keyup.enter="handleQuery"
-          class="!w-240px"
-        />
-      </el-form-item>
           <el-form-item>
             <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
             <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
-            <el-button
-              type="primary"
-              plain
-              @click="openForm('create')"
-              v-hasPermi="['facebook:fb-account:create']"
-            >
-              <Icon icon="ep:plus" class="mr-5px" /> 新增
-            </el-button>
-            <el-button
-              type="success"
-              plain
-              @click="handleExport"
-              :loading="exportLoading"
-              v-hasPermi="['facebook:fb-account:export']"
-            >
-              <Icon icon="ep:download" class="mr-5px" /> 导出
-            </el-button>
-            <el-button
-                type="danger"
-                plain
-                :disabled="isEmpty(checkedIds)"
-                @click="handleDeleteBatch"
-                v-hasPermi="['facebook:fb-account:delete']"
-            >
-              <Icon icon="ep:delete" class="mr-5px" /> 批量删除
-            </el-button>
           </el-form-item>
         </el-form>
+        
+        <!-- 操作按钮栏 -->
+        <div class="mt-2 mb-2 flex gap-2 flex-wrap">
+          <el-button
+            type="primary"
+            plain
+            @click="openForm('create')"
+            v-hasPermi="['facebook:fb-account:create']"
+          >
+            <Icon icon="ep:plus" class="mr-5px" /> 新增
+          </el-button>
+          <el-button
+            type="success"
+            plain
+            @click="handleExport"
+            :loading="exportLoading"
+            v-hasPermi="['facebook:fb-account:export']"
+          >
+            <Icon icon="ep:download" class="mr-5px" /> 导出
+          </el-button>
+          <el-button
+            type="danger"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="handleDeleteBatch"
+            v-hasPermi="['facebook:fb-account:delete']"
+          >
+            <Icon icon="ep:delete" class="mr-5px" /> 批量删除
+          </el-button>
+          <el-button
+            type="warning"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openLanguageDialog"
+          >
+            <Icon icon="ep:setting" class="mr-5px" /> 设置语言
+          </el-button>
+        </div>
 
         <!-- 列表 -->
-        <div class="flex-1 mt-4">
+        <div class="flex-1 mt-4 overflow-auto">
           <el-table
-        row-key="id"
-        v-loading="loading"
-        :data="list"
-        :stripe="true"
-        :show-overflow-tooltip="true"
-        @selection-change="handleRowCheckboxChange"
-    >
+            row-key="id"
+            v-loading="loading"
+            :data="list"
+            :stripe="true"
+            :show-overflow-tooltip="true"
+            @selection-change="handleRowCheckboxChange"
+            style="width: 100%; min-width: 1200px;"
+          >
     <el-table-column type="selection" width="55" />
-      <el-table-column label="id" align="center" prop="id" />
       <el-table-column label="FB账号" align="center" prop="fbAccount" />
       <el-table-column label="密码" align="center" prop="password" />
       <el-table-column label="地区" align="center" prop="area" />
@@ -161,12 +146,14 @@
       <el-table-column label="用户代理" align="center" prop="userAgent" />
       <el-table-column label="2FA" align="center" prop="tfa" />
       <el-table-column label="邮件信息" align="center" prop="email" />
-      <el-table-column label="邮箱密码" align="center" prop="emailPassword" />
-      <el-table-column label="设备ID" align="center" prop="deviceId" />
-      <el-table-column label="设备名称" align="center" prop="deviceName" />
-      <el-table-column label="异常原因" align="center" prop="reason" />
       <el-table-column label="代理" align="center" prop="proxy" />
-      <el-table-column label="代理ID" align="center" prop="proxyId" />
+      <el-table-column label="语言" align="center" prop="language" width="100">
+        <template #default="scope">
+          <el-tag :type="scope.row.language === 1 ? 'success' : 'primary'" size="small">
+            {{ scope.row.language === 1 ? '英文' : scope.row.language === 2 ? '中文' : '未设置' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column
         label="注册日期"
         align="center"
@@ -219,6 +206,9 @@
   
   <!-- 分组表单弹窗 -->
   <AccountGroupForm ref="groupFormRef" @success="loadGroups" />
+  
+  <!-- 设置语言弹窗 -->
+  <SetLanguageDialog ref="languageDialogRef" @success="getList" />
 </template>
 
 <script setup lang="ts">
@@ -229,6 +219,7 @@ import { FbAccountApi, FbAccount } from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import FbAccountForm from './FbAccountForm.vue'
 import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
+import SetLanguageDialog from './SetLanguageDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 
@@ -271,6 +262,9 @@ const exportLoading = ref(false) // 导出的加载中
 const groupList = ref<any[]>([])
 const selectedGroupId = ref<number | null>(null)
 const groupFormRef = ref()
+
+// 语言设置相关
+const languageDialogRef = ref()
 
 /** 查询列表 */
 const getList = async () => {
@@ -383,6 +377,12 @@ const handleDeleteGroup = async (id: number) => {
       await getList()
     }
   } catch {}
+}
+
+/** 打开语言设置对话框 */
+const openLanguageDialog = () => {
+  const selectedAccounts = list.value.filter(account => checkedIds.value.includes(account.id!))
+  languageDialogRef.value.open(selectedAccounts)
 }
 
 /** 初始化 **/

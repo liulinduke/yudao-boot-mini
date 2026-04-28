@@ -7,11 +7,6 @@
       label-width="120px"
       v-loading="formLoading"
     >
-      <el-form-item label="任务名称" prop="taskName">
-        <el-input v-model="formData.taskName" placeholder="请输入任务名称" />
-      </el-form-item>
-
-      <!-- 1. 选择目标潜客 -->
       <el-form-item label="选择目标潜客" prop="targetUserIds">
         <div class="w-full">
           <el-button type="primary" @click="openUserSelector" class="mb-2">
@@ -162,7 +157,7 @@ import { DmTaskApi } from '@/api/facebook/dmtask'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import { FbAccountApi } from '@/api/facebook/account'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
-import UserSelector from '../collect/components/UserSelector.vue'
+import UserSelector from '../../collect/components/UserSelector.vue'
 import ScriptSelector from './ScriptSelector.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 
@@ -192,7 +187,6 @@ const intervalRange = ref('4-10')
 
 const formData = ref({
   id: undefined,
-  taskName: '',
   targetUserIds: [] as string[],
   scripts: [] as string[],
   scriptType: 1,
@@ -204,7 +198,6 @@ const formData = ref({
 })
 
 const formRules = reactive({
-  taskName: [{ required: true, message: '任务名称不能为空', trigger: 'blur' }],
   targetUserIds: [
     { 
       required: true, 
@@ -290,7 +283,7 @@ const loadAccountGroups = async () => {
 /** 加载账号列表 */
 const loadAccounts = async () => {
   try {
-    const res = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 1000 })
+    const res = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
     accounts.value = res.list || []
     
     // 获取每个账号的剩余次数
@@ -384,7 +377,6 @@ const submitForm = async () => {
 const resetForm = () => {
   formData.value = {
     id: undefined,
-    taskName: '',
     targetUserIds: [],
     scripts: [],
     scriptType: 1,

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.fbcollectpost;
 
 import cn.hutool.core.collection.CollUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
@@ -14,6 +15,10 @@ import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
+import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -25,12 +30,19 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
  *
  * @author jacky
  */
+@Slf4j
 @Service
 @Validated
 public class FbCollectPostServiceImpl implements FbCollectPostService {
 
     @Resource
     private FbCollectPostMapper fbCollectPostMapper;
+
+    @Resource
+    private FbCollectDetailMapper fbCollectDetailMapper;
+
+    @Resource
+    private FbCollectCountService countService;
 
     @Override
     public Long createFbCollectPost(FbCollectPostSaveReqVO createReqVO) {
@@ -80,6 +92,136 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
     @Override
     public PageResult<FbCollectPostDO> getFbCollectPostPage(FbCollectPostPageReqVO pageReqVO) {
         return fbCollectPostMapper.selectPage(pageReqVO);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Integer batchSaveFbCollectPost(Long detailId, List<FbCollectPostSaveReqVO> results) {
+        if (CollUtil.isEmpty(results)) {
+            return 0;
+        }
+        
+        // 1. 查询明细信息
+        FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
+        if (detail == null) {
+            log.warn("明细 {} 不存在", detailId);
+            return 0;
+        }
+        
+        int count = 0;
+        for (FbCollectPostSaveReqVO result : results) {
+            // 设置 taskId 和 fbAccount
+            result.setTaskId(detail.getTaskId());
+            result.setFbAccount(detail.getFbAccount());
+            
+            FbCollectPostDO fbCollectPost = BeanUtils.toBean(result, FbCollectPostDO.class);
+            
+            // 清空id字段,让数据库自动生成主键
+            fbCollectPost.setId(null);
+            fbCollectPostMapper.insert(fbCollectPost);
+            count++;
+        }
+        
+        // 2. 使用 Redis 原子递增采集数量(明细级别)
+        countService.incrementCollectCount(detailId, count);
+        
+        // 3. 同时递增主表总采集数量(并发安全)
+        countService.incrementTaskTotalCount(detail.getTaskId(), count);
+        
+        // 4. 异步更新数据库和主表(避免阻塞)
+        updateDetailAndMainTableAsync(detailId);
+        
+        return count;
+    }
+    
+    /**
+     * 异步更新明细表和主表
+     */
+    private void updateDetailAndMainTableAsync(Long detailId) {
+        // TODO: 使用 @Async 注解实现真正的异步
+        // 这里暂时同步执行,后续可以优化
+        try {
+            updateDetailAndMainTable(detailId);
+        } catch (Exception e) {
+            log.error("更新明细和主表失败, detailId={}", detailId, e);
+        }
+    }
+    
+    /**
+     * 更新明细表和主表
+     */
+    private void updateDetailAndMainTable(Long detailId) {
+        // 从 Redis 获取最新计数
+        Long redisCount = countService.getCollectCount(detailId);
+        
+        // 更新明细表
+        FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
+        if (detail == null) {
+            return;
+        }
+        
+        detail.setCollectedCount(redisCount.intValue());
+        
+        // 判断状态
+        if (redisCount >= detail.getExpectedCount()) {
+            detail.setStatus(2); // 已完成
+            detail.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
+        } else {
+            detail.setStatus(1); // 采集中
+        }
+        
+        fbCollectDetailMapper.updateById(detail);
+        
+        // 聚合更新主表
+        updateMainTaskProgress(detail.getTaskId());
+        
+        // 清理 Redis 缓存
+        countService.removeCountCache(detailId);
+        
+        // 如果明细已完成,也清理主表缓存(可选,防止内存泄漏)
+        if (detail.getStatus() == 2) {
+            countService.removeTaskTotalCountCache(detail.getTaskId());
+        }
+        
+        log.info("更新明细 {} 完成, 已采集: {}/{}", detailId, redisCount, detail.getExpectedCount());
+    }
+    
+    /**
+     * 聚合更新主表进度(使用 Redis 原子计数)
+     */
+    private void updateMainTaskProgress(Long taskId) {
+        // 从 Redis 获取总采集数量(原子操作,并发安全)
+        Long totalCollected = countService.getTaskTotalCount(taskId);
+        
+        // 查询所有明细的期望总数和失败数
+        Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
+        if (stats == null || stats.isEmpty()) {
+            return;
+        }
+        
+        Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
+        Long failedCount = stats.get("failed_count") != null ? ((Number) stats.get("failed_count")).longValue() : 0L;
+        
+        // 更新主表
+        cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO task = new cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO();
+        task.setId(taskId);
+        task.setTotalExpectedCount(totalExpected); // 设置总期望数
+        task.setTotalCollectedCount(totalCollected.intValue()); // 设置总采集数
+        
+        if (totalCollected >= totalExpected) {
+            task.setStatus(2); // 已完成
+            task.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
+        } else if (failedCount > 0) {
+            task.setStatus(3); // 部分失败
+        } else {
+            task.setStatus(1); // 采集中
+        }
+        
+        cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper fbCollectMapper = 
+            SpringUtils.getBean(cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper.class);
+        fbCollectMapper.updateById(task);
+        
+        log.info("更新主表 {} 完成, 总进度: {}/{}", taskId, totalCollected, totalExpected);
     }
 
 }

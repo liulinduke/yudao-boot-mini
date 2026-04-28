@@ -365,7 +365,7 @@ const submitForm = async () => {
 
     // 根据话术类型设置参数
     const submitData = {
-      taskType: 2, // 转贴任务
+      taskType: 10, // 转贴任务（运营任务从10开始，避免与采集任务冲突）
       taskName: `转帖_${timestamp}`,
       accountIds: formData.value.accountIds,
       postUrl: formData.value.postUrl,

@@ -96,9 +96,9 @@
             <el-table-column label="任务ID" align="center" prop="id" width="80" />
             <el-table-column label="任务类型" align="center" prop="taskType" width="100">
               <template #default="scope">
-                <el-tag v-if="scope.row.taskType === 1" type="primary">链接加组</el-tag>
-                <el-tag v-else-if="scope.row.taskType === 2" type="success">转贴</el-tag>
-                <el-tag v-else-if="scope.row.taskType === 3" type="warning">群发私信</el-tag>
+                <el-tag v-if="scope.row.taskType === 9" type="primary">链接加组</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 10" type="success">转贴</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 11" type="warning">群发私信</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="任务名称" align="center" prop="taskName" min-width="120" show-overflow-tooltip />
@@ -162,6 +162,9 @@
     
     <!-- 转帖表单弹窗 -->
     <RepostForm ref="repostFormRef" @success="getList" />
+    
+    <!-- 群发私信表单弹窗 -->
+    <DmTaskForm ref="dmTaskFormRef" @success="getList" />
   </div>
 </template>
 
@@ -172,6 +175,7 @@ import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
 import RepostForm from './RepostForm.vue'
+import DmTaskForm from './dmtask/DmTaskForm.vue'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
@@ -201,7 +205,7 @@ const operationTools = [
     type: 'mass-message',
     title: '群发私信',
     icon: 'ep:message',
-    disabled: true
+    disabled: false // 启用群发私信功能
   }
 ]
 
@@ -242,9 +246,11 @@ const selectTool = (type: string) => {
   }
   activeTool.value = type
   
-  // 如果是转帖，打开转帖表单
+  // 根据不同类型打开不同表单
   if (type === 'repost') {
     repostFormRef.value.open()
+  } else if (type === 'mass-message') {
+    dmTaskFormRef.value.open()
   } else {
     formRef.value.open('create', undefined, getTaskTypeByTool(type))
   }
@@ -253,11 +259,11 @@ const selectTool = (type: string) => {
 /** 根据工具类型获取任务类型 */
 const getTaskTypeByTool = (toolType: string): number => {
   const typeMap: Record<string, number> = {
-    'add-group': 1,
-    repost: 2,
-    'mass-message': 3
+    'add-group': 9,      // 链接加组（运营任务从9开始）
+    repost: 10,          // 转贴
+    'mass-message': 11   // 群发私信
   }
-  return typeMap[toolType] || 1
+  return typeMap[toolType] || 9
 }
 
 /** 计算进度 */
@@ -291,6 +297,7 @@ const handleQuery = () => {
 /** 添加/修改操作 */
 const formRef = ref()
 const repostFormRef = ref()
+const dmTaskFormRef = ref()
 const openForm = (type: string, id?: number) => {
   formRef.value.open(type, id)
 }

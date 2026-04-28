@@ -14,9 +14,6 @@ public class FbDmTaskSaveReqVO {
     @Schema(description = "主键ID", example = "1")
     private Long id;
 
-    @Schema(description = "任务名称", example = "测试任务")
-    private String taskName;
-
     @Schema(description = "目标用户FB ID列表", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotEmpty(message = "目标用户不能为空")
     private List<String> targetUserIds;

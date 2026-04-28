@@ -1,5 +1,10 @@
+using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
+using Newtonsoft.Json;
+using SocialMatrix.WpfHost.Windows;
 
 namespace SocialMatrix.WpfHost.Services
 {
@@ -75,6 +80,236 @@ namespace SocialMatrix.WpfHost.Services
             {
                 MessageBox.Show(message, "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             });
+        }
+
+        /// <summary>
+        /// Vue 调用此方法设置账号语言并调用指纹浏览器切换
+        /// </summary>
+        /// <param name="accountIds">账号ID数组(JSON字符串)</param>
+        /// <param name="language">语言：1-英文，2-中文</param>
+        public void SetAccountLanguage(string accountIds, int language)
+        {
+            Application.Current.Dispatcher.Invoke(async () =>
+            {
+                try
+                {
+                    // 1. 解析accountIds JSON数组
+                    var accountIdList = JsonConvert.DeserializeObject<List<string>>(accountIds);
+                    if (accountIdList == null || accountIdList.Count == 0)
+                    {
+                        MessageBox.Show("没有选择任何账号", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    string langName = language == 1 ? "英文" : "中文";
+                    System.Diagnostics.Debug.WriteLine($"🌐 开始为 {accountIdList.Count} 个账号设置语言为{langName}");
+
+                    // 2. 获取MainWindow实例以访问浏览器矩阵窗口
+                    var mainWindow = Application.Current.MainWindow as MainWindow;
+                    if (mainWindow == null)
+                    {
+                        MessageBox.Show("主窗口未找到", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+
+                    // 3. 遍历每个账号，执行语言切换
+                    int successCount = 0;
+                    int failCount = 0;
+
+                    foreach (var accountId in accountIdList)
+                    {
+                        try
+                        {
+                            await SwitchBrowserLanguage(mainWindow, accountId, language);
+                            successCount++;
+                            System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 语言切换成功");
+                        }
+                        catch (Exception ex)
+                        {
+                            failCount++;
+                            System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 语言切换失败: {ex.Message}");
+                        }
+                    }
+
+                    // 4. 记录结果
+                    System.Diagnostics.Debug.WriteLine($"📊 语言设置完成 - 总计:{accountIdList.Count}, 成功:{successCount}, 失败:{failCount}");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        $"设置语言失败: {ex.Message}\n\n{ex.StackTrace}",
+                        "错误",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error
+                    );
+                }
+            });
+        }
+        
+        /// <summary>
+        /// Vue 调用此方法更新指纹浏览器全局配置（立即生效）
+        /// </summary>
+        /// <param name="disableImages">是否禁用图片</param>
+        /// <param name="disableVideos">是否禁用视频</param>
+        /// <param name="maxConcurrent">最大并发数</param>
+        public void UpdateGlobalConfig(bool disableImages, bool disableVideos, int maxConcurrent)
+        {
+            BrowserMatrixWindow.UpdateGlobalConfig(disableImages, disableVideos, maxConcurrent);
+            System.Diagnostics.Debug.WriteLine($"✅ 全局配置已同步到WPF: DisableImages={disableImages}, DisableVideos={disableVideos}, MaxConcurrent={maxConcurrent}");
+        }
+
+        /// <summary>
+        /// Vue 调用此方法启动私信发送任务
+        /// </summary>
+        /// <param name="taskId">任务ID</param>
+        /// <param name="detailId">明细ID</param>
+        /// <param name="accountId">账号ID</param>
+        /// <param name="cookie">Cookie</param>
+        /// <param name="fbUserId">目标用户FB ID</param>
+        /// <param name="messageText">消息内容</param>
+        public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText)
+        {
+            Application.Current.Dispatcher.Invoke(async () =>
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"🚀 启动私信任务: TaskId={taskId}, DetailId={detailId}, AccountId={accountId}, TargetUser={fbUserId}");
+                    
+                    // 获取BrowserMatrixWindow实例
+                    var mainWindow = Application.Current.MainWindow as MainWindow;
+                    if (mainWindow == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("❌ 主窗口未找到");
+                        return;
+                    }
+
+                    // 获取BrowserMatrixWindow
+                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    
+                    BrowserMatrixWindow? browserMatrixWindow = null;
+                    if (browserMatrixField != null)
+                    {
+                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                    }
+                    
+                    // 如果窗口不存在或浏览器不存在，先创建
+                    bool needCreateBrowser = browserMatrixWindow == null || 
+                                            !browserMatrixWindow.GetActiveBrowserCount().HasValue || 
+                                            browserMatrixWindow.GetActiveBrowserCount() == 0;
+                    
+                    if (needCreateBrowser)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🌐 创建浏览器并导航到私信页面...");
+                        mainWindow.CreateBrowserForAccount(
+                            detailId, 
+                            accountId, 
+                            string.IsNullOrEmpty(cookie) ? null : cookie,
+                            $"https://www.facebook.com/messages/t/{fbUserId}/",
+                            expectedCount: 0,
+                            taskType: 10); // 私信任务类型
+                        
+                        // 等待浏览器创建和页面加载
+                        await Task.Delay(3000);
+                        
+                        // 重新获取BrowserMatrixWindow
+                        if (browserMatrixField != null)
+                        {
+                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                        }
+                    }
+                    
+                    if (browserMatrixWindow != null)
+                    {
+                        // 执行私信发送
+                        System.Diagnostics.Debug.WriteLine($"📨 开始执行私信发送...");
+                        await browserMatrixWindow.SendDirectMessage(accountId, fbUserId, messageText);
+                        
+                        System.Diagnostics.Debug.WriteLine($"✅ 私信任务完成: TaskId={taskId}, DetailId={detailId}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ BrowserMatrixWindow 未找到");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 私信任务异常: {ex.Message}\n{ex.StackTrace}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// 为单个账号切换浏览器语言
+        /// </summary>
+        private async Task SwitchBrowserLanguage(MainWindow mainWindow, string accountId, int language)
+        {
+            // 调用指纹浏览器API打开浏览器并执行语言设置
+            string languageUrl = "https://www.facebook.com/settings/?tab=language_and_region";
+            string detailId = $"lang_{accountId}_{DateTime.Now.Ticks}";
+            
+            System.Diagnostics.Debug.WriteLine($"🚀 启动指纹浏览器进行语言设置: 账号={accountId}, 语言={(language == 1 ? "英文" : "中文")}");
+            
+            // 获取BrowserMatrixWindow实例
+            var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            
+            if (browserMatrixField == null)
+            {
+                throw new InvalidOperationException("无法访问BrowserMatrixWindow实例");
+            }
+
+            var browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+            
+            if (browserMatrixWindow == null)
+            {
+                // 如果窗口不存在，先创建
+                mainWindow.CreateBrowserForAccount(detailId, accountId, null, languageUrl, 0, taskType: 99);
+                
+                // 等待窗口创建
+                await Task.Delay(500);
+                
+                browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                if (browserMatrixWindow == null)
+                {
+                    throw new InvalidOperationException("BrowserMatrixWindow创建失败");
+                }
+            }
+            else
+            {
+                // 窗口已存在，直接创建浏览器
+                mainWindow.CreateBrowserForAccount(detailId, accountId, null, languageUrl, 0, taskType: 99);
+            }
+            
+            // 等待浏览器加载完成（通过检查浏览器实例是否存在）
+            await WaitForBrowserReady(browserMatrixWindow, accountId, 15000);
+
+            // 调用语言切换方法
+            await browserMatrixWindow.SwitchLanguageForAccount(accountId, language);
+        }
+        
+        /// <summary>
+        /// 等待浏览器实例就绪
+        /// </summary>
+        private async Task WaitForBrowserReady(BrowserMatrixWindow browserMatrixWindow, string accountId, int timeoutMs = 15000)
+        {
+            var startTime = DateTime.Now;
+            int checkInterval = 200;
+            
+            while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
+            {
+                // 检查浏览器是否已创建
+                if (browserMatrixWindow.GetActiveBrowserCount() > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"✅ 浏览器实例已就绪: {accountId}");
+                    await Task.Delay(500); // 额外等待确保页面开始加载
+                    return;
+                }
+                
+                await Task.Delay(checkInterval);
+            }
+            
+            throw new TimeoutException($"等待浏览器就绪超时 ({timeoutMs}ms)");
         }
     }
 }

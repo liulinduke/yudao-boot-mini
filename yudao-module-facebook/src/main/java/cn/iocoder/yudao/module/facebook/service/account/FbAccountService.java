@@ -59,4 +59,12 @@ public interface FbAccountService {
      */
     PageResult<FbAccountDO> getFbAccountPage(FbAccountPageReqVO pageReqVO);
 
+    /**
+     * 更新FB账号语言设置
+     *
+     * @param id 编号
+     * @param language 语言：1-英文，2-中文
+     */
+    void updateFbAccountLanguage(Long id, Integer language);
+
 }

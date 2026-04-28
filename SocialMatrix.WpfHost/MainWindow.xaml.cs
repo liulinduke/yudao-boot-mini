@@ -68,14 +68,14 @@ namespace SocialMatrix.WpfHost
                 _browserMatrixWindow = new BrowserMatrixWindow();
                 
                 // 监听采集完成事件
-                _browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData) =>
+                _browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}");
+                    System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
                     
                     // 将数据回传给 Vue
                     Dispatcher.Invoke(() =>
                     {
-                        ReturnCollectionDataToVue(dId, accId, jsonData);
+                        ReturnCollectionDataToVue(dId, accId, jsonData, taskType);
                     });
                 };
                 
@@ -91,7 +91,7 @@ namespace SocialMatrix.WpfHost
             _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com", 
                 cookie, searchUrl, expectedCount, taskType: taskType);
             
-            // 保存 detailId 用于回传
+            // 保存 detailId 用于回传(taskType 已绑定到 accountId)
             _browserMatrixWindow.CurrentDetailId = detailId;
             
             // 激活窗口（置顶）
@@ -103,7 +103,7 @@ namespace SocialMatrix.WpfHost
         /// <summary>
         /// 将采集数据回传给 Vue
         /// </summary>
-        private void ReturnCollectionDataToVue(string detailId, string accountId, string jsonData)
+        private void ReturnCollectionDataToVue(string detailId, string accountId, string jsonData, int taskType = 1)
         {
             try
             {
@@ -125,6 +125,7 @@ namespace SocialMatrix.WpfHost
                                 detailId: '{detailId}',
                                 accountId: '{accountId}',
                                 data: {jsonData},
+                                taskType: {taskType},
                                 timestamp: new Date().toISOString()
                             }}
                         }}));
@@ -132,7 +133,7 @@ namespace SocialMatrix.WpfHost
                     }}, 100);
                 ";
                 VueWebView.CoreWebView2.ExecuteScriptAsync(script);
-                System.Diagnostics.Debug.WriteLine($"✅ 已将采集数据回传给 Vue (明细ID: {detailId}, 账号: {accountId})");
+                System.Diagnostics.Debug.WriteLine($"✅ 已将采集数据回传给 Vue (明细ID: {detailId}, 账号: {accountId}, 类型: {taskType})");
             }
             catch (Exception ex)
             {

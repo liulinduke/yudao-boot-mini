@@ -13,9 +13,6 @@ public class FbDmTaskRespVO {
     @Schema(description = "主键ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     private Long id;
 
-    @Schema(description = "任务名称", example = "测试任务")
-    private String taskName;
-
     @Schema(description = "目标用户FB ID列表")
     private List<String> targetUserIds;
 
@@ -63,5 +60,8 @@ public class FbDmTaskRespVO {
 
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;
+
+    @Schema(description = "任务明细列表")
+    private List<FbDmTaskDetailRespVO> details;
 
 }

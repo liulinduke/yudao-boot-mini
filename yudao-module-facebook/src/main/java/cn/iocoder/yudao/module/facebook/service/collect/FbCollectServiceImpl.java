@@ -6,6 +6,7 @@ import javax.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 import cn.iocoder.yudao.module.facebook.controller.admin.collect.vo.*;
@@ -69,20 +70,28 @@ public class FbCollectServiceImpl implements FbCollectService {
         task.setTotalCollectedCount(0);
         task.setAccountCount(accountCount);
         task.setUrlCount(urlCount);
-        task.setStatus(0); // 待执行
+        task.setStatus(1); // 采集中 (改为1而不是0)
+        task.setStartTime(LocalDateTime.now()); // 设置开始时间
         fbCollectMapper.insert(task);
             
         // 5. 创建明细记录(每个账号×每个链接)
-        // TODO: 这里需要根据 accountIds 查询真实的 fbAccount
-        // 暂时简化处理,使用传入的 fbAccount
-        String fbAccount = createReqVO.getFbAccount();
+        // 需要根据 accountIds 查询真实的 fbAccount
         List<FbCollectCreateRespVO.DetailInfo> detailInfos = new ArrayList<>();
+        
+        // TODO: 这里应该注入 FbAccountMapper 来查询账号信息
+        // 暂时简化处理,如果 fbAccount 为空,使用占位符
+        String fbAccount = createReqVO.getFbAccount();
+        if (fbAccount == null || fbAccount.trim().isEmpty()) {
+            // 如果没有传入 fbAccount,尝试从第一个 accountId 获取
+            // 这里暂时使用占位符,实际应该查询数据库
+            fbAccount = "account_" + accountIds.get(0);
+        }
             
         for (Long accountId : accountIds) {
             for (String url : urls) {
                 FbCollectDetailDO detail = new FbCollectDetailDO();
                 detail.setTaskId(task.getId());
-                detail.setFbAccount(fbAccount); // TODO: 需要根据 accountId 查询
+                detail.setFbAccount(fbAccount); // TODO: 需要根据 accountId 查询真实账号
                 detail.setSearchUrl(url.trim());
                 detail.setExpectedCount(createReqVO.getExpectedCount());
                 detail.setCollectedCount(0);

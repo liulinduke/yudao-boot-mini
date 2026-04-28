@@ -84,6 +84,10 @@ public class FbAccountRespVO {
     @ExcelProperty("代理ID")
     private Long proxyId;
 
+    @Schema(description = "语言设置：1-英文，2-中文", example = "1")
+    @ExcelProperty("语言设置")
+    private Integer language;
+
     @Schema(description = "注册日期")
     @ExcelProperty("注册日期")
     private LocalDateTime creationDate;

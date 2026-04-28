@@ -59,4 +59,13 @@ public interface FbCollectPostService {
      */
     PageResult<FbCollectPostDO> getFbCollectPostPage(FbCollectPostPageReqVO pageReqVO);
 
+    /**
+     * 批量保存FB帖子采集结果
+     *
+     * @param detailId 明细ID
+     * @param results 采集结果列表
+     * @return 保存数量
+     */
+    Integer batchSaveFbCollectPost(Long detailId, List<FbCollectPostSaveReqVO> results);
+
 }

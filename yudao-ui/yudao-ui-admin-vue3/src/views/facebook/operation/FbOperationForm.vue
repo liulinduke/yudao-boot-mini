@@ -15,8 +15,8 @@
         <el-descriptions :column="3" border>
           <el-descriptions-item label="任务ID">{{ taskDetail.task?.id }}</el-descriptions-item>
           <el-descriptions-item label="任务类型">
-            <el-tag v-if="taskDetail.task?.taskType === 1" type="primary">链接加组</el-tag>
-            <el-tag v-else-if="taskDetail.task?.taskType === 2" type="success">转贴</el-tag>
+            <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
+            <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 3" type="warning">群发私信</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
@@ -59,7 +59,7 @@
         v-if="formType === 'create'"
       >
         <!-- 风控警告 -->
-        <div v-if="formData.taskType === 1" style="margin-bottom: 12px">
+        <div v-if="formData.taskType === 9" style="margin-bottom: 12px">
           <el-alert
             title="建议每个账号每日加组不超过10个，避免触发风控机制"
             type="warning"
@@ -86,7 +86,7 @@
         </el-form-item>
 
         <!-- 链接加组特殊UI -->
-        <el-form-item v-if="formData.taskType === 1" label="选择群组" prop="targetGroupIds">
+        <el-form-item v-if="formData.taskType === 9" label="选择群组" prop="targetGroupIds">
           <div class="w-full">
             <el-button type="primary" @click="openGroupSelector" class="mb-2">
               <Icon icon="ep:plus" class="mr-5px" /> 选择群组
@@ -147,7 +147,7 @@
         </el-tab-pane>
 
         <!-- Tab 2: 采集结果（仅链接加组显示） -->
-        <el-tab-pane v-if="taskDetail?.task?.taskType === 1" label="👥 加组结果" name="results">
+        <el-tab-pane v-if="taskDetail?.task?.taskType === 9" label="👥 加组结果" name="results">
           <el-table :data="resultList" stripe border max-height="500">
             <el-table-column label="Facebook ID" prop="accountId" width="180" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
@@ -189,7 +189,7 @@
 
         <!-- Tab 3: 转帖结果（仅转帖任务显示） -->
         <el-tab-pane
-          v-if="taskDetail?.task?.taskType === 2"
+          v-if="taskDetail?.task?.taskType === 10"
           label="🔄 转帖结果"
           name="repostResults"
         >
@@ -312,7 +312,7 @@ const formRules = reactive({
       message: '请选择目标群组',
       trigger: 'change',
       validator: (rule: any, value: any, callback: any) => {
-        if (formData.value.taskType === 1 && (!value || selectedGroups.value.length === 0)) {
+        if (formData.value.taskType === 9 && (!value || selectedGroups.value.length === 0)) {
           callback(new Error('请选择目标群组'))
         } else {
           callback()
@@ -350,7 +350,7 @@ const open = async (type: string, id?: number, taskTypeValue?: number) => {
       detailList.value = data.details || []
       resultList.value = data.results || []
       // 如果是转帖任务，加载转帖结果
-      if (data.task?.taskType === 2 && data.results) {
+      if (data.task?.taskType === 10 && data.results) {
         repostResultList.value = data.results as any[]
       } else {
         repostResultList.value = []
@@ -386,7 +386,7 @@ const submitForm = async () => {
   formLoading.value = true
   try {
     // 自动生成任务名称
-    const taskNamePrefix = formData.value.taskType === 1 ? '链接加组' : '运营任务'
+    const taskNamePrefix = formData.value.taskType === 9 ? '链接加组' : '运营任务'
     const timestamp = new Date()
       .toLocaleString('zh-CN', {
         year: 'numeric',

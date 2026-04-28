@@ -149,10 +149,58 @@ const handleDelete = async (id: number) => {
 const handleStart = async (id: number) => {
   try {
     await message.confirm('确认启动该任务吗？')
+    
+    // 1. 调用后端 API，更新任务状态
     await DmTaskApi.startTask(id)
-    message.success('任务已启动')
+    message.success('任务已启动，正在调用 WPF 执行...')
     await getList()
-  } catch {}
+    
+    // 2. 获取任务详情
+    const taskDetail = await DmTaskApi.getDmTask(id)
+    if (!taskDetail || !taskDetail.details || taskDetail.details.length === 0) {
+      message.warning('任务没有明细数据')
+      return
+    }
+    
+    console.log(`📨 开始执行私信任务，共 ${taskDetail.details.length} 条消息`)
+    
+    // 3. 遍历每个明细，调用 WPF 发送私信
+    for (let i = 0; i < taskDetail.details.length; i++) {
+      const detail = taskDetail.details[i]
+      
+      // @ts-ignore
+      if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+        console.log(`📨 发送第 ${i + 1}/${taskDetail.details.length} 条私信:`, {
+          taskId: id,
+          detailId: detail.id,
+          accountId: detail.accountId,
+          fbUserId: detail.targetUserId,
+          messageText: detail.scriptContent
+        })
+        
+        // @ts-ignore
+        window.chrome.webview.hostObjects.sync.wpfBridge.StartDmTask(
+          String(id),
+          String(detail.id),
+          String(detail.accountId),
+          detail.cookie || '',
+          detail.targetUserId,
+          detail.scriptContent
+        )
+        
+        // 等待间隔时间（从任务配置中获取）
+        const intervalSeconds = (taskDetail.minIntervalSeconds + taskDetail.maxIntervalSeconds) / 2
+        await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000))
+      } else {
+        console.warn('⚠️ WPF 桥接对象不存在，无法发送私信')
+        break
+      }
+    }
+    
+    message.success('所有私信已发送到 WPF 队列')
+  } catch (error) {
+    console.error('启动任务失败:', error)
+  }
 }
 
 /** 取消任务 */

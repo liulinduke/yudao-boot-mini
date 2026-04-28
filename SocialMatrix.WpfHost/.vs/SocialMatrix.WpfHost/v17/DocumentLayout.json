@@ -11,16 +11,20 @@
       "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:controls\\browsermatrixcontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
+      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\windows\\browsermatrixwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:windows\\browsermatrixwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\services\\jsbridgeservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:services\\jsbridgeservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\windows\\browsermatrixwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:windows\\browsermatrixwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -34,7 +38,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 4,
+          "SelectedChildIndex": 5,
           "Children": [
             {
               "$type": "Bookmark",
@@ -42,7 +46,19 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
+              "Title": "JsBridgeService.cs",
+              "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Services\\JsBridgeService.cs",
+              "RelativeDocumentMoniker": "Services\\JsBridgeService.cs",
+              "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Services\\JsBridgeService.cs",
+              "RelativeToolTip": "Services\\JsBridgeService.cs",
+              "ViewState": "AgIAAKYAAAAAAAAAAAAgwK4AAAAMAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-27T05:17:39.221Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
               "Title": "FingerprintConfig.cs",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\FingerprintConfig.cs",
               "RelativeDocumentMoniker": "Helpers\\FingerprintConfig.cs",
@@ -54,7 +70,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 2,
               "Title": "BrowserMatrixWindow.xaml",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Windows\\BrowserMatrixWindow.xaml",
               "RelativeDocumentMoniker": "Windows\\BrowserMatrixWindow.xaml",
@@ -71,7 +87,7 @@
               "RelativeDocumentMoniker": "Controls\\BrowserMatrixControl.xaml.cs",
               "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Controls\\BrowserMatrixControl.xaml.cs",
               "RelativeToolTip": "Controls\\BrowserMatrixControl.xaml.cs",
-              "ViewState": "AgIAACEAAAAAAAAAAAAYwCoAAAAWAAAAAAAAAA==",
+              "ViewState": "AgIAAAkAAAAAAAAAAAAAACoAAAAWAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-14T11:58:01.945Z"
             },
@@ -83,14 +99,14 @@
               "RelativeDocumentMoniker": "Windows\\BrowserMatrixWindow.xaml.cs",
               "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Windows\\BrowserMatrixWindow.xaml.cs",
               "RelativeToolTip": "Windows\\BrowserMatrixWindow.xaml.cs",
-              "ViewState": "AgIAAAMAAAAAAAAAAAAAACQAAAAJAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABgAAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-14T11:57:07.559Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 5,
               "Title": "MainWindow.xaml.cs",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\MainWindow.xaml.cs",
               "RelativeDocumentMoniker": "MainWindow.xaml.cs",
@@ -102,7 +118,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "App.xaml.cs",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\App.xaml.cs",
               "RelativeDocumentMoniker": "App.xaml.cs",

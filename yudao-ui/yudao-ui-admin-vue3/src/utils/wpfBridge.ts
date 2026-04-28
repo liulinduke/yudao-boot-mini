@@ -78,16 +78,18 @@ export function onCollectionComplete(callback: (data: any) => void): void {
     
     window.addEventListener('fb:collection:complete', (event: any) => {
       console.log('📨 收到采集完成事件:', event)
-      const { taskId, accountId, data, timestamp } = event.detail
-      console.log('📊 明细ID(taskId):', taskId)
+      const { detailId, accountId, data, taskType, timestamp } = event.detail
+      console.log('📊 明细ID(detailId):', detailId)
       console.log('📊 账号ID:', accountId)
+      console.log('📊 任务类型:', taskType)
       console.log('📊 数据条数:', Array.isArray(data) ? data.length : 0)
       
       // 构建统一的数据格式
       const formattedData = {
         type: 'CollectionComplete',
-        detailId: taskId,  // WPF返回的taskId实际是detailId
+        detailId: detailId,  // WPF返回的detailId
         accountId: accountId,
+        taskType: taskType,  // 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
         results: data,
         count: Array.isArray(data) ? data.length : 0,
         timestamp: timestamp

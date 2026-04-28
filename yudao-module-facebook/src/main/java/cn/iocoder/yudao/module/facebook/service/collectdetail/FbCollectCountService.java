@@ -25,6 +25,12 @@ public class FbCollectCountService {
      * 格式: fb:collect:count:{detailId}
      */
     private static final String COLLECT_COUNT_KEY_PREFIX = "fb:collect:count:";
+    
+    /**
+     * Redis Key 前缀: 主表任务总采集计数
+     * 格式: fb:collect:task_total:{taskId}
+     */
+    private static final String TASK_TOTAL_COUNT_KEY_PREFIX = "fb:collect:task_total:";
 
     /**
      * Redis Key 过期时间: 7天
@@ -98,6 +104,49 @@ public class FbCollectCountService {
         stringRedisTemplate.delete(key);
         log.debug("删除明细 {} 的计数缓存", detailId);
     }
+    
+    /**
+     * 原子递增主表总采集数量
+     *
+     * @param taskId 主表任务ID
+     * @param increment 增量
+     * @return 递增后的值
+     */
+    public Long incrementTaskTotalCount(Long taskId, long increment) {
+        String key = buildTaskTotalCountKey(taskId);
+        Long count = stringRedisTemplate.opsForValue().increment(key, increment);
+        
+        // 设置过期时间,防止内存泄漏
+        if (count != null && count == increment) {
+            stringRedisTemplate.expire(key, KEY_EXPIRE_DAYS, TimeUnit.DAYS);
+        }
+        
+        log.debug("主表任务 {} 总采集数量递增: +{} = {}", taskId, increment, count);
+        return count;
+    }
+    
+    /**
+     * 获取主表总采集数量
+     *
+     * @param taskId 主表任务ID
+     * @return 采集数量,不存在返回0
+     */
+    public Long getTaskTotalCount(Long taskId) {
+        String key = buildTaskTotalCountKey(taskId);
+        String value = stringRedisTemplate.opsForValue().get(key);
+        return value != null ? Long.parseLong(value) : 0L;
+    }
+    
+    /**
+     * 删除主表计数缓存
+     *
+     * @param taskId 主表任务ID
+     */
+    public void removeTaskTotalCountCache(Long taskId) {
+        String key = buildTaskTotalCountKey(taskId);
+        stringRedisTemplate.delete(key);
+        log.debug("删除主表任务 {} 的总计数缓存", taskId);
+    }
 
     /**
      * 构建 Redis Key
@@ -107,6 +156,16 @@ public class FbCollectCountService {
      */
     private String buildCountKey(Long detailId) {
         return COLLECT_COUNT_KEY_PREFIX + detailId;
+    }
+    
+    /**
+     * 构建主表任务总计数 Redis Key
+     *
+     * @param taskId 主表任务ID
+     * @return Redis Key
+     */
+    private String buildTaskTotalCountKey(Long taskId) {
+        return TASK_TOTAL_COUNT_KEY_PREFIX + taskId;
     }
 
 }
