@@ -48,16 +48,26 @@
       <!-- 执行项配置 -->
       <el-form-item label="执行项" prop="actionConfig">
         <div class="w-full">
-          <!-- 第一行：点赞、转发到动态、转帖到个人中心 -->
+          <!-- 第一行：点赞、转发到动态 -->
           <div class="mb-10px flex items-center">
             <el-checkbox v-model="selectedActions" :label="1" class="mr-20px">点赞</el-checkbox>
-            <el-checkbox v-model="selectedActions" :label="2" class="mr-20px"
-              >转发到动态</el-checkbox
-            >
-            <el-checkbox v-model="selectedActions" :label="3">转帖到个人中心</el-checkbox>
+            <el-checkbox v-model="selectedActions" :label="2">转发到动态</el-checkbox>
           </div>
 
-          <!-- 第二行：转贴到好友 + 数量 -->
+          <!-- 第二行：转帖到个人中心 + 数量 -->
+          <div class="mb-10px">
+            <el-checkbox v-model="selectedActions" :label="3"> 转帖到个人中心 </el-checkbox>
+            <el-input-number
+              v-if="selectedActions.includes(3)"
+              v-model="actionConfig.shareToProfileCount"
+              :min="1"
+              :max="10"
+              size="small"
+              class="ml-10px"
+            />
+          </div>
+
+          <!-- 第三行：转贴到好友 + 数量 -->
           <div class="mb-10px">
             <el-checkbox v-model="selectedActions" :label="4"> 转贴到好友 </el-checkbox>
             <el-input-number
@@ -70,7 +80,7 @@
             />
           </div>
 
-          <!-- 第三行：转发到群组 + 数量 + 选择按钮 -->
+          <!-- 第四行：转发到群组 + 数量 + 选择按钮 -->
           <div class="mb-10px">
             <el-checkbox v-model="selectedActions" :label="5"> 转发到群组 </el-checkbox>
             <el-input-number
@@ -355,13 +365,14 @@ const submitForm = async () => {
 
     // 计算期望数量
     let expectedCount = 0
-    if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length
-    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length
-    if (selectedActions.value.includes(3)) expectedCount += formData.value.accountIds.length // 转帖到个人中心不需要数量
+    if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length  // 点赞：每个账号1次
+    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length  // 转发到动态：每个账号1次
+    if (selectedActions.value.includes(3))
+      expectedCount += actionConfig.value.shareToProfileCount * formData.value.accountIds.length  // 转帖到个人中心：可配置次数
     if (selectedActions.value.includes(4))
-      expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length
+      expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length  // 转贴到好友：可配置次数
     if (selectedActions.value.includes(5))
-      expectedCount += selectedGroups.value.length * formData.value.accountIds.length
+      expectedCount += selectedGroups.value.length * formData.value.accountIds.length  // 转发到群组：按选择的群组数量
 
     // 根据话术类型设置参数
     const submitData = {

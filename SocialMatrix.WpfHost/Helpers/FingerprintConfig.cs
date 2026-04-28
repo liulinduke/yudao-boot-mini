@@ -437,6 +437,14 @@ namespace SocialMatrix.WpfHost.Helpers
         public void OnResourceLoadComplete(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, UrlRequestStatus status, long receivedContentLength) { }
         public void OnResourceLoadCleared(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response) { }
         public IResponseFilter? GetResourceResponseFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response) => null;
-        public void OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, IFrame frame, string url) { }
+        
+        // 新增的接口方法
+        public ICookieAccessFilter? GetCookieAccessFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request) => null;
+        public IResourceHandler? GetResourceHandler(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request) => null;
+        public bool OnResourceResponse(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response) => false;
+        public bool OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request) => true;
+        
+        // IDisposable 接口实现
+        public void Dispose() { }
     }
 }

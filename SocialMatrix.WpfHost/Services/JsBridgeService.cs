@@ -195,7 +195,6 @@ namespace SocialMatrix.WpfHost.Services
                     
                     // 如果窗口不存在或浏览器不存在，先创建
                     bool needCreateBrowser = browserMatrixWindow == null || 
-                                            !browserMatrixWindow.GetActiveBrowserCount().HasValue || 
                                             browserMatrixWindow.GetActiveBrowserCount() == 0;
                     
                     if (needCreateBrowser)

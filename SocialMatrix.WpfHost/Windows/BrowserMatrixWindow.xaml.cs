@@ -1483,6 +1483,27 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        };");
             js.AppendLine("");
             
+            // 添加贝塞尔曲线鼠标轨迹模拟函数
+            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
+            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
+            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
+            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
+            js.AppendLine("            const steps = randomDelay(5, 10);");
+            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            ");
+            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
+            js.AppendLine("                const t = i / steps;");
+            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
+            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
+            js.AppendLine("                ");
+            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
+            js.AppendLine("                document.dispatchEvent(event);");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
             // 提取帖子数据的函数
             js.AppendLine("        const extractPostData = (card) => {");
             js.AppendLine("            try {");
@@ -2259,6 +2280,27 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("");
             js.AppendLine("        const randomDelay = (min, max) => {");
             js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 添加贝塞尔曲线鼠标轨迹模拟函数
+            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
+            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
+            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
+            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
+            js.AppendLine("            const steps = randomDelay(5, 10);");
+            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            ");
+            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
+            js.AppendLine("                const t = i / steps;");
+            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
+            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
+            js.AppendLine("                ");
+            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
+            js.AppendLine("                document.dispatchEvent(event);");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
+            js.AppendLine("            }");
             js.AppendLine("        };");
             js.AppendLine("");
                     
