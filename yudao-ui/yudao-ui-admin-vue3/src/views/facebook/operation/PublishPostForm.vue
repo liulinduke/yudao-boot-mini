@@ -8,20 +8,34 @@
       v-loading="formLoading"
     >
       <el-form-item label="执行账号" prop="accountIds">
-        <el-select
-          v-model="formData.accountIds"
-          multiple
-          placeholder="请选择执行账号"
-          style="width: 100%"
-          filterable
-        >
-          <el-option
-            v-for="account in accounts"
-            :key="account.id"
-            :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-            :value="account.id"
-          />
-        </el-select>
+        <div class="w-full">
+          <el-select
+            v-model="formData.accountIds"
+            multiple
+            filterable
+            placeholder="请选择执行账号"
+            class="w-full"
+          >
+            <el-option
+              v-for="group in accountGroups"
+              :key="group.id"
+              :label="group.groupName"
+              :value="group.id"
+              disabled
+            >
+              <span class="font-bold">{{ group.groupName }}</span>
+            </el-option>
+            <el-option
+              v-for="account in accounts"
+              :key="account.id"
+              :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
+              :value="account.id"
+            />
+          </el-select>
+          <div class="text-gray-500 text-sm mt-2">
+            已选择 {{ formData.accountIds.length }} 个账号
+          </div>
+        </div>
       </el-form-item>
       
       <el-form-item label="帖子内容" prop="postContent">
@@ -56,7 +70,7 @@
             {{ getFileName(path) }}
           </el-tag>
         </div>
-        <div class="text-sm text-gray-500 mt-1">最多选择10个图片或视频（本地路径）</div>
+        <div class="text-sm text-gray-500 mt-1 ml-2">最多选择10个图片或视频（本地路径）</div>
       </el-form-item>
       
       <el-form-item label="隐私设置" prop="privacySetting">
@@ -67,23 +81,13 @@
         </el-radio-group>
       </el-form-item>
       
-      <el-form-item label="发帖间隔(秒)">
-        <el-space>
-          <el-input-number
-            v-model="formData.minIntervalSeconds"
-            :min="1"
-            :max="60"
-            placeholder="最小间隔"
-          />
-          <span>至</span>
-          <el-input-number
-            v-model="formData.maxIntervalSeconds"
-            :min="1"
-            :max="120"
-            placeholder="最大间隔"
-          />
-        </el-space>
-        <div class="text-sm text-gray-500 mt-1">每个账号发帖之间的随机间隔时间</div>
+      <el-form-item label="发帖间隔" prop="intervalRange">
+        <el-select v-model="formData.intervalRange" placeholder="请选择间隔范围" class="!w-200px">
+          <el-option label="2-4秒" value="2-4" />
+          <el-option label="4-10秒" value="4-10" />
+          <el-option label="10-16秒" value="10-16" />
+        </el-select>
+        <span class="ml-10px text-gray-500">每个账号发帖的随机间隔时间</span>
       </el-form-item>
     </el-form>
     
@@ -100,6 +104,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { Dialog } from '@/components/Dialog'
 import * as OperationApi from '@/api/facebook/operation'
 import { FbAccountApi } from '@/api/facebook/account'
+import { AccountGroupApi } from '@/api/facebook/accountgroup'
 
 defineOptions({ name: 'PublishPostForm' })
 
@@ -109,14 +114,14 @@ const { t } = useI18n()
 const dialogVisible = ref(false)
 const dialogTitle = ref('发个人帖')
 const formLoading = ref(false)
+const accountGroups = ref<any[]>([])
 const accounts = ref<any[]>([])
 const formData = ref({
   accountIds: [] as number[],
   postContent: '',
   mediaUrls: [] as string[],  // 存储本地文件路径
   privacySetting: 1,
-  minIntervalSeconds: 5,
-  maxIntervalSeconds: 10
+  intervalRange: '4-10'  // 间隔范围
 })
 
 const formRules = reactive({
@@ -130,14 +135,24 @@ const formRef = ref()
 const open = async () => {
   dialogVisible.value = true
   resetForm()
+  await loadAccountGroups()
   await loadAccounts()
 }
 defineExpose({ open })
 
+/** 加载账号分组 */
+const loadAccountGroups = async () => {
+  try {
+    accountGroups.value = await AccountGroupApi.getAllEnabledGroups()
+  } catch (error) {
+    console.error('加载账号分组失败:', error)
+  }
+}
+
 /** 加载账号列表 */
 const loadAccounts = async () => {
   try {
-    const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 1000 })
+    const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
     accounts.value = data.list || []
   } catch (error) {
     console.error('加载账号失败:', error)
@@ -199,8 +214,7 @@ const resetForm = () => {
     postContent: '',
     mediaUrls: [],
     privacySetting: 1,
-    minIntervalSeconds: 5,
-    maxIntervalSeconds: 10
+    intervalRange: '4-10'
   }
   formRef.value?.resetFields()
 }
@@ -214,6 +228,9 @@ const submitForm = async () => {
   try {
     formLoading.value = true
     
+    // 解析间隔范围
+    const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
+    
     // 构建任务数据
     const data = {
       taskType: 12, // 发个人帖
@@ -224,8 +241,8 @@ const submitForm = async () => {
         postContent: formData.value.postContent,
         mediaUrls: formData.value.mediaUrls,
         privacySetting: formData.value.privacySetting,
-        minIntervalSeconds: formData.value.minIntervalSeconds,
-        maxIntervalSeconds: formData.value.maxIntervalSeconds
+        minIntervalSeconds: minSec,
+        maxIntervalSeconds: maxSec
       })
     }
     
@@ -257,7 +274,7 @@ const submitForm = async () => {
           )
           
           // 等待间隔时间（防风控）
-          const intervalSeconds = (formData.value.minIntervalSeconds + formData.value.maxIntervalSeconds) / 2
+          const intervalSeconds = (minSec + maxSec) / 2
           await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000))
         } catch (error) {
           console.error(`❌ 启动账号 ${accountId} 的任务失败:`, error)

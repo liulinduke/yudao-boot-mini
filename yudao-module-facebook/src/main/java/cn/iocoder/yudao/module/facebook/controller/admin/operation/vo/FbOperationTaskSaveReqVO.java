@@ -14,7 +14,7 @@ public class FbOperationTaskSaveReqVO {
     @Schema(description = "任务ID", example = "1")
     private Long id;
 
-    @Schema(description = "任务类型（9-链接加组 10-转贴 11-群发私信 12-发个人帖 13-发群帖）", requiredMode = Schema.RequiredMode.REQUIRED, example = "9")
+    @Schema(description = "任务类型（1-链接加组 2-转贴 3-群发私信）", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @NotNull(message = "任务类型不能为空")
     private Integer taskType;
 
@@ -34,9 +34,6 @@ public class FbOperationTaskSaveReqVO {
     @Schema(description = "期望数量", requiredMode = Schema.RequiredMode.REQUIRED, example = "100")
     @NotNull(message = "期望数量不能为空")
     private Integer expectedCount;
-
-    @Schema(description = "动作配置（JSON格式，存储帖子内容、图片URL、隐私设置等）", example = "{\"postContent\":\"...\",\"mediaUrls\":[...]}")
-    private String actionConfig;
 
     @Schema(description = "备注", example = "测试任务")
     private String remark;
