@@ -2661,5 +2661,100 @@ namespace SocialMatrix.WpfHost.Windows
 
             return js.ToString();
         }
+
+        /// <summary>
+        /// 获取指定账号的浏览器实例
+        /// </summary>
+        protected ChromiumWebBrowser? GetBrowser(string accountId)
+        {
+            if (_browsers.TryGetValue(accountId, out var browser))
+            {
+                return browser;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 检查是否已存在指定账号的浏览器
+        /// </summary>
+        public bool HasBrowser(string accountId)
+        {
+            return _browsers.ContainsKey(accountId);
+        }
+
+        /// <summary>
+        /// 添加人类行为模拟辅助函数
+        /// </summary>
+        protected void AddHumanBehaviorHelpers(System.Text.StringBuilder js)
+        {
+            // 随机延迟（使用正态分布）
+            js.AppendLine("        // ===== 人类行为模拟辅助函数 =====");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            const u1 = Math.random();");
+            js.AppendLine("            const u2 = Math.random();");
+            js.AppendLine("            const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);");
+            js.AppendLine("            const mean = (min + max) / 2;");
+            js.AppendLine("            const stdDev = (max - min) / 6;");
+            js.AppendLine("            const delay = Math.max(min, Math.min(max, mean + z * stdDev));");
+            js.AppendLine("            return new Promise(resolve => setTimeout(resolve, Math.floor(delay)));");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 贝塞尔曲线鼠标轨迹
+            js.AppendLine("        const simulateMouseMovement = async (targetElement) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                if (!targetElement) return;");
+            js.AppendLine("                const rect = targetElement.getBoundingClientRect();");
+            js.AppendLine("                const targetX = rect.left + rect.width / 2;");
+            js.AppendLine("                const targetY = rect.top + rect.height / 2;");
+            js.AppendLine("                const startX = Math.random() * window.innerWidth;");
+            js.AppendLine("                const startY = Math.random() * window.innerHeight;");
+            js.AppendLine("                const controlX = (startX + targetX) / 2 + (Math.random() - 0.5) * 200;");
+            js.AppendLine("                const controlY = (startY + targetY) / 2 + (Math.random() - 0.5) * 200;");
+            js.AppendLine("                const steps = 20;");
+            js.AppendLine("                for (let i = 0; i <= steps; i++) {");
+            js.AppendLine("                    const t = i / steps;");
+            js.AppendLine("                    const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX;");
+            js.AppendLine("                    const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY;");
+            js.AppendLine("                    const jitterX = x + (Math.random() - 0.5) * 4;");
+            js.AppendLine("                    const jitterY = y + (Math.random() - 0.5) * 4;");
+            js.AppendLine("                    const event = new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true, clientX: jitterX, clientY: jitterY });");
+            js.AppendLine("                    document.dispatchEvent(event);");
+            js.AppendLine("                    await randomDelay(30, 80);");
+            js.AppendLine("                }");
+            js.AppendLine("            } catch (e) { console.warn('[人类行为] 鼠标轨迹失败:', e); }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 人类点击
+            js.AppendLine("        const humanClick = async (element) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                if (!element) return false;");
+            js.AppendLine("                await simulateMouseMovement(element);");
+            js.AppendLine("                await randomDelay(100, 300);");
+            js.AppendLine("                element.click();");
+            js.AppendLine("                return true;");
+            js.AppendLine("            } catch (e) { console.warn('[人类行为] 点击失败:', e); return false; }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 人类打字
+            js.AppendLine("        const humanTypeText = async (element, text) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                if (!element || !text) return false;");
+            js.AppendLine("                element.focus();");
+            js.AppendLine("                await randomDelay(200, 500);");
+            js.AppendLine("                for (let i = 0; i < text.length; i++) {");
+            js.AppendLine("                    document.execCommand('insertText', false, text[i]);");
+            js.AppendLine("                    let delay = randomDelay(80, 200);");
+            js.AppendLine("                    if (Math.random() < 0.1) await randomDelay(500, 1500);");
+            js.AppendLine("                    if (['.', ',', '!', '?', '。', '，', '！', '？'].includes(text[i])) await randomDelay(300, 800);");
+            js.AppendLine("                    await delay;");
+            js.AppendLine("                }");
+            js.AppendLine("                return true;");
+            js.AppendLine("            } catch (e) { console.warn('[人类行为] 打字失败:', e); return false; }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+        }
     }
 }

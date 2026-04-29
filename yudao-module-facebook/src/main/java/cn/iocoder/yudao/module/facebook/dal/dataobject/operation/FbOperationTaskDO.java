@@ -27,7 +27,7 @@ public class FbOperationTaskDO extends TenantBaseDO {
     @TableId
     private Long id;
     /**
-     * 任务类型（1-链接加组 2-转贴 3-群发私信）
+     * 任务类型（9-链接加组 10-转贴 11-群发私信 12-发个人帖 13-发群帖）
      */
     private Integer taskType;
     /**
@@ -50,6 +50,10 @@ public class FbOperationTaskDO extends TenantBaseDO {
      * 账号ID列表（逗号分隔）
      */
     private String accountIds;
+    /**
+     * 动作配置（JSON格式，存储帖子内容、图片URL、隐私设置等）
+     */
+    private String actionConfig;
     /**
      * 开始时间
      */

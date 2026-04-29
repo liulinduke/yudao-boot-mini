@@ -48,9 +48,11 @@
                 clearable
                 class="!w-140px"
               >
-                <el-option label="链接加组" :value="1" />
-                <el-option label="转贴" :value="2" />
-                <el-option label="群发私信" :value="3" />
+                <el-option label="链接加组" :value="9" />
+                <el-option label="转贴" :value="10" />
+                <el-option label="群发私信" :value="11" />
+                <el-option label="发个人帖" :value="12" />
+                <el-option label="发群帖" :value="13" />
               </el-select>
             </el-form-item>
             <el-form-item label="状态" prop="status">
@@ -99,6 +101,8 @@
                 <el-tag v-if="scope.row.taskType === 9" type="primary">链接加组</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 10" type="success">转贴</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 11" type="warning">群发私信</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 12" type="info">发个人帖</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 13" type="danger">发群帖</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="任务名称" align="center" prop="taskName" min-width="120" show-overflow-tooltip />
@@ -165,6 +169,12 @@
     
     <!-- 群发私信表单弹窗 -->
     <DmTaskForm ref="dmTaskFormRef" @success="getList" />
+    
+    <!-- 发个人帖表单弹窗 -->
+    <PublishPostForm ref="publishPostFormRef" @success="getList" />
+    
+    <!-- 发群帖表单弹窗 -->
+    <GroupPublishForm ref="groupPublishFormRef" @success="getList" />
   </div>
 </template>
 
@@ -176,6 +186,8 @@ import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
 import RepostForm from './RepostForm.vue'
 import DmTaskForm from './dmtask/DmTaskForm.vue'
+import PublishPostForm from './PublishPostForm.vue'
+import GroupPublishForm from './GroupPublishForm.vue'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
@@ -206,6 +218,18 @@ const operationTools = [
     title: '群发私信',
     icon: 'ep:message',
     disabled: false // 启用群发私信功能
+  },
+  {
+    type: 'publish-post',
+    title: '发个人帖',
+    icon: 'ep:document-add',
+    disabled: false // 启用了发个人帖功能
+  },
+  {
+    type: 'group-publish',
+    title: '发群帖',
+    icon: 'ep:connection',
+    disabled: false // 启用了发群帖功能
   }
 ]
 
@@ -251,6 +275,10 @@ const selectTool = (type: string) => {
     repostFormRef.value.open()
   } else if (type === 'mass-message') {
     dmTaskFormRef.value.open()
+  } else if (type === 'publish-post') {
+    publishPostFormRef.value.open()
+  } else if (type === 'group-publish') {
+    groupPublishFormRef.value.open()
   } else {
     formRef.value.open('create', undefined, getTaskTypeByTool(type))
   }
@@ -259,9 +287,11 @@ const selectTool = (type: string) => {
 /** 根据工具类型获取任务类型 */
 const getTaskTypeByTool = (toolType: string): number => {
   const typeMap: Record<string, number> = {
-    'add-group': 9,      // 链接加组（运营任务从9开始）
-    repost: 10,          // 转贴
-    'mass-message': 11   // 群发私信
+    'add-group': 9,           // 链接加组（运营任务从9开始）
+    repost: 10,               // 转贴
+    'mass-message': 11,       // 群发私信
+    'publish-post': 12,       // 发个人帖
+    'group-publish': 13       // 发群帖
   }
   return typeMap[toolType] || 9
 }
@@ -298,6 +328,8 @@ const handleQuery = () => {
 const formRef = ref()
 const repostFormRef = ref()
 const dmTaskFormRef = ref()
+const publishPostFormRef = ref()
+const groupPublishFormRef = ref()
 const openForm = (type: string, id?: number) => {
   formRef.value.open(type, id)
 }

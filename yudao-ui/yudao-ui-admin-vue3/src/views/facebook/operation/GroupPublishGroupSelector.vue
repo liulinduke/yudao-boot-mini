@@ -1,0 +1,223 @@
+<template>
+  <el-dialog
+    v-model="visible"
+    title="选择群组"
+    width="900px"
+    :close-on-click-modal="false"
+  >
+    <div v-loading="loading">
+      <!-- 配置信息提示 -->
+      <div class="mb-10px p-10px bg-blue-50 rounded">
+        <div class="text-sm text-gray-700 mb-5px">
+          <span class="font-medium">执行账号：</span>{{ accountCount }} 个
+        </div>
+        <div class="text-sm text-gray-700">
+          <span class="font-medium">每组账号数：</span>{{ groupsPerAccount }} 个
+        </div>
+        <div class="text-sm text-gray-700 mt-5px">
+          <span class="font-medium">预计需要群组：</span>{{ expectedGroupCount }} 个（平均分配）
+        </div>
+      </div>
+
+      <!-- 搜索栏 -->
+      <el-form :inline="true" class="mb-10px">
+        <el-form-item label="群组名称">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="请输入群组名称"
+            clearable
+            @keyup.enter="loadGroups"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="loadGroups">
+            <Icon icon="ep:search" class="mr-5px" /> 搜索
+          </el-button>
+          <el-button @click="resetSearch">重置</el-button>
+        </el-form-item>
+      </el-form>
+
+      <!-- 群组列表 -->
+      <el-table
+        ref="tableRef"
+        :data="groupList"
+        stripe
+        border
+        max-height="400"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="55" />
+        <el-table-column label="群组ID" prop="groupId" width="150" />
+        <el-table-column label="群组名称" prop="groupName" min-width="200" show-overflow-tooltip />
+        <el-table-column label="群组链接" prop="groupUrl" min-width="250" show-overflow-tooltip />
+        <el-table-column label="加组状态" width="100">
+          <template #default="scope">
+            <el-tag v-if="scope.row.joinStatus === 1" type="success">成功</el-tag>
+            <el-tag v-else-if="scope.row.joinStatus === 3" type="warning">已加入</el-tag>
+            <el-tag v-else type="info">未知</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <Pagination
+        :total="total"
+        v-model:page="queryParams.pageNo"
+        v-model:limit="queryParams.pageSize"
+        @pagination="loadGroups"
+      />
+      
+      <!-- 已选提示 -->
+      <div v-if="selectedRows.length > 0" class="mt-10px p-10px bg-green-50 rounded">
+        <div class="text-sm text-gray-700">
+          <span class="font-medium">已选择：</span>{{ selectedRows.length }} 个群组
+        </div>
+      </div>
+    </div>
+
+    <template #footer>
+      <el-button type="primary" @click="handleConfirm" :disabled="selectedRows.length === 0">
+        确 定 ({{ selectedRows.length }})
+      </el-button>
+      <el-button @click="visible = false">取 消</el-button>
+    </template>
+  </el-dialog>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, computed } from 'vue'
+import { FbOperationAddGroupResultApi } from '@/api/facebook/operation/addgroupresult'
+
+const props = defineProps<{
+  modelValue: boolean
+  selectedGroupIds?: string[]
+  accountIds?: number[]
+  groupsPerAccount?: number
+}>()
+
+const emit = defineEmits(['update:modelValue', 'confirm'])
+
+const visible = ref(false)
+const loading = ref(false)
+const tableRef = ref()
+const searchKeyword = ref('')
+const selectedRows = ref<any[]>([])
+
+// 计算属性
+const accountCount = computed(() => props.accountIds?.length || 0)
+const expectedGroupCount = computed(() => {
+  return accountCount.value * (props.groupsPerAccount || 5)
+})
+
+// 查询参数
+const queryParams = ref({
+  pageNo: 1,
+  pageSize: 20,
+  joinStatus: 1, // 只查询成功的记录
+  groupName: ''
+})
+
+const groupList = ref<any[]>([])
+const total = ref(0)
+
+// 监听modelValue变化
+watch(() => props.modelValue, (val) => {
+  visible.value = val
+  if (val) {
+    loadGroups()
+  }
+})
+
+// 监听visible变化
+watch(visible, (val) => {
+  emit('update:modelValue', val)
+})
+
+/** 加载群组列表 */
+const loadGroups = async () => {
+  if (!props.accountIds || props.accountIds.length === 0) {
+    return
+  }
+  
+  loading.value = true
+  try {
+    queryParams.value.groupName = searchKeyword.value
+    
+    const data = await FbOperationAddGroupResultApi.getAddGroupResultPage(queryParams.value)
+    groupList.value = data.list || []
+    total.value = data.total || 0
+
+    // 设置默认选中
+    if (props.selectedGroupIds && props.selectedGroupIds.length > 0) {
+      setTimeout(() => {
+        groupList.value.forEach(row => {
+          if (props.selectedGroupIds?.includes(row.groupId)) {
+            tableRef.value?.toggleRowSelection(row, true)
+          }
+        })
+      }, 100)
+    }
+  } catch (error) {
+    console.error('加载群组列表失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 重置搜索 */
+const resetSearch = () => {
+  searchKeyword.value = ''
+  queryParams.value.pageNo = 1
+  loadGroups()
+}
+
+/** 处理选择变化 */
+const handleSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows
+}
+
+/** 确认选择 */
+const handleConfirm = () => {
+  if (selectedRows.value.length === 0) {
+    return
+  }
+  emit('confirm', selectedRows.value)
+  visible.value = false
+}
+</script>
+
+<style scoped lang="scss">
+.text-sm {
+  font-size: 12px;
+}
+.text-gray-700 {
+  color: #374151;
+}
+.font-medium {
+  font-weight: 500;
+}
+.mb-5px {
+  margin-bottom: 5px;
+}
+.mt-5px {
+  margin-top: 5px;
+}
+.mt-10px {
+  margin-top: 10px;
+}
+.mb-10px {
+  margin-bottom: 10px;
+}
+.p-10px {
+  padding: 10px;
+}
+.bg-blue-50 {
+  background-color: #eff6ff;
+}
+.bg-green-50 {
+  background-color: #f0fdf4;
+}
+.rounded {
+  border-radius: 4px;
+}
+</style>

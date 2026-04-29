@@ -310,5 +310,212 @@ namespace SocialMatrix.WpfHost.Services
             
             throw new TimeoutException($"等待浏览器就绪超时 ({timeoutMs}ms)");
         }
+
+        /// <summary>
+        /// Vue 调用此方法启动发个人帖任务
+        /// </summary>
+        /// <param name="taskId">任务ID</param>
+        /// <param name="accountId">账号ID</param>
+        /// <param name="cookie">Cookie</param>
+        /// <param name="actionConfigJson">动作配置JSON</param>
+        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson)
+        {
+            Application.Current.Dispatcher.Invoke(async () =>
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"🚀 启动发个人帖任务: TaskId={taskId}, AccountId={accountId}");
+                    
+                    // 获取BrowserMatrixWindow实例
+                    var mainWindow = Application.Current.MainWindow as MainWindow;
+                    if (mainWindow == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("❌ 主窗口未找到");
+                        return;
+                    }
+
+                    // 获取BrowserMatrixWindow
+                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    
+                    BrowserMatrixWindow? browserMatrixWindow = null;
+                    if (browserMatrixField != null)
+                    {
+                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                    }
+                    
+                    // 如果窗口不存在或浏览器不存在，先创建
+                    bool needCreateBrowser = browserMatrixWindow == null || 
+                                            !browserMatrixWindow.HasBrowser(accountId);
+                    
+                    if (needCreateBrowser)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🆕 为账号 {accountId} 创建浏览器");
+                        
+                        // 创建浏览器（不指定URL，稍后脚本会导航）
+                        mainWindow.CreateBrowserForAccount(
+                            detailId: $"publish_post_{taskId}_{accountId}",
+                            accountId: accountId,
+                            cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
+                            searchUrl: null,
+                            expectedCount: 0,
+                            taskType: 12); // 发个人帖任务类型
+                        
+                        // 等待浏览器创建和页面加载
+                        await Task.Delay(3000);
+                        
+                        // 重新获取BrowserMatrixWindow
+                        if (browserMatrixField != null)
+                        {
+                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                        }
+                    }
+                    
+                    if (browserMatrixWindow != null)
+                    {
+                        // 执行发个人帖
+                        System.Diagnostics.Debug.WriteLine($"📝 开始执行发个人帖...");
+                        await browserMatrixWindow.ExecutePublishPost(accountId, actionConfigJson);
+                        
+                        System.Diagnostics.Debug.WriteLine($"✅ 发个人帖任务完成: TaskId={taskId}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ BrowserMatrixWindow 未找到");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 发个人帖任务异常: {ex.Message}\n{ex.StackTrace}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Vue 调用此方法启动发群帖任务
+        /// </summary>
+        /// <param name="taskId">任务ID</param>
+        /// <param name="accountId">账号ID</param>
+        /// <param name="cookie">Cookie</param>
+        /// <param name="actionConfigJson">动作配置JSON</param>
+        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson)
+        {
+            Application.Current.Dispatcher.Invoke(async () =>
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"🚀 启动发群帖任务: TaskId={taskId}, AccountId={accountId}");
+                    
+                    // 获取BrowserMatrixWindow实例
+                    var mainWindow = Application.Current.MainWindow as MainWindow;
+                    if (mainWindow == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("❌ 主窗口未找到");
+                        return;
+                    }
+
+                    // 获取BrowserMatrixWindow
+                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    
+                    BrowserMatrixWindow? browserMatrixWindow = null;
+                    if (browserMatrixField != null)
+                    {
+                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                    }
+                    
+                    // 如果窗口不存在或浏览器不存在，先创建
+                    bool needCreateBrowser = browserMatrixWindow == null || 
+                                            !browserMatrixWindow.HasBrowser(accountId);
+                    
+                    if (needCreateBrowser)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🆕 为账号 {accountId} 创建浏览器");
+                        
+                        // 创建浏览器（不指定URL，稍后脚本会导航）
+                        mainWindow.CreateBrowserForAccount(
+                            detailId: $"group_publish_{taskId}_{accountId}",
+                            accountId: accountId,
+                            cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
+                            searchUrl: null,
+                            expectedCount: 0,
+                            taskType: 13); // 发群帖任务类型
+                        
+                        // 等待浏览器创建和页面加载
+                        await Task.Delay(3000);
+                        
+                        // 重新获取BrowserMatrixWindow
+                        if (browserMatrixField != null)
+                        {
+                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                        }
+                    }
+                    
+                    if (browserMatrixWindow != null)
+                    {
+                        // 执行发群帖
+                        System.Diagnostics.Debug.WriteLine($"👥 开始执行发群帖...");
+                        await browserMatrixWindow.ExecuteGroupPublish(accountId, actionConfigJson);
+                        
+                        System.Diagnostics.Debug.WriteLine($"✅ 发群帖任务完成: TaskId={taskId}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ BrowserMatrixWindow 未找到");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 发群帖任务异常: {ex.Message}\n{ex.StackTrace}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Vue 调用此方法打开文件选择对话框（支持多选）
+        /// </summary>
+        /// <param name="filter">文件过滤器，如 "图片/视频|*.jpg;*.jpeg;*.png;*.gif;*.mp4;*.avi;*.mov"</param>
+        /// <returns>JSON数组字符串，包含选中的文件完整路径</returns>
+        public string SelectMediaFiles(string filter = "")
+        {
+            string[] selectedFiles = Array.Empty<string>();
+            
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    var dialog = new Microsoft.Win32.OpenFileDialog
+                    {
+                        Multiselect = true,
+                        Title = "选择图片或视频",
+                        Filter = string.IsNullOrEmpty(filter) 
+                            ? "图片/视频|*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.webp;*.mp4;*.avi;*.mov;*.wmv;*.flv|所有文件|*.*"
+                            : filter
+                    };
+
+                    if (dialog.ShowDialog() == true)
+                    {
+                        selectedFiles = dialog.FileNames;
+                        System.Diagnostics.Debug.WriteLine($"✅ 已选择 {selectedFiles.Length} 个文件");
+                        foreach (var file in selectedFiles)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"   - {file}");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("⚠️ 用户取消了文件选择");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 文件选择失败: {ex.Message}");
+                    MessageBox.Show($"文件选择失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            });
+
+            // 返回 JSON 数组字符串
+            return JsonConvert.SerializeObject(selectedFiles);
+        }
     }
 }

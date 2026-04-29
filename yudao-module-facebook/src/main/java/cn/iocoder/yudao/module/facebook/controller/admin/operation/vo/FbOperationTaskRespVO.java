@@ -12,7 +12,7 @@ public class FbOperationTaskRespVO {
     @Schema(description = "任务ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     private Long id;
 
-    @Schema(description = "任务类型（1-链接加组 2-转贴 3-群发私信）", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    @Schema(description = "任务类型（9-链接加组 10-转贴 11-群发私信 12-发个人帖 13-发群帖）", requiredMode = Schema.RequiredMode.REQUIRED, example = "9")
     private Integer taskType;
 
     @Schema(description = "任务名称", example = "链接加组任务")
@@ -29,6 +29,9 @@ public class FbOperationTaskRespVO {
 
     @Schema(description = "账号ID列表（逗号分隔）", example = "1,2,3")
     private String accountIds;
+
+    @Schema(description = "动作配置（JSON格式）")
+    private String actionConfig;
 
     @Schema(description = "开始时间")
     private LocalDateTime startTime;

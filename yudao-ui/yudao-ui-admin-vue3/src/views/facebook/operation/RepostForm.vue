@@ -365,14 +365,14 @@ const submitForm = async () => {
 
     // 计算期望数量
     let expectedCount = 0
-    if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length  // 点赞：每个账号1次
-    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length  // 转发到动态：每个账号1次
+    if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length // 点赞：每个账号1次
+    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length // 转发到动态：每个账号1次
     if (selectedActions.value.includes(3))
-      expectedCount += actionConfig.value.shareToProfileCount * formData.value.accountIds.length  // 转帖到个人中心：可配置次数
+      expectedCount += actionConfig.value.shareToProfileCount * formData.value.accountIds.length // 转帖到个人中心：可配置次数
     if (selectedActions.value.includes(4))
-      expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length  // 转贴到好友：可配置次数
+      expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length // 转贴到好友：可配置次数
     if (selectedActions.value.includes(5))
-      expectedCount += selectedGroups.value.length * formData.value.accountIds.length  // 转发到群组：按选择的群组数量
+      expectedCount += selectedGroups.value.length * formData.value.accountIds.length // 转发到群组：按选择的群组数量
 
     // 根据话术类型设置参数
     const submitData = {

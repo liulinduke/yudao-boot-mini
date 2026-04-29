@@ -1,0 +1,294 @@
+<template>
+  <Dialog :title="dialogTitle" v-model="dialogVisible" width="800px">
+    <el-form
+      ref="formRef"
+      :model="formData"
+      :rules="formRules"
+      label-width="120px"
+      v-loading="formLoading"
+    >
+      <el-form-item label="执行账号" prop="accountIds">
+        <el-select
+          v-model="formData.accountIds"
+          multiple
+          placeholder="请选择执行账号"
+          style="width: 100%"
+          filterable
+        >
+          <el-option
+            v-for="account in accounts"
+            :key="account.id"
+            :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
+            :value="account.id"
+          />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="帖子内容" prop="postContent">
+        <el-input
+          v-model="formData.postContent"
+          type="textarea"
+          :rows="5"
+          placeholder="请输入帖子内容"
+          maxlength="5000"
+          show-word-limit
+        />
+      </el-form-item>
+      
+      <el-form-item label="图片/视频" prop="mediaUrls">
+        <div>
+          <el-button type="primary" @click="handleSelectFiles">
+            <el-icon><Plus /></el-icon>
+            选择图片/视频
+          </el-button>
+          <el-button @click="clearFiles" v-if="formData.mediaUrls.length > 0">
+            清空
+          </el-button>
+        </div>
+        <div v-if="formData.mediaUrls.length > 0" class="mt-2">
+          <el-tag
+            v-for="(path, index) in formData.mediaUrls"
+            :key="index"
+            closable
+            @close="removeFile(index)"
+            class="mr-2 mb-2"
+          >
+            {{ getFileName(path) }}
+          </el-tag>
+        </div>
+        <div class="text-sm text-gray-500 mt-1">最多选择10个图片或视频（本地路径）</div>
+      </el-form-item>
+      
+      <el-form-item label="隐私设置" prop="privacySetting">
+        <el-radio-group v-model="formData.privacySetting">
+          <el-radio :label="1">公开</el-radio>
+          <el-radio :label="2">好友可见</el-radio>
+          <el-radio :label="3">仅自己</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      
+      <el-form-item label="发帖间隔(秒)">
+        <el-space>
+          <el-input-number
+            v-model="formData.minIntervalSeconds"
+            :min="1"
+            :max="60"
+            placeholder="最小间隔"
+          />
+          <span>至</span>
+          <el-input-number
+            v-model="formData.maxIntervalSeconds"
+            :min="1"
+            :max="120"
+            placeholder="最大间隔"
+          />
+        </el-space>
+        <div class="text-sm text-gray-500 mt-1">每个账号发帖之间的随机间隔时间</div>
+      </el-form-item>
+    </el-form>
+    
+    <template #footer>
+      <el-button @click="dialogVisible = false">取 消</el-button>
+      <el-button type="primary" @click="submitForm" :loading="formLoading">确 定</el-button>
+    </template>
+  </Dialog>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { Plus } from '@element-plus/icons-vue'
+import { Dialog } from '@/components/Dialog'
+import * as OperationApi from '@/api/facebook/operation'
+import { FbAccountApi } from '@/api/facebook/account'
+
+defineOptions({ name: 'PublishPostForm' })
+
+const message = useMessage()
+const { t } = useI18n()
+
+const dialogVisible = ref(false)
+const dialogTitle = ref('发个人帖')
+const formLoading = ref(false)
+const accounts = ref<any[]>([])
+const formData = ref({
+  accountIds: [] as number[],
+  postContent: '',
+  mediaUrls: [] as string[],  // 存储本地文件路径
+  privacySetting: 1,
+  minIntervalSeconds: 5,
+  maxIntervalSeconds: 10
+})
+
+const formRules = reactive({
+  accountIds: [{ required: true, message: '请选择执行账号', trigger: 'change' }],
+  postContent: [{ required: true, message: '请输入帖子内容', trigger: 'blur' }]
+})
+
+const formRef = ref()
+
+/** 打开弹窗 */
+const open = async () => {
+  dialogVisible.value = true
+  resetForm()
+  await loadAccounts()
+}
+defineExpose({ open })
+
+/** 加载账号列表 */
+const loadAccounts = async () => {
+  try {
+    const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 1000 })
+    accounts.value = data.list || []
+  } catch (error) {
+    console.error('加载账号失败:', error)
+  }
+}
+
+/** 选择文件 - 调用 WPF 文件选择对话框 */
+const handleSelectFiles = async () => {
+  try {
+    // 检查是否在 WPF 环境中
+    if (!window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+      message.warning('请在 WPF 应用中使用此功能')
+      return
+    }
+    
+    // 调用 WPF 文件选择对话框
+    const result = window.chrome.webview.hostObjects.sync.wpfBridge.SelectMediaFiles()
+    const selectedFiles = JSON.parse(result) as string[]
+    
+    if (selectedFiles.length === 0) {
+      return
+    }
+    
+    // 限制最多10个文件
+    if (selectedFiles.length > 10) {
+      message.warning('最多只能选择10个文件')
+      formData.value.mediaUrls = selectedFiles.slice(0, 10)
+    } else {
+      formData.value.mediaUrls = selectedFiles
+    }
+    
+    message.success(`已选择 ${formData.value.mediaUrls.length} 个文件`)
+    console.log('✅ 选择的文件:', formData.value.mediaUrls)
+  } catch (error) {
+    console.error('❌ 文件选择失败:', error)
+    message.error('文件选择失败')
+  }
+}
+
+/** 获取文件名 */
+const getFileName = (path: string) => {
+  return path.split('\\').pop() || path.split('/').pop() || path
+}
+
+/** 移除文件 */
+const removeFile = (index: number) => {
+  formData.value.mediaUrls.splice(index, 1)
+}
+
+/** 清空文件 */
+const clearFiles = () => {
+  formData.value.mediaUrls = []
+}
+
+/** 重置表单 */
+const resetForm = () => {
+  formData.value = {
+    accountIds: [],
+    postContent: '',
+    mediaUrls: [],
+    privacySetting: 1,
+    minIntervalSeconds: 5,
+    maxIntervalSeconds: 10
+  }
+  formRef.value?.resetFields()
+}
+
+/** 提交表单 */
+const emit = defineEmits(['success'])
+const submitForm = async () => {
+  const valid = await formRef.value?.validate()
+  if (!valid) return
+  
+  try {
+    formLoading.value = true
+    
+    // 构建任务数据
+    const data = {
+      taskType: 12, // 发个人帖
+      taskName: `发个人帖-${new Date().getTime()}`, // 自动生成任务名称
+      accountIds: formData.value.accountIds,
+      expectedCount: formData.value.accountIds.length,
+      actionConfig: JSON.stringify({
+        postContent: formData.value.postContent,
+        mediaUrls: formData.value.mediaUrls,
+        privacySetting: formData.value.privacySetting,
+        minIntervalSeconds: formData.value.minIntervalSeconds,
+        maxIntervalSeconds: formData.value.maxIntervalSeconds
+      })
+    }
+    
+    // 1. 创建任务
+    const taskId = await OperationApi.createFbOperationTask(data)
+    console.log('✅ 发个人帖任务创建成功, TaskId:', taskId)
+    
+    // 2. 调用 WPF 执行任务（为每个账号启动）
+    // @ts-ignore
+    if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+      console.log('🚀 开始调用 WPF 执行发个人帖任务...')
+      
+      // 获取账号信息（需要从后端获取cookie）
+      for (const accountId of formData.value.accountIds) {
+        try {
+          // TODO: 这里需要从后端获取账号的 cookie
+          // 暂时使用空字符串，实际使用时需要从 FbAccountApi 获取
+          const accountInfo = await FbAccountApi.getFbAccount(accountId)
+          const cookie = accountInfo.cookie || ''
+          
+          console.log(`📝 启动账号 ${accountId} 的发个人帖任务`)
+          
+          // @ts-ignore
+          window.chrome.webview.hostObjects.sync.wpfBridge.StartPublishPostTask(
+            String(taskId),
+            String(accountId),
+            cookie,
+            data.actionConfig
+          )
+          
+          // 等待间隔时间（防风控）
+          const intervalSeconds = (formData.value.minIntervalSeconds + formData.value.maxIntervalSeconds) / 2
+          await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000))
+        } catch (error) {
+          console.error(`❌ 启动账号 ${accountId} 的任务失败:`, error)
+        }
+      }
+      
+      message.success('任务已创建并发送到 WPF 队列')
+    } else {
+      console.warn('⚠️ WPF 桥接对象不存在，任务已创建但未执行')
+      message.warning('任务已创建，但 WPF 未连接')
+    }
+    
+    dialogVisible.value = false
+    emit('success')
+  } catch (error) {
+    console.error('创建任务失败:', error)
+    message.error('创建失败')
+  } finally {
+    formLoading.value = false
+  }
+}
+</script>
+
+<style scoped lang="scss">
+.text-sm {
+  font-size: 12px;
+}
+.text-gray-500 {
+  color: #9ca3af;
+}
+.mt-1 {
+  margin-top: 4px;
+}
+</style>
