@@ -53,7 +53,7 @@ export const FbCollectGroupApi = {
   },
 
   // 导出FB群组采集结果 Excel
-  exportFbCollectGroup: async (params) => {
+  exportFbCollectGroupExcel: async (params) => {
     return await request.download({ url: `/facebook/fb-collect-group/export-excel`, params })
   },
 

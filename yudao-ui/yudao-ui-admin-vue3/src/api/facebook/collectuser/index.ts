@@ -71,7 +71,7 @@ export const FbCollectUserApi = {
   },
 
   // 导出FB用户采集结果 Excel
-  exportFbCollectUser: async (params) => {
+  exportFbCollectUserExcel: async (params) => {
     return await request.download({ url: `/facebook/fb-collect-user/export-excel`, params })
   },
 

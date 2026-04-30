@@ -56,8 +56,13 @@ export const FbCollectPostApi = {
   },
 
   // 导出FB帖子采集结果 Excel
-  exportFbCollectPost: async (params) => {
+  exportFbCollectPostExcel: async (params) => {
     return await request.download({ url: `/facebook/fb-collect-post/export-excel`, params })
+  },
+
+  // 下载FB帖子导入模板
+  importFbCollectPostTemplate: async () => {
+    return await request.download({ url: `/facebook/fb-collect-post/get-import-template` })
   },
 
   // 批量保存采集结果
