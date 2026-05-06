@@ -269,7 +269,8 @@ namespace SocialMatrix.WpfHost.Windows
 
             var browser = new ChromiumWebBrowser(initialUrl)
             {
-                RequestContext = requestContext  // 使用独立的请求上下文
+                RequestContext = requestContext,  // 使用独立的请求上下文
+                Background = System.Windows.Media.Brushes.White  // 设置白色背景，避免灰色遮罩
             };
             browser.Tag = accountId;
             
@@ -347,7 +348,12 @@ namespace SocialMatrix.WpfHost.Windows
                             bool isCookieValid = true;
                             if (!string.IsNullOrEmpty(cookie))
                             {
+                                System.Diagnostics.Debug.WriteLine($"🍪 开始为账号 {accountId} 注入 Cookie...");
                                 isCookieValid = await InjectCookies(browser, accountId, cookie);
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 未提供 Cookie，跳过注入步骤");
                             }
 
                             // 3. 如果 Cookie 有效且提供了搜索 URL，启动自动化采集
@@ -454,64 +460,126 @@ namespace SocialMatrix.WpfHost.Windows
         {
             try
             {
+                // 首先获取当前 URL
+                string currentUrl = "";
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    currentUrl = browser.Address ?? "";
+                });
+                
+                System.Diagnostics.Debug.WriteLine($"🔍 检测登录页 - 当前URL: {currentUrl}");
+                
                 // 执行 JavaScript 检测是否是登录页
                 var jsCheckLogin = @"
-                    (function() {
-                        // 检测1: URL 包含 /login 或 /checkpoint
-                        if (window.location.href.includes('/login') || 
-                            window.location.href.includes('/checkpoint')) {
-                            return true;
-                        }
-                        
-                        // 检测2: 页面中有 Facebook 登录表单的特征元素
-                        const loginSelectors = [
-                            'form[action*=""/login""]',
-                            '#login_form',
-                            '[data-testid=""royal_login_form""]',
-                            '[data-testid=""login_form""]',
-                            'input[name=""email""]',
-                            'input[name=""pass""]'
-                        ];
-                        
-                        for (const selector of loginSelectors) {
-                            if (document.querySelector(selector)) {
-                                return true;
-                            }
-                        }
-                        
-                        // 检测3: 检查页面是否有主页特征（动态流、导航等）
-                        // 如果 URL 是根路径且没有主页特征，很可能是登录页
-                        const mainFeatures = [
-                            '[role=""feed""]',
-                            '[aria-label=""Create a post""]',
-                            '[data-pagelet=""MainFeed""]'
-                        ];
-                        
-                        let hasMainFeature = false;
-                        for (const selector of mainFeatures) {
-                            if (document.querySelector(selector)) {
-                                hasMainFeature = true;
-                                break;
-                            }
-                        }
-                        
-                        // 如果是根路径且没有主页特征，判定为登录页
-                        if (!hasMainFeature && 
-                            (window.location.pathname === '/' || window.location.pathname === '')) {
-                            return true;
-                        }
-                        
-                        return false;
-                    })();
+(function() {
+    const url = window.location.href;
+    const pathname = window.location.pathname;
+    
+    console.log('[登录检测] URL:', url);
+    console.log('[登录检测] Pathname:', pathname);
+    
+    // 检测1: URL 包含登录/验证相关关键词
+    const loginKeywords = [
+        '/login',
+        '/checkpoint',
+        '/recover',
+        '/confirmemail',
+        '/disabled_account',
+        '/account_disabled',
+        '/security/checkpoint',
+        'login.php',
+        'checkpoint.php'
+    ];
+    
+    for (const keyword of loginKeywords) {
+        if (url.includes(keyword)) {
+            console.log('[登录检测] 匹配关键词:', keyword);
+            return true;
+        }
+    }
+    
+    // 检测2: 页面中有 Facebook 登录表单的特征元素
+    const loginSelectors = [
+        'form[action*=""/login""]',
+        '#login_form',
+        '[data-testid=""royal_login_form""]',
+        '[data-testid=""login_form""]',
+        'input[name=""email""]',
+        'input[name=""pass""]',
+        'input[type=""email""][aria-label*=""Email""]',
+        'input[type=""password""][aria-label*=""Password""]',
+        'button[type=""submit""][name=""login""]',
+        '[aria-label*=""Log In""]',
+        '[aria-label*=""登录""]'
+    ];
+    
+    for (const selector of loginSelectors) {
+        if (document.querySelector(selector)) {
+            console.log('[登录检测] 找到登录元素:', selector);
+            return true;
+        }
+    }
+    
+    // 检测3: 检查是否有账号被封/禁用的提示
+    const bodyText = document.body.innerText.toLowerCase();
+    const disabledKeywords = [
+        'account has been disabled',
+        'your account has been suspended',
+        'account disabled',
+        'violated our community standards',
+        '您的账号已被禁用',
+        '账号被封',
+        '违反社区准则'
+    ];
+    
+    for (const keyword of disabledKeywords) {
+        if (bodyText.includes(keyword.toLowerCase())) {
+            console.log('[登录检测] 发现封号关键词:', keyword);
+            return true;
+        }
+    }
+    
+    // 检测4: 检查页面是否有主页特征（动态流、导航等）
+    const mainFeatures = [
+        '[role=""feed""]',
+        '[aria-label=""Create a post""]',
+        '[data-pagelet=""MainFeed""]',
+        '[aria-label=""Home""]',
+        '[aria-label=""首页""]',
+        'nav[aria-label=""Primary""]'
+    ];
+    
+    let hasMainFeature = false;
+    for (const selector of mainFeatures) {
+        if (document.querySelector(selector)) {
+            hasMainFeature = true;
+            console.log('[登录检测] 找到主页特征:', selector);
+            break;
+        }
+    }
+    
+    // 如果是根路径且没有主页特征，判定为登录页
+    if (!hasMainFeature && 
+        (pathname === '/' || pathname === '' || pathname === '/login.php')) {
+        console.log('[登录检测] 根路径且无主页特征，判定为登录页');
+        return true;
+    }
+    
+    console.log('[登录检测] 判定为非登录页');
+    return false;
+})();
                 ";
                 
                 var result = await browser.EvaluateScriptAsync(jsCheckLogin);
                 
                 if (result.Success && result.Result != null)
                 {
-                    return Convert.ToBoolean(result.Result);
+                    bool isLogin = Convert.ToBoolean(result.Result);
+                    System.Diagnostics.Debug.WriteLine($"🔍 登录页检测结果: {isLogin}");
+                    return isLogin;
                 }
                 
+                System.Diagnostics.Debug.WriteLine($"⚠️ JavaScript执行失败，假设不是登录页");
                 return false;
             }
             catch (Exception ex)
@@ -533,7 +601,14 @@ namespace SocialMatrix.WpfHost.Windows
                 var cookieList = JsonConvert.DeserializeObject<List<dynamic>>(cookieJson);
                 if (cookieList == null) return false;
 
-                var cookieManager = Cef.GetGlobalCookieManager();
+                // ❗ 关键修复：使用浏览器关联的 RequestContext 的 CookieManager，而不是全局的
+                var cookieManager = browser.RequestContext.GetCookieManager(null);
+                if (cookieManager == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 无法获取账号 {accountId} 的 CookieManager");
+                    return false;
+                }
+                
                 int successCount = 0;
 
                 foreach (var cookieData in cookieList)
@@ -578,7 +653,7 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine($"✅ 已为账号注入 {successCount}/{cookieList.Count} 个 Cookie");
+                System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 注入 {successCount}/{cookieList.Count} 个 Cookie (使用独立RequestContext)");
                 
                 // 刷新页面使 Cookie 生效（使用 Dispatcher 确保在 UI 线程执行）
                 Application.Current.Dispatcher.Invoke(() =>
@@ -648,6 +723,14 @@ namespace SocialMatrix.WpfHost.Windows
             try
             {
                 System.Diagnostics.Debug.WriteLine($"🚀 开始自动化采集: {searchUrl}");
+                
+                // 0. 验证浏览器是否仍然有效
+                if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已失效,无法执行采集");
+                    OnCollectionError?.Invoke(accountId, "浏览器已失效,请重新创建");
+                    return;
+                }
 
                 // 1. 导航到搜索页面（使用 Dispatcher 确保在 UI 线程执行）
                 Application.Current.Dispatcher.Invoke(() =>
@@ -663,6 +746,14 @@ namespace SocialMatrix.WpfHost.Windows
                 int checkCount = 0;
                 while (checkCount < 20) // 最多检查20次，每次2秒，共40秒
                 {
+                    // ❗ 每次循环都检查浏览器是否被关闭
+                    if (browser.IsDisposed)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已被用户关闭，停止采集");
+                        OnCollectionError?.Invoke(accountId, "浏览器已被关闭，请重新启动任务");
+                        return;
+                    }
+                    
                     bool isLoading = true;
                     Application.Current.Dispatcher.Invoke(() =>
                     {
@@ -688,6 +779,73 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     System.Diagnostics.Debug.WriteLine($"⚠️ 搜索页面加载超时");
                 }
+                
+                // ❗ 使用 JavaScript 检测 DOM 是否完全就绪（比 IsLoading 更可靠）
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"🔍 检查 DOM 就绪状态...");
+                    var domReadyResult = await browser.EvaluateScriptAsync(@"
+                        (function() {
+                            try {
+                                return {
+                                    readyState: document.readyState,
+                                    hasBody: !!document.body,
+                                    hasFacebookContent: !!document.querySelector('[role=""main""]') || !!document.querySelector('div[data-pagelet]')
+                                };
+                            } catch(e) {
+                                return { readyState: 'error', error: e.message };
+                            }
+                        })()
+                    ");
+                    
+                    if (domReadyResult.Success && domReadyResult.Result != null)
+                    {
+                        dynamic domState = domReadyResult.Result;
+                        string readyState = domState?.readyState?.ToString() ?? "";
+                        
+                        // 修复：不能对 dynamic 使用 ToObject，直接转换
+                        object hasFacebookContentObj = domState?.hasFacebookContent;
+                        bool hasFacebookContent = false;
+                        if (hasFacebookContentObj is bool b)
+                        {
+                            hasFacebookContent = b;
+                        }
+                        else if (hasFacebookContentObj != null)
+                        {
+                            bool.TryParse(hasFacebookContentObj.ToString(), out hasFacebookContent);
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"📊 DOM 状态: readyState={readyState}, hasFacebookContent={hasFacebookContent}");
+                        
+                        // 如果 DOM 还没完全就绪，等待直到 ready
+                        if (readyState != "complete" || !hasFacebookContent)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"⏳ 等待 DOM 完全就绪...");
+                            await Task.Delay(1000);
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ DOM 检测失败: {domReadyResult.Message}");
+                        // 降级方案：等待固定时间
+                        await Task.Delay(1000);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ DOM 检测异常: {ex.Message}，使用降级方案");
+                    await Task.Delay(1000);
+                }
+                
+                // ❗ 再次检查浏览器是否被关闭
+                if (browser.IsDisposed)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已被用户关闭，停止采集");
+                    OnCollectionError?.Invoke(accountId, "浏览器已被关闭，请重新启动任务");
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"🔍 浏览器状态检查: IsDisposed={browser.IsDisposed}, CanExecuteJavascript={browser.CanExecuteJavascriptInMainFrame}");
 
                 // 2. 检查是否被重定向到登录页（Cookie 失效）
                 string currentUrl = "";
@@ -696,6 +854,8 @@ namespace SocialMatrix.WpfHost.Windows
                     currentUrl = browser.Address ?? "";
                 });
                 
+                System.Diagnostics.Debug.WriteLine($"🔍 导航后URL检查: {currentUrl}");
+                
                 if (string.IsNullOrEmpty(currentUrl))
                 {
                     System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 页面加载失败，可能是网络问题");
@@ -703,20 +863,39 @@ namespace SocialMatrix.WpfHost.Windows
                     return;
                 }
                 
+                // 使用 JavaScript 再次检测是否是登录页（更准确）
+                var isLoginPageAfterNav = await CheckIfLoginPage(browser);
+                if (isLoginPageAfterNav)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 导航后被重定向到登录页: {currentUrl}");
+                    OnCollectionError?.Invoke(accountId, "Cookie已失效或账号被封，需要重新登录");
+                    return;
+                }
+                
                 // 如果导航到搜索页后被重定向回主页或登录页，说明 Cookie 失效
                 if (currentUrl == "https://www.facebook.com/" || 
                     currentUrl == "https://www.facebook.com" ||
                     currentUrl.Contains("/checkpoint") ||
-                    currentUrl.Contains("/login"))
+                    currentUrl.Contains("/login") ||
+                    currentUrl.Contains("/disabled_account") ||
+                    currentUrl.Contains("/account_disabled"))
                 {
                     System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，被重定向到: {currentUrl}");
-                    OnCollectionError?.Invoke(accountId, "Cookie已失效，需要重新登录");
+                    OnCollectionError?.Invoke(accountId, "Cookie已失效或账号被封，需要重新登录");
                     return;
                 }
 
                 // 3. 注入采集脚本(根据任务类型)
                 var collectScript = GenerateCollectScript(expectedCount, taskType);
                 System.Diagnostics.Debug.WriteLine($"🚀 开始执行采集脚本, 目标数量: {expectedCount}");
+                
+                // ❗ 最后一次验证浏览器状态
+                if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器在执行脚本前已失效或被关闭");
+                    OnCollectionError?.Invoke(accountId, "浏览器已被关闭或失效，请重新启动任务");
+                    return;
+                }
                                 
                 var result = await browser.EvaluateScriptAsync(collectScript);
                 

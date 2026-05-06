@@ -709,10 +709,16 @@ const submitForm = async () => {
     // 为每个账号启动第一个浏览器的采集
     for (const [fbAccount, firstDetail] of accountFirstDetailMap.entries()) {
       try {
+        // 从选中的账号列表中获取该账号的 Cookie
+        const selectedAccount = selectedAccounts.find(acc => acc.fbAccount === fbAccount)
+        const cookie = selectedAccount?.cookie || null
+        
+        console.log(`🔍 账号 ${fbAccount} 的 Cookie:`, cookie ? '已提供' : '未提供')
+        
         startBrowserCollect(
           String(firstDetail.detailId),
           String(fbAccount),
-          null,
+          cookie,  // ✅ 传入 Cookie
           firstDetail.searchUrl,
           data.expectedCount,
           data.taskType // 传递任务类型(1主页/2帖子/3用户等)

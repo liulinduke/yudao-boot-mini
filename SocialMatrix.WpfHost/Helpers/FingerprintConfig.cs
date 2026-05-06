@@ -399,14 +399,22 @@ namespace SocialMatrix.WpfHost.Helpers
             IRequestCallback callback)
         {
             var url = request.Url?.ToLower() ?? "";
+            var resourceType = request.ResourceType;
             
-            // 禁用图片
+            // 重要: 不阻止关键资源(如favicon、字体等),只阻止主要内容图片和视频
+            // favicon.ico 是网站图标,不应该被阻止
+            if (url.Contains("favicon.ico") || url.Contains("/icon"))
+            {
+                callback.Dispose();
+                return CefSharp.CefReturnValue.Continue;
+            }
+            
+            // 禁用图片(仅针对主要图片类型)
             if (_disableImages)
             {
-                if (url.EndsWith(".jpg") || url.EndsWith(".jpeg") || 
-                    url.EndsWith(".png") || url.EndsWith(".gif") || 
-                    url.EndsWith(".bmp") || url.EndsWith(".webp") ||
-                    url.EndsWith(".svg") || url.EndsWith(".ico"))
+                // 只阻止真正的图片资源,不阻止其他类型
+                if (resourceType == ResourceType.Image && 
+                    !url.Contains("favicon") && !url.Contains("/icon"))
                 {
                     System.Diagnostics.Debug.WriteLine($"🚫 已阻止图片加载: {url}");
                     callback.Dispose();
@@ -417,7 +425,8 @@ namespace SocialMatrix.WpfHost.Helpers
             // 禁用视频
             if (_disableVideos)
             {
-                if (url.EndsWith(".mp4") || url.EndsWith(".webm") || 
+                if (resourceType == ResourceType.Media ||
+                    url.EndsWith(".mp4") || url.EndsWith(".webm") || 
                     url.EndsWith(".avi") || url.EndsWith(".mov") || 
                     url.EndsWith(".wmv") || url.EndsWith(".flv") ||
                     url.EndsWith(".mkv"))
