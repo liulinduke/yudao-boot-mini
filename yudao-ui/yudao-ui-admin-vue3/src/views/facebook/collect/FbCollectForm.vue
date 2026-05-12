@@ -82,9 +82,9 @@
           </div>
         </el-form-item>
 
-        <!-- 搜索方式和关键词（群成员采集和用户关系采集不显示） -->
+        <!-- 搜索方式和关键词（群成员采集、用户关系采集、帖子评论点赞采集不显示） -->
         <el-form-item
-          v-if="formData.taskType !== 7 && formData.taskType !== 8"
+          v-if="formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
           label="搜索方式"
           prop="searchType"
         >
@@ -103,9 +103,9 @@
           </el-select>
         </el-form-item>
 
-        <!-- 关键词输入框(仅当searchType=1且taskType不是7或8时显示) -->
+        <!-- 关键词输入框(仅当searchType=1且taskType不是7、8或11时显示) -->
         <el-form-item
-          v-if="formData.searchType === 1 && formData.taskType !== 7 && formData.taskType !== 8"
+          v-if="formData.searchType === 1 && formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
           label="关键词"
           prop="keyword"
         >
@@ -118,10 +118,24 @@
           />
         </el-form-item>
 
-        <!-- 采集链接输入框(仅当searchType=0且taskType不是7或8时显示) -->
+        <!-- 采集链接输入框(仅当searchType=0且taskType不是7、8或11时显示) -->
         <el-form-item
-          v-if="formData.searchType === 0 && formData.taskType !== 7 && formData.taskType !== 8"
+          v-if="formData.searchType === 0 && formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
           label="采集链接"
+          prop="searchUrl"
+        >
+          <el-input
+            v-model="formData.searchUrl"
+            type="textarea"
+            :rows="4"
+            :placeholder="getUrlPlaceholder(formData.taskType)"
+          />
+        </el-form-item>
+
+        <!-- 帖子评论点赞采集：直接输入帖子链接 -->
+        <el-form-item
+          v-if="formData.taskType === 11"
+          label="帖子链接"
           prop="searchUrl"
         >
           <el-input
@@ -312,6 +326,44 @@
             />
           </el-table>
 
+          <!-- 帖子评论点赞采集结果显示 -->
+          <el-table
+            v-else-if="taskDetail?.taskType === 11"
+            :data="filteredUserList"
+            stripe
+            border
+            max-height="500"
+          >
+            <el-table-column label="评论者" prop="userName" width="150" />
+            <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
+            <el-table-column label="头像" width="80">
+              <template #default="scope">
+                <el-image
+                  v-if="scope.row.avatar"
+                  :src="scope.row.avatar"
+                  fit="cover"
+                  style="width: 40px; height: 40px; border-radius: 50%"
+                  preview-teleported
+                />
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="点赞数" prop="followers" width="100" />
+            <el-table-column label="回复数" width="100">
+              <template #default="scope">
+                {{ scope.row.config ? JSON.parse(scope.row.config).replyCount || 0 : 0 }}
+              </template>
+            </el-table-column>
+            <el-table-column label="评论时间" prop="lastPostSummary" width="120" />
+            <el-table-column
+              label="评论内容"
+              prop="profileStatus"
+              min-width="300"
+              show-overflow-tooltip
+            />
+            <el-table-column label="来源" prop="fromResource" width="120" />
+          </el-table>
+
           <!-- 群组采集结果显示 -->
           <el-table
             v-else-if="taskDetail?.taskType === 4"
@@ -430,8 +482,8 @@ const formRules = reactive({
       message: '请选择搜索方式',
       trigger: 'change',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集和用户关系采集不需要验证搜索方式
-        if (formData.value.taskType === 7 || formData.value.taskType === 8) {
+        // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证搜索方式
+        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
           callback()
         } else if (value === undefined || value === null) {
           callback(new Error('请选择搜索方式'))
@@ -447,8 +499,8 @@ const formRules = reactive({
       message: '请输入搜索关键词',
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集和用户关系采集不需要验证关键词
-        if (formData.value.taskType === 7 || formData.value.taskType === 8) {
+        // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证关键词
+        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
           callback()
         } else if (formData.value.searchType === 1 && !value) {
           callback(new Error('请输入搜索关键词'))
@@ -464,8 +516,8 @@ const formRules = reactive({
       message: '请输入采集链接',
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集和用户关系采集有自己的链接输入方式，不在此验证
-        if (formData.value.taskType === 7 || formData.value.taskType === 8) {
+        // 群成员采集、用户关系采集、帖子评论点赞采集有自己的链接输入方式，不在此验证
+        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
           callback()
         } else if (formData.value.searchType === 0 && !value) {
           callback(new Error('请输入采集链接'))
@@ -593,7 +645,7 @@ const loadUserList = async (taskId: number) => {
           taskId
         })
       } else {
-        // 用户采集等其他类型 - 查询 fb_collect_user 表
+        // 用户采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
@@ -824,7 +876,8 @@ const getUrlPlaceholder = (taskType?: number) => {
     4: '请输入群组采集链接，多个链接请换行分隔。\n示例：https://facebook.com/groups/xxx',
     5: '请输入活动采集链接，多个链接请换行分隔。\n示例：https://facebook.com/events/xxx',
     6: '请输入评论采集链接，多个链接请换行分隔。\n示例：https://facebook.com/xxx/posts/xxx',
-    7: '请输入群组成员采集链接，多个链接请换行分隔。\n可以通过“选择群组”按钮从已有群组中选择，或手动输入。\n示例：https://facebook.com/groups/xxx/members'
+    7: '请输入群组成员采集链接，多个链接请换行分隔。\n可以通过“选择群组”按钮从已有群组中选择，或手动输入。\n示例：https://facebook.com/groups/xxx/members',
+    11: '请输入帖子链接，多个链接请换行分隔。\n将采集该帖子下的所有评论和点赞数。\n示例：https://facebook.com/xxx/posts/xxx'
   }
   return placeholders[taskType || 1] || '请输入采集链接，多个链接请换行分隔'
 }
@@ -840,7 +893,8 @@ const generateSearchUrl = (taskType: number, keyword: string): string => {
     3: `https://www.facebook.com/search/people?q=${encodeURIComponent(keyword)}`, // 用户采集
     4: `https://www.facebook.com/search/groups?q=${encodeURIComponent(keyword)}`, // 群组采集
     5: `https://www.facebook.com/search/events?q=${encodeURIComponent(keyword)}`, // 活动采集
-    6: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}` // 评论采集(先搜索帖子)
+    6: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}`, // 评论采集(先搜索帖子)
+    11: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}` // 帖子评论点赞采集(先搜索帖子)
   }
 
   return urlMap[taskType] || urlMap[1]

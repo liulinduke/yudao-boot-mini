@@ -131,10 +131,10 @@ const functions = [
   },
   {
     type: 'comments',
-    title: '评论采集',
+    title: '帖子评论点赞采集',
     icon: 'ep:chat-dot-round',
-    description: '采集帖子评论内容',
-    disabled: true
+    description: '采集帖子下的评论和点赞数',
+    disabled: false
   }
 ]
 
@@ -262,7 +262,7 @@ const getTaskTypeByFunction = (funcType: string): number => {
     users: 3,
     groups: 4,
     events: 5,
-    comments: 6
+    comments: 11  // 帖子评论点赞采集
   }
   return typeMap[funcType] || 1
 }

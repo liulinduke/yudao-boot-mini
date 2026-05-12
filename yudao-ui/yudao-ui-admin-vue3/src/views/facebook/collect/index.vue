@@ -140,7 +140,7 @@
               <template #default="scope">
                 <el-progress
                   :percentage="getProgress(scope.row)"
-                  :status="scope.row.status === 2 ? 'success' : undefined"
+                  :status="getProgressStatus(scope.row)"
                   :stroke-width="15"
                 />
               </template>
@@ -370,10 +370,10 @@ const functions = [
   },
   {
     type: 'comments',
-    title: '评论采集',
+    title: '帖子评论点赞采集',
     icon: 'ep:chat-dot-round',
-    description: '采集帖子评论内容',
-    disabled: true
+    description: '采集帖子下的评论和点赞数',
+    disabled: false
   }
 ]
 
@@ -428,7 +428,7 @@ const getTaskTypeByFunction = (funcType: string): number => {
     users: 3,
     groups: 4,
     events: 5,
-    comments: 6,
+    comments: 11,  // 帖子评论点赞采集
     'group-members': 7,
     'user-relations': 8
   }
@@ -437,10 +437,29 @@ const getTaskTypeByFunction = (funcType: string): number => {
 
 /** 计算进度 */
 const getProgress = (task: FbCollect) => {
-  if (!task.expectedCount || task.expectedCount === 0) {
+  // 使用总期望数量和总已采集数量
+  const expectedCount = task.totalExpectedCount || task.expectedCount
+  const collectedCount = task.totalCollectedCount || task.collectedCount
+  
+  if (!expectedCount || expectedCount === 0) {
     return 0
   }
-  return Math.min(100, Math.round((task.collectedCount / task.expectedCount) * 100))
+  return Math.min(100, Math.round((collectedCount / expectedCount) * 100))
+}
+
+/** 获取进度条状态 */
+const getProgressStatus = (task: FbCollect) => {
+  console.log('🔍 任务进度状态检查:', {
+    id: task.id,
+    status: task.status,
+    statusType: typeof task.status,
+    totalCollectedCount: task.totalCollectedCount,
+    totalExpectedCount: task.totalExpectedCount,
+    collectedCount: task.collectedCount,
+    expectedCount: task.expectedCount,
+    isCompleted: task.status === 2
+  })
+  return task.status === 2 ? 'success' : undefined
 }
 
 /** 搜索按钮操作 */
@@ -602,9 +621,9 @@ onMounted(() => {
 
         message.success(`明细 ${detailId} 用户关系采集完成，共采集 ${parsedResults.length} 条数据`)
       } else {
-        // 用户采集 - 解析并保存用户数据
+        // 用户采集、帖子评论点赞采集 - 解析并保存用户数据
         const parsedResults = results.map((item: any) => {
-          // 解析粉丝数
+          // 解析粉丝数/点赞数
           if (item.followers && typeof item.followers === 'string') {
             item.followers = parseFollowers(item.followers)
           }
@@ -616,7 +635,12 @@ onMounted(() => {
           results: parsedResults
         })
 
-        message.success(`明细 ${detailId} 采集完成，共采集 ${parsedResults.length} 条数据`)
+        // 根据任务类型显示不同的提示
+        if (taskType === 11) {
+          message.success(`明细 ${detailId} 帖子评论采集完成，共采集 ${parsedResults.length} 条评论`)
+        } else {
+          message.success(`明细 ${detailId} 采集完成，共采集 ${parsedResults.length} 条数据`)
+        }
       }
 
       // 🔄 检查该账号是否有下一个待执行的任务

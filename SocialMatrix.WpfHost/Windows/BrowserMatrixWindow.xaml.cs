@@ -1000,6 +1000,11 @@ namespace SocialMatrix.WpfHost.Windows
                 // 转帖任务需要额外参数，这里返回空脚本，实际执行在 StartAutoCollect 中处理
                 return "(function() { return JSON.stringify([]); })();";
             }
+            else if (taskType == 11) // 帖子评论点赞采集
+            {
+                System.Diagnostics.Debug.WriteLine("✅ 进入帖子评论点赞采集分支");
+                return GenerateCommentLikeCollectScript(expectedCount);
+            }
             else // 默认主页采集
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ 使用默认主页采集分支 (taskType={taskType})");
@@ -2934,6 +2939,196 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("            } catch (e) { console.warn('[人类行为] 打字失败:', e); return false; }");
             js.AppendLine("        };");
             js.AppendLine("");
+        }
+
+        /// <summary>
+        /// 生成帖子评论点赞采集脚本
+        /// </summary>
+        private string GenerateCommentLikeCollectScript(int expectedCount)
+        {
+            var js = new System.Text.StringBuilder();
+            
+            js.AppendLine("(function() {");
+            js.AppendLine("    return new Promise((resolve, reject) => {");
+            js.AppendLine("        const results = [];");
+            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine("        const seenUserIds = new Set();");
+            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine("        const maxScrolls = 50;");
+            js.AppendLine("        let consecutiveNoNewItems = 0;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
+            js.AppendLine("");
+            js.AppendLine("        const randomDelay = (min, max) => {");
+            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 贝塞尔曲线鼠标轨迹模拟
+            AddHumanBehaviorSimulation(js);
+            
+            // extractCommentData 函数
+            js.AppendLine("        const extractCommentData = (commentElement) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 提取评论者信息");
+            js.AppendLine("                const authorLink = commentElement.querySelector('a[href*=\"facebook.com/\"]');");
+            js.AppendLine("                if (!authorLink) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const url = authorLink.href.split('?')[0];");
+            js.AppendLine("                if (seenUserIds.has(url)) return null;");
+            js.AppendLine("");
+            js.AppendLine("                const userName = authorLink.textContent.trim();");
+            js.AppendLine("                if (!userName) return null;");
+            js.AppendLine("");
+            js.AppendLine("                // 提取头像");
+            js.AppendLine("                const avatarImg = commentElement.querySelector('img');");
+            js.AppendLine("                const avatar = avatarImg ? (avatarImg.src || '') : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取评论内容");
+            js.AppendLine("                const contentElement = commentElement.querySelector('[dir=\"auto\"]') || commentElement.querySelector('span');");
+            js.AppendLine("                const commentContent = contentElement ? contentElement.textContent.trim() : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取点赞数");
+            js.AppendLine("                const likeButton = commentElement.querySelector('[aria-label*=\"赞\"], [aria-label*=\"like\"], [aria-label*=\"J’aime\"]');");
+            js.AppendLine("                let likeCount = 0;");
+            js.AppendLine("                if (likeButton) {");
+            js.AppendLine("                    const likeText = likeButton.parentElement?.textContent.match(/\\d+/);");
+            js.AppendLine("                    likeCount = likeText ? parseInt(likeText[0]) : 0;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取评论时间");
+            js.AppendLine("                const timeElement = commentElement.querySelector('abbr') || commentElement.querySelector('[data-testid*=\"timestamp\"]');");
+            js.AppendLine("                const commentTime = timeElement ? timeElement.textContent.trim() : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取回复数");
+            js.AppendLine("                const replyElement = commentElement.querySelector('[aria-label*=\"回复\"], [aria-label*=\"reply\"]');");
+            js.AppendLine("                let replyCount = 0;");
+            js.AppendLine("                if (replyElement) {");
+            js.AppendLine("                    const replyText = replyElement.textContent.match(/\\d+/);");
+            js.AppendLine("                    replyCount = replyText ? parseInt(replyText[0]) : 0;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取用户ID");
+            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
+            js.AppendLine("                const fbUserId = idMatch ? idMatch[1] : (url.match(/facebook\\.com\\/([^\\/?]+)/) || [])[1] || '';");
+            js.AppendLine("");
+            js.AppendLine("                seenUserIds.add(url);");
+            js.AppendLine("");
+            js.AppendLine("                return {");
+            js.AppendLine("                    fbUserId: fbUserId,");
+            js.AppendLine("                    userName: userName,");
+            js.AppendLine("                    url: url,");
+            js.AppendLine("                    avatar: avatar,");
+            js.AppendLine("                    followers: likeCount,  // 使用followers字段存储点赞数");
+            js.AppendLine("                    profileStatus: commentContent,  // 使用profileStatus存储评论内容");
+            js.AppendLine("                    lastPostSummary: commentTime,  // 使用时间字段");
+            js.AppendLine("                    fromResource: '帖子评论采集',");
+            js.AppendLine("                    config: JSON.stringify({ replyCount: replyCount })  // 存储回复数");
+            js.AppendLine("                };");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('解析评论数据失败:', e);");
+            js.AppendLine("                return null;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // collectComments 主函数
+            js.AppendLine("        const collectComments = () => {");
+            js.AppendLine("            // Facebook评论区选择器（多种可能）");
+            js.AppendLine("            const commentSelectors = [");
+            js.AppendLine("                '[role=\"article\"]',");
+            js.AppendLine("                '[data-testid=\"UFI2CommentsRoot\"]',");
+            js.AppendLine("                '.x1i10hfl'");
+            js.AppendLine("            ];");
+            js.AppendLine("");
+            js.AppendLine("            let commentElements = [];");
+            js.AppendLine("            for (const selector of commentSelectors) {");
+            js.AppendLine("                commentElements = Array.from(document.querySelectorAll(selector));");
+            js.AppendLine("                if (commentElements.length > 0) break;");
+            js.AppendLine("            }");
+            js.AppendLine("");
+            js.AppendLine("            if (commentElements.length === 0) {");
+            js.AppendLine("                console.warn('未找到评论区元素');");
+            js.AppendLine("                return false;");
+            js.AppendLine("            }");
+            js.AppendLine("");
+            js.AppendLine("            let newCount = 0;");
+            js.AppendLine("            for (const element of commentElements) {");
+            js.AppendLine("                if (results.length >= targetCount) break;");
+            js.AppendLine("");
+            js.AppendLine("                const data = extractCommentData(element);");
+            js.AppendLine("                if (data) {");
+            js.AppendLine("                    results.push(data);");
+            js.AppendLine("                    newCount++;");
+            js.AppendLine("                    console.log(`✅ 采集到评论: ${data.userName} (${data.followers}个赞)`);");
+            js.AppendLine("                }");
+            js.AppendLine("            }");
+            js.AppendLine("");
+            js.AppendLine("            console.log(`📊 当前已采集: ${results.length}/${targetCount}, 本轮新增: ${newCount}`);");
+            js.AppendLine("            return newCount > 0;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 滚动加载更多
+            js.AppendLine("        const scrollToLoadMore = async () => {");
+            js.AppendLine("            const scrollHeight = document.documentElement.scrollHeight;");
+            js.AppendLine("            const currentScroll = document.documentElement.scrollTop + window.innerHeight;");
+            js.AppendLine("");
+            js.AppendLine("            if (currentScroll < scrollHeight - 200) {");
+            js.AppendLine("                const scrollTarget = Math.min(scrollHeight, currentScroll + 800);");
+            js.AppendLine("                window.scrollTo({ top: scrollTarget, behavior: 'smooth' });");
+            js.AppendLine("                await randomDelay(1500, 2500);");
+            js.AppendLine("                return true;");
+            js.AppendLine("            }");
+            js.AppendLine("            return false;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            
+            // 主循环
+            js.AppendLine("        const mainLoop = async () => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                while (results.length < targetCount && scrollCount < maxScrolls) {");
+            js.AppendLine("                    const foundNew = collectComments();");
+            js.AppendLine("");
+            js.AppendLine("                    if (foundNew) {");
+            js.AppendLine("                        consecutiveNoNewItems = 0;");
+            js.AppendLine("                    } else {");
+            js.AppendLine("                        consecutiveNoNewItems++;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    if (consecutiveNoNewItems >= maxConsecutiveNoNew) {");
+            js.AppendLine("                        console.log('⚠️ 连续多次未发现新评论，停止采集');");
+            js.AppendLine("                        break;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    if (results.length >= targetCount) {");
+            js.AppendLine("                        console.log('✅ 已达到目标数量');");
+            js.AppendLine("                        break;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    const canScroll = await scrollToLoadMore();");
+            js.AppendLine("                    if (!canScroll) {");
+            js.AppendLine("                        console.log('⚠️ 无法继续滚动，停止采集');");
+            js.AppendLine("                        break;");
+            js.AppendLine("                    }");
+            js.AppendLine("");
+            js.AppendLine("                    scrollCount++;");
+            js.AppendLine("                    await randomDelay(1000, 2000);");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                console.log(`🎉 采集完成！共采集 ${results.length} 条评论`);");
+            js.AppendLine("                resolve(results);");
+            js.AppendLine("            } catch (error) {");
+            js.AppendLine("                console.error('❌ 采集过程出错:', error);");
+            js.AppendLine("                reject(error);");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+            js.AppendLine("        mainLoop();");
+            js.AppendLine("    });");
+            js.AppendLine("})();");
+            
+            return js.ToString();
         }
     }
 }
