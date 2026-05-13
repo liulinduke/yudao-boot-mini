@@ -1013,241 +1013,95 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 生成主页采集脚本（增强版 - 支持60+种语言）
+        /// 生成主页采集脚本（简化版）
         /// </summary>
         private string GeneratePageCollectScript(int expectedCount)
         {
-            // 从 JSON 文件加载关键词和单位
             var (keywords, units) = LoadFollowerKeywordsAndUnits();
-            
-            // 使用 StringBuilder 构建 JavaScript，避免转义问题
             var js = new System.Text.StringBuilder();
-                    
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
+            
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUrls = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine("        const maxScrolls = 50;");
-            js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
-            
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
-            // 从 JSON 加载的多语言关键词数组
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             js.AppendLine($"        const FOLLOWER_KEYWORDS = {keywords};");
             js.AppendLine($"        const FOLLOWER_UNITS = {units};");
-            js.AppendLine("");
+            
+            // 数据提取函数
+            js.AppendLine(@"
+        const extractCardData = (card) => {
+            try {
+                const nameLinkEl = card.querySelector('a[aria-hidden=""true""]');
+                if (!nameLinkEl) return null;
+                
+                const url = nameLinkEl.href;
+                if (!url || seenUrls.has(url)) return null;
+                
+                const name = nameLinkEl.textContent.trim();
+                if (!name) return null;
+                
+                const cleanName = name.replace(/\s*(Akun Terverifikasi|Verified|Compte certifié)/gi, '').trim();
+                const isVerifiedInName = /akun terverifikasi|verified|compte certifi/i.test(name);
+                
+                const avatarLinkEl = card.querySelector('a[aria-label*=""profil""]') || card.querySelector('a[aria-label*=""photo""]');
+                let avatar = '';
+                if (avatarLinkEl) {
+                    const imgEl = avatarLinkEl.querySelector('image') || avatarLinkEl.querySelector('img');
+                    if (imgEl) avatar = imgEl.getAttribute('xlink:href') || imgEl.src || '';
+                }
+                
+                const allSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
+                let followers = '', category = '', snippet = '';
+                
+                for (const span of allSpans) {
+                    const text = span.textContent.trim();
+                    if (!text) continue;
                     
-            // extractCardData 函数
-            js.AppendLine("        const extractCardData = (card) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const nameLinkEl = card.querySelector('a[aria-hidden=\"true\"]');");
-            js.AppendLine("                if (!nameLinkEl) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const url = nameLinkEl.href;");
-            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const name = nameLinkEl.textContent.trim();");
-            js.AppendLine("                if (!name) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 清理名称中的'已验证'等标记");
-            js.AppendLine("                const cleanName = name.replace(/\\s*(Akun Terverifikasi|Verified|Compte certifié)/gi, '').trim();");
-            js.AppendLine("                // 检测名称中是否包含'已验证'标记");
-            js.AppendLine("                const isVerifiedInName = /akun terverifikasi|verified|compte certifi/i.test(name);");
-            js.AppendLine("");
-
-            js.AppendLine("                const avatarLinkEl = card.querySelector('a[aria-label*=\"profil\"]') ||");
-            js.AppendLine("                                    card.querySelector('a[aria-label*=\"photo\"]');");
-            js.AppendLine("                ");
-            js.AppendLine("                let avatar = '';");
-            js.AppendLine("                if (avatarLinkEl) {");
-            js.AppendLine("                    const imgEl = avatarLinkEl.querySelector('image') || avatarLinkEl.querySelector('img');");
-            js.AppendLine("                    if (imgEl) {");
-            js.AppendLine("                        avatar = imgEl.getAttribute('xlink:href') || imgEl.src || '';");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const allSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
-            js.AppendLine("                ");
-            js.AppendLine("                let followers = '';");
-            js.AppendLine("                let category = '';");
-            js.AppendLine("                let snippet = '';");
-            js.AppendLine("                ");
-            js.AppendLine("                // 遍历所有 span，查找包含粉丝数的文本");
-            js.AppendLine("                for (const span of allSpans) {");
-            js.AppendLine("                    const text = span.textContent.trim();");
-            js.AppendLine("                    if (!text) continue;");
-            js.AppendLine("                    ");
-            js.AppendLine("                    // 检查是否包含粉丝数关键词");
-            js.AppendLine("                    const keywordsPattern = FOLLOWER_KEYWORDS.join('|');");
-            js.AppendLine("                    const unitsPattern = FOLLOWER_UNITS.join('|');");
-            js.AppendLine("                    // 支持多种格式：");
-            js.AppendLine("                    // 1. 数字 + 可选单位(k/M/rb/jt等) + 关键词");
-            js.AppendLine("                    // 2. 关键词 + 数字 + 可选单位");
-            js.AppendLine("                    const followerRegex = new RegExp(");
-            js.AppendLine("                        '([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?[\\s]*(?:' + keywordsPattern + ')|(?:' + keywordsPattern + ')[\\s:]*([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?',");
-            js.AppendLine("                        'i'");
-            js.AppendLine("                    );");
-            js.AppendLine("                    ");
-            js.AppendLine("                    const followerMatch = text.match(followerRegex);");
-            js.AppendLine("                    if (followerMatch) {");
-            js.AppendLine("                        // 提取数字部分（Group 1 或 Group 2）");
-            js.AppendLine("                        let numberPart = followerMatch[1] || followerMatch[2] || '';");
-            js.AppendLine("                        ");
-            js.AppendLine("                        // 验证是否为有效数字");
-            js.AppendLine("                        if (numberPart && /^\\d+[\\.,]?\\d*$/.test(numberPart)) {");
-            js.AppendLine("                            // 从完整匹配中提取单位（如果有）");
-            js.AppendLine("                            const fullMatch = followerMatch[0];");
-            js.AppendLine("                            const unitRegex = new RegExp('(?:^|[\\s])(' + unitsPattern + ')(?:[\\s]|$)', 'i');");
-            js.AppendLine("                            const unitMatch = fullMatch.match(unitRegex);");
-            js.AppendLine("                            followers = numberPart + (unitMatch ? unitMatch[1] : '');");
-            js.AppendLine("                            // 粉丝数之前的部分是类别");
-            js.AppendLine("                            const beforeFollowers = text.substring(0, text.indexOf(followerMatch[0])).trim();");
-            js.AppendLine("                            if (beforeFollowers) {");
-            js.AppendLine("                                category = beforeFollowers.split('·')[0].trim();");
-            js.AppendLine("                            }");
-            js.AppendLine("                            break;");
-            js.AppendLine("                        }");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("                ");
-            js.AppendLine("                // 如果没有找到粉丝数，尝试从第2个span提取类别");
-            js.AppendLine("                if (!category && allSpans.length >= 2) {");
-            js.AppendLine("                    const infoText = allSpans[1].textContent.trim();");
-            js.AppendLine("                    const categoryMatch = infoText.match(/^([^·]+)/);");
-            js.AppendLine("                    if (categoryMatch) {");
-            js.AppendLine("                        category = categoryMatch[1].trim();");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("                ");
-            js.AppendLine("                // 提取简介（最后一个长文本）");
-            js.AppendLine("                if (allSpans.length >= 3) {");
-            js.AppendLine("                    snippet = allSpans[allSpans.length - 1].textContent.trim().substring(0, 200);");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 检查是否已验证（多种方式）");
-            js.AppendLine("                const isVerified = isVerifiedInName ||");
-            js.AppendLine("                                  card.querySelector('[aria-label*=\"Verified\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('[aria-label*=\"verifi\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('svg[title*=\"Verified\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('svg[title*=\"Terverifikasi\"]') !== null;");
-            js.AppendLine("");
-            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
-            js.AppendLine("                const id = idMatch ? idMatch[1] : (url.match(/facebook\\.com\\/([^\\/?]+)/) || [])[1] || '';");
-            js.AppendLine("");
-            js.AppendLine("                seenUrls.add(url);");
-            js.AppendLine("");
-            js.AppendLine("                return {");
-            js.AppendLine("                    id: id,");
-            js.AppendLine("                    name: cleanName,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    avatar: avatar,");
-            js.AppendLine("                    followers: followers,");
-            js.AppendLine("                    category: category,");
-            js.AppendLine("                    snippet: snippet,");
-            js.AppendLine("                    isVerified: isVerified,");
-            js.AppendLine("                    collectedAt: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+                    const keywordsPattern = FOLLOWER_KEYWORDS.join('|');
+                    const unitsPattern = FOLLOWER_UNITS.join('|');
+                    const followerRegex = new RegExp('([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?[\\s]*(?:' + keywordsPattern + ')|(?:' + keywordsPattern + ')[\\s:]*([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?', 'i');
+                    const followerMatch = text.match(followerRegex);
                     
-            // 主循环
-            js.AppendLine("        const interval = setInterval(() => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("");
-            js.AppendLine("                cards.forEach(card => {");
-            js.AppendLine("                    if (results.length >= targetCount) return;");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractCardData(card);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                    }");
-            js.AppendLine("                });");
-            js.AppendLine("");
-            js.AppendLine("                if (newItemsFound > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Collection complete: ' + results.length + '/' + targetCount);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Collection ended: ' + results.length + ' items');");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
-            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("");
-            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
-            js.AppendLine("                clearInterval(interval);");
-            js.AppendLine("                setTimeout(() => {");
-            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
-            js.AppendLine("                }, nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('Collection error:', e);");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 2000);");
-            js.AppendLine("");
-                    
-            // 超时保护
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            clearInterval(interval);");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' items');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-                    
-            return js.ToString();
+                    if (followerMatch) {
+                        let numberPart = followerMatch[1] || followerMatch[2] || '';
+                        if (numberPart && /^\d+[\.,]?\d*$/.test(numberPart)) {
+                            const fullMatch = followerMatch[0];
+                            const unitRegex = new RegExp('(?:^|[\s])(' + unitsPattern + ')(?:[\s]|$)', 'i');
+                            const unitMatch = fullMatch.match(unitRegex);
+                            followers = numberPart + (unitMatch ? unitMatch[1] : '');
+                            const beforeFollowers = text.substring(0, text.indexOf(followerMatch[0])).trim();
+                            if (beforeFollowers) category = beforeFollowers.split('·')[0].trim();
+                            break;
+                        }
+                    }
+                }
+                
+                if (!category && allSpans.length >= 2) {
+                    const infoText = allSpans[1].textContent.trim();
+                    const categoryMatch = infoText.match(/^([^·]+)/);
+                    if (categoryMatch) category = categoryMatch[1].trim();
+                }
+                
+                if (allSpans.length >= 3) snippet = allSpans[allSpans.length - 1].textContent.trim().substring(0, 200);
+                
+                const isVerified = isVerifiedInName || card.querySelector('[aria-label*=""Verified""]') !== null || card.querySelector('[aria-label*=""verifi""]') !== null;
+                const idMatch = url.match(/[?&]id=(\d+)/);
+                const id = idMatch ? idMatch[1] : (url.match(/facebook\.com\/([^\?]+)/) || [])[1] || '';
+                
+                seenUrls.add(url);
+                return { id, name: cleanName, url, avatar, followers, category, snippet, isVerified, collectedAt: new Date().toISOString() };
+            } catch (e) {
+                console.warn('Extract failed:', e);
+                return null;
+            }
+        };
+");
+            
+            // 使用通用采集循环
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractCardData", "[role=\"article\"]"));
+            
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
@@ -1429,1241 +1283,565 @@ namespace SocialMatrix.WpfHost.Windows
         }
         
         /// <summary>
-        /// 生成用户采集脚本
+        /// 生成用户采集脚本（简化版）
         /// </summary>
         private string GenerateUserCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
-                    
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
+            
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUrls = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine("        const maxScrolls = 50;");
-            js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const extractUserCardData = (card) => {
+            try {
+                const nameLinkEl = card.querySelector('a[aria-hidden=""true""]');
+                if (!nameLinkEl) return null;
+                
+                const url = nameLinkEl.href;
+                if (!url || seenUrls.has(url)) return null;
+                
+                const name = nameLinkEl.textContent.trim();
+                if (!name) return null;
+                
+                const cleanName = name.replace(/\s*(Akun Terverifikasi|Verified|Compte certifié)/gi, '').trim();
+                const isVerifiedInName = /akun terverifikasi|verified|compte certifi/i.test(name);
+                
+                const avatarLinkEl = card.querySelector('a[aria-label*=""profil""]') || card.querySelector('a[aria-label*=""photo""]');
+                let avatar = '';
+                if (avatarLinkEl) {
+                    const imgEl = avatarLinkEl.querySelector('image') || avatarLinkEl.querySelector('img');
+                    if (imgEl) avatar = imgEl.getAttribute('xlink:href') || imgEl.src || '';
+                }
+                
+                const allSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
+                let followers = '', location = '', bio = '', category = '';
+                
+                for (let i = 0; i < allSpans.length; i++) {
+                    const span = allSpans[i];
+                    const text = span.textContent.trim();
+                    if (!text) continue;
+                    
+                    const followerPattern = /(\d+[\.,]?\d*)\s*(rb|ribu|jt|juta|k|m|b|t|pengikut|followers|follower|abonnes|seguidores|fans|千|万|百万|千万|亿)/i;
+                    const followerMatch = text.match(followerPattern);
+                    if (followerMatch && !followers) {
+                        followers = followerMatch[0].replace(/&nbsp;/g, ' ').trim();
+                        continue;
+                    }
+                    
+                    if ((text.includes('Tinggal di') || text.includes('@')) && !location) {
+                        location = text;
+                        continue;
+                    }
+                    
+                    if ((text.includes('Kreator digital') || text.includes('di PT.') || text.includes('Founder') || text.includes('Blogger') || text.includes('Tokoh Publik')) && !category) {
+                        category = text.split('·')[0].trim();
+                        continue;
+                    }
+                    
+                    if (text.length > 20 && !bio && i >= allSpans.length - 2) {
+                        bio = text.substring(0, 200);
+                    }
+                }
+                
+                const isVerified = isVerifiedInName || card.querySelector('[aria-label*=""Verified""]') !== null || card.querySelector('[aria-label*=""verifi""]') !== null;
+                const idMatch = url.match(/[?&]id=(\d+)/);
+                const id = idMatch ? idMatch[1] : (url.match(/facebook\.com\/([^\/?]+)/) || [])[1] || '';
+                
+                seenUrls.add(url);
+                return { fbUserId: id, userName: cleanName, url, avatar, followers, city: location, bio: bio || category, isVerified, collectedAt: new Date().toISOString() };
+            } catch (e) {
+                console.warn('Extract user failed:', e);
+                return null;
+            }
+        };
+");
             
-            // extractUserCardData 函数 - 专门解析用户卡片
-            js.AppendLine("        const extractUserCardData = (card) => {");
-            js.AppendLine("            try {");
-            // 提取用户名链接
-            js.AppendLine("                const nameLinkEl = card.querySelector('a[aria-hidden=\"true\"]');");
-            js.AppendLine("                if (!nameLinkEl) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const url = nameLinkEl.href;");
-            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const name = nameLinkEl.textContent.trim();");
-            js.AppendLine("                if (!name) return null;");
-            js.AppendLine("");
-            // 清理名称中的'已验证'标记
-            js.AppendLine("                const cleanName = name.replace(/\\s*(Akun Terverifikasi|Verified|Compte certifié)/gi, '').trim();");
-            js.AppendLine("                const isVerifiedInName = /akun terverifikasi|verified|compte certifi/i.test(name);");
-            js.AppendLine("");
-            // 提取头像
-            js.AppendLine("                const avatarLinkEl = card.querySelector('a[aria-label*=\"profil\"]') ||");
-            js.AppendLine("                                    card.querySelector('a[aria-label*=\"photo\"]');");
-            js.AppendLine("                ");
-            js.AppendLine("                let avatar = '';");
-            js.AppendLine("                if (avatarLinkEl) {");
-            js.AppendLine("                    const imgEl = avatarLinkEl.querySelector('image') || avatarLinkEl.querySelector('img');");
-            js.AppendLine("                    if (imgEl) {");
-            js.AppendLine("                        avatar = imgEl.getAttribute('xlink:href') || imgEl.src || '';");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            // 提取所有span元素
-            js.AppendLine("                const allSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
-            js.AppendLine("                ");
-            js.AppendLine("                let followers = '';");
-            js.AppendLine("                let location = '';");
-            js.AppendLine("                let bio = '';");
-            js.AppendLine("                let category = '';");
-            js.AppendLine("                ");
-            // 遍历所有span，查找粉丝数、位置、简介等信息
-            js.AppendLine("                for (let i = 0; i < allSpans.length; i++) {");
-            js.AppendLine("                    const span = allSpans[i];");
-            js.AppendLine("                    const text = span.textContent.trim();");
-            js.AppendLine("                    if (!text) continue;");
-            js.AppendLine("                    ");
-            // 检查是否包含粉丝数关键词（支持多种语言）
-            js.AppendLine("                    const followerPattern = /(\\d+[\\.,]?\\d*)\\s*(rb|ribu|jt|juta|k|m|b|t|pengikut|followers|follower|abonnes|seguidores|fans|千|万|百万|千万|亿)/i;");
-            js.AppendLine("                    const followerMatch = text.match(followerPattern);");
-            js.AppendLine("                    if (followerMatch && !followers) {");
-            js.AppendLine("                        followers = followerMatch[0].replace(/&nbsp;/g, ' ').trim();");
-            js.AppendLine("                        continue;");
-            js.AppendLine("                    }");
-            js.AppendLine("                    ");
-            // 提取位置信息（包含“Tinggal di”、“@”等关键词）
-            js.AppendLine("                    if ((text.includes('Tinggal di') || text.includes('@')) && !location) {");
-            js.AppendLine("                        location = text;");
-            js.AppendLine("                        continue;");
-            js.AppendLine("                    }");
-            js.AppendLine("                    ");
-            // 提取职业/类别（Kreator digital、Marketing Specialist等）
-            js.AppendLine("                    if ((text.includes('Kreator digital') || text.includes('di PT.') || text.includes('Founder') || text.includes('Blogger') || text.includes('Tokoh Publik')) && !category) {");
-            js.AppendLine("                        category = text.split('·')[0].trim();");
-            js.AppendLine("                        continue;");
-            js.AppendLine("                    }");
-            js.AppendLine("                    ");
-            // 提取简介（较长的文本，通常是最后一个span）
-            js.AppendLine("                    if (text.length > 20 && !bio && i >= allSpans.length - 2) {");
-            js.AppendLine("                        bio = text.substring(0, 200);");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("                ");
-            // 检查是否已验证
-            js.AppendLine("                const isVerified = isVerifiedInName ||");
-            js.AppendLine("                                  card.querySelector('[aria-label*=\"Verified\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('[aria-label*=\"verifi\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('svg[title*=\"Verified\"]') !== null ||");
-            js.AppendLine("                                  card.querySelector('svg[title*=\"Terverifikasi\"]') !== null;");
-            js.AppendLine("");
-            // 提取Facebook ID
-            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
-            js.AppendLine("                const id = idMatch ? idMatch[1] : (url.match(/facebook\\.com\\/([^\\/?]+)/) || [])[1] || '';");
-            js.AppendLine("");
-            js.AppendLine("                seenUrls.add(url);");
-            js.AppendLine("");
-            // 返回结果对象
-            js.AppendLine("                return {");
-            js.AppendLine("                    fbUserId: id,");
-            js.AppendLine("                    userName: cleanName,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    avatar: avatar,");
-            js.AppendLine("                    followers: followers,");
-            js.AppendLine("                    city: location,");
-            js.AppendLine("                    bio: bio || category,");
-            js.AppendLine("                    isVerified: isVerified,");
-            js.AppendLine("                    collectedAt: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract user failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
-            // 主循环 - 滚动加载
-            js.AppendLine("        const interval = setInterval(() => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("");
-            js.AppendLine("                cards.forEach(card => {");
-            js.AppendLine("                    if (results.length >= targetCount) return;");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractUserCardData(card);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                    }");
-            js.AppendLine("                });");
-            js.AppendLine("");
-            js.AppendLine("                if (newItemsFound > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('User collection complete: ' + results.length + '/' + targetCount);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('User collection ended: ' + results.length + ' items');");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
-            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("");
-            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
-            js.AppendLine("                clearInterval(interval);");
-            js.AppendLine("                setTimeout(() => {");
-            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
-            js.AppendLine("                }, nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('User collection error:', e);");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 2000);");
-            js.AppendLine("");
-                    
-            // 超时保护（5分钟）
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            clearInterval(interval);");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' users');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-
-            return js.ToString();
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserCardData", "[role=\"article\"]"));
+            
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
-        /// 生成帖子采集脚本
+        /// 生成帖子采集脚本（简化版）
         /// </summary>
         private string GeneratePostCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
             
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUrls = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine($"        const maxScrolls = {Math.Max(expectedCount * 3, 10)}; // 根据期望数量动态计算,最少10次");
+            js.AppendLine($"        const maxScrolls = {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5; // 连续5次无新数据才停止,给懒加载更多时间");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
             js.AppendLine("        let lastCardCount = 0;");
-            js.AppendLine("");
-            js.AppendLine("        console.log('[采集开始] 目标数量:', targetCount);");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
-            
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine("        let scrollCount = 0;");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
             // 提取帖子数据的函数
-            js.AppendLine("        const extractPostData = (card) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 预检查: 过滤掉明显不是帖子的卡片");
-            js.AppendLine("                // 1. 检查是否有帖子内容区域");
-            js.AppendLine("                const hasContent = card.querySelector('[data-ad-comet-preview=\"message\"]') ||")
-            .AppendLine("                                  card.querySelector('[data-testid=\"post_message\"]') ||")
-            .AppendLine("                                  card.querySelector('span[dir=\"auto\"]');");
-            js.AppendLine("                if (!hasContent) {");
-            js.AppendLine("                    console.log('[跳过卡片] 无帖子内容区域');");
-            js.AppendLine("                    return null;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 2. 排除纯头像/故事卡片(通常只有SVG和图片)");
-            js.AppendLine("                const svgCount = card.querySelectorAll('svg').length;");
-            js.AppendLine("                const imgCount = card.querySelectorAll('img').length;");
-            js.AppendLine("                const linkCount = card.querySelectorAll('a').length;");
-            js.AppendLine("                if (svgCount > 0 && imgCount > 0 && linkCount < 3) {");
-            js.AppendLine("                    console.log('[跳过卡片] 可能是头像/故事卡片');");
-            js.AppendLine("                    return null;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 提取帖子链接 - 支持多种URL格式(posts/permalink/photos/videos/story/search)");
-            js.AppendLine("                // 策略1: 查找包含帖子相关路径的链接");
-            js.AppendLine("                let postLinkEl = card.querySelector('a[href*=\"/posts/\"]') ||")
-            .AppendLine("                                  card.querySelector('a[href*=\"/permalink/\"]') ||")
-            .AppendLine("                                  card.querySelector('a[href*=\"/photos/\"]') ||")
-            .AppendLine("                                  card.querySelector('a[href*=\"/videos/\"]') ||")
-            .AppendLine("                                  card.querySelector('a[href*=\"story.php\"]') ||")
-            .AppendLine("                                  card.querySelector('a[href*=\"/search/posts/\"]');"); // 搜索结果页面的帖子链接
-            js.AppendLine("");
-            js.AppendLine("                // 策略2: 如果没找到,尝试查找时间戳链接(通常是帖子的永久链接)");
-            js.AppendLine("                if (!postLinkEl) {");
-            js.AppendLine("                    const timeLinks = card.querySelectorAll('a[href*=\"facebook.com\"]');");
-            js.AppendLine("                    for (const link of timeLinks) {");
-            js.AppendLine("                        const href = link.href;");
-            js.AppendLine("                        // 排除头像、故事、个人主页等非帖子链接");
-            js.AppendLine("                        if (href.includes('/stories/') || href.includes('/profile.php') || ")
-            .AppendLine("                            href.includes('/groups/') || !href.includes('?')) continue;");
-            js.AppendLine("                        // 检查是否有帖子相关的查询参数");
-            js.AppendLine("                        if (href.includes('fbid=') || href.includes('story_fbid=') || ")
-            .AppendLine("                            href.includes('id=') && href.match(/\\d{15,}/)) {");
-            js.AppendLine("                            postLinkEl = link;");
-            js.AppendLine("                            break;");
-            js.AppendLine("                        }");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 策略3: 查找带有data-ft属性的链接(Facebook内部追踪属性,通常用于帖子)");
-            js.AppendLine("                if (!postLinkEl) {");
-            js.AppendLine("                    postLinkEl = card.querySelector('a[data-ft]');");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (!postLinkEl) {");
-            js.AppendLine("                    // 输出卡片的HTML结构用于调试");
-            js.AppendLine("                    console.warn('[提取失败] 未找到帖子链接, 卡片HTML:', card.innerHTML.substring(0, 500));");
-            js.AppendLine("                    return null;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const url = postLinkEl.href.split('?')[0]; // 移除查询参数");
-            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 提取发帖人 - 多语言支持");
-            js.AppendLine("                // 优先匹配有文本内容的链接,避免匹配到只有图片的头像链接");
-            js.AppendLine("                const authorEl = card.querySelector('[data-ad-rendering-role=\"profile_name\"] a') ||")
-            .AppendLine("                               card.querySelector('h3 a[href*=\"facebook.com\"]:not([href*=\"/groups/\"])') ||")
-            .AppendLine("                               card.querySelector('strong a[href*=\"facebook.com\"]:not([href*=\"/groups/\"])') ||")
-            .AppendLine("                               card.querySelector('a[aria-label]:not([href*=\"/groups/\"]):not([href*=\"/hashtag/\"])') ||")
-            .AppendLine("                               card.querySelector('span[dir=\"auto\"] strong');");
-            js.AppendLine("                const postUser = authorEl ? authorEl.textContent.trim() : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取群组名称 - 优先使用h3中的群组链接");
-            js.AppendLine("                const groupLinkEl = card.querySelector('h3 a[href*=\"/groups/\"]') ||")
-            .AppendLine("                               card.querySelector('[data-ad-rendering-role=\"profile_name\"] a[href*=\"/groups/\"]:not([href*=\"/user/\"])');");
-            js.AppendLine("                const groupName = groupLinkEl ? groupLinkEl.textContent.trim() : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取帖子内容 - 尝试多种选择器");
-            js.AppendLine("                const contentEl = card.querySelector('[data-ad-comet-preview=\"message\"]') ||")
-            .AppendLine("                                card.querySelector('[data-testid=\"post_message\"]') ||")
-            .AppendLine("                                card.querySelector('span[dir=\"auto\"]');");
-            js.AppendLine("                const postContent = contentEl ? contentEl.textContent.trim() : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取点赞数、评论数、转发数（返回原始字符串，由前端解析）");
-            js.AppendLine("                let reactionCount = '';");
-            js.AppendLine("                let commentCount = '';");
-            js.AppendLine("                let reshareCount = '';");
-            js.AppendLine("");
-            js.AppendLine("                // 查找所有数字span");
-            js.AppendLine("                const numberSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
-            js.AppendLine("                for (const span of numberSpans) {");
-            js.AppendLine("                    const text = span.textContent.trim();");
-            js.AppendLine("                    if (!text || !/^[\\d]/.test(text)) continue;");
-            js.AppendLine("");
-            js.AppendLine("                    // 提取带单位的原始字符串（如 \"1.5K\", \"27\", \"48\"）");
-            js.AppendLine("                    const numMatch = text.match(/^([\\d]+[\\.,]?\\d*\\s*[kKmMrbjtRBJT]*)/);");
-            js.AppendLine("                    if (!numMatch) continue;");
-            js.AppendLine("");
-            js.AppendLine("                    const rawValue = numMatch[1].trim();");
-            js.AppendLine("");
-            js.AppendLine("                    // 根据上下文判断是哪个计数");
-            js.AppendLine("                    const parentText = span.parentElement?.textContent || '';");
-            js.AppendLine("                    if (parentText.includes('komentar') || parentText.includes('comment')) {");
-            js.AppendLine("                        commentCount = rawValue;");
-            js.AppendLine("                    } else if (parentText.includes('bagikan') || parentText.includes('share')) {");
-            js.AppendLine("                        reshareCount = rawValue;");
-            js.AppendLine("                    } else if (parentText.includes('suka') || parentText.includes('like') || parentText.includes('reaksi')) {");
-            js.AppendLine("                        reactionCount = rawValue;");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 提取帖子ID - 支持多种URL格式(posts/permalink/photos/videos)");
-            js.AppendLine("                let itemIdMatch = url.match(/(?:posts|permalink|photos|videos)\\/([^\\/?]+)/);");
-            js.AppendLine("                if (!itemIdMatch) {");
-            js.AppendLine("                    // 尝试从视频URL提取: /videos/pcb.{postId}/{videoId}");
-            js.AppendLine("                    itemIdMatch = url.match(/pcb\\.([0-9]+)/);");
-            js.AppendLine("                }");
-            js.AppendLine("                const itemId = itemIdMatch ? itemIdMatch[1] : '';");
-            js.AppendLine("");
-            js.AppendLine("                seenUrls.add(url);");
-            js.AppendLine("");
-            js.AppendLine("                return {");
-            js.AppendLine("                    itemId: itemId,");
-            js.AppendLine("                    postUser: postUser,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    fromResource: groupName ? 'group' : 'page',");
-            js.AppendLine("                    groupName: groupName,");
-            js.AppendLine("                    reshareCount: reshareCount,");
-            js.AppendLine("                    commentCount: commentCount,");
-            js.AppendLine("                    reactionCount: reactionCount,");
-            js.AppendLine("                    usedCount: 0,");
-            js.AppendLine("                    postContent: postContent,");
-            js.AppendLine("                    fbAccount: '',");
-            js.AppendLine("                    postCreateTime: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract post failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const extractPostData = (card) => {
+            try {
+                const hasContent = card.querySelector('[data-ad-comet-preview=""message""]') ||
+                                  card.querySelector('[data-testid=""post_message""]') ||
+                                  card.querySelector('span[dir=""auto""]');
+                if (!hasContent) return null;
+                
+                const svgCount = card.querySelectorAll('svg').length;
+                const imgCount = card.querySelectorAll('img').length;
+                const linkCount = card.querySelectorAll('a').length;
+                if (svgCount > 0 && imgCount > 0 && linkCount < 3) return null;
+                
+                let postLinkEl = card.querySelector('a[href*=""/posts/""]') ||
+                                card.querySelector('a[href*=""/permalink/""]') ||
+                                card.querySelector('a[href*=""/photos/""]') ||
+                                card.querySelector('a[href*=""/videos/""]') ||
+                                card.querySelector('a[href*=""story.php""]') ||
+                                card.querySelector('a[href*=""/search/posts/""]');
+                
+                if (!postLinkEl) {
+                    const timeLinks = card.querySelectorAll('a[href*=""facebook.com""]');
+                    for (const link of timeLinks) {
+                        const href = link.href;
+                        if (href.includes('/stories/') || href.includes('/profile.php') || 
+                            href.includes('/groups/') || !href.includes('?')) continue;
+                        if (href.includes('fbid=') || href.includes('story_fbid=') || 
+                            href.includes('id=') && href.match(/\d{15,}/)) {
+                            postLinkEl = link;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!postLinkEl) {
+                    postLinkEl = card.querySelector('a[data-ft]');
+                }
+                
+                if (!postLinkEl) return null;
+                
+                const url = postLinkEl.href.split('?')[0];
+                if (!url || seenUrls.has(url)) return null;
+                
+                const authorEl = card.querySelector('[data-ad-rendering-role=""profile_name""] a') ||
+                               card.querySelector('h3 a[href*=""facebook.com""]:not([href*=""/groups/""])') ||
+                               card.querySelector('strong a[href*=""facebook.com""]:not([href*=""/groups/""])') ||
+                               card.querySelector('a[aria-label]:not([href*=""/groups/""]):not([href*=""/hashtag/""])') ||
+                               card.querySelector('span[dir=""auto""] strong');
+                const postUser = authorEl ? authorEl.textContent.trim() : '';
+                
+                const groupLinkEl = card.querySelector('h3 a[href*=""/groups/""]') ||
+                               card.querySelector('[data-ad-rendering-role=""profile_name""] a[href*=""/groups/""]:not([href*=""/user/""])');
+                const groupName = groupLinkEl ? groupLinkEl.textContent.trim() : '';
+                
+                const contentEl = card.querySelector('[data-ad-comet-preview=""message""]') ||
+                                card.querySelector('[data-testid=""post_message""]') ||
+                                card.querySelector('span[dir=""auto""]');
+                const postContent = contentEl ? contentEl.textContent.trim() : '';
+                
+                let reactionCount = '', commentCount = '', reshareCount = '';
+                const numberSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
+                for (const span of numberSpans) {
+                    const text = span.textContent.trim();
+                    if (!text || !/^[\d]/.test(text)) continue;
+                    
+                    const numMatch = text.match(/^([\d]+[\.,]?\d*\s*[kKmMrbjtRBJT]*)/);
+                    if (!numMatch) continue;
+                    
+                    const rawValue = numMatch[1].trim();
+                    const parentText = span.parentElement?.textContent || '';
+                    if (parentText.includes('komentar') || parentText.includes('comment')) {
+                        commentCount = rawValue;
+                    } else if (parentText.includes('bagikan') || parentText.includes('share')) {
+                        reshareCount = rawValue;
+                    } else if (parentText.includes('suka') || parentText.includes('like') || parentText.includes('reaksi')) {
+                        reactionCount = rawValue;
+                    }
+                }
+                
+                let itemIdMatch = url.match(/(?:posts|permalink|photos|videos)\/([^\?]+)/);
+                if (!itemIdMatch) itemIdMatch = url.match(/pcb\.([0-9]+)/);
+                const itemId = itemIdMatch ? itemIdMatch[1] : '';
+                
+                seenUrls.add(url);
+                return {
+                    itemId, postUser, url, fromResource: groupName ? 'group' : 'page',
+                    groupName, reshareCount, commentCount, reactionCount,
+                    usedCount: 0, postContent, fbAccount: '', postCreateTime: new Date().toISOString()
+                };
+            } catch (e) {
+                console.warn('Extract post failed:', e);
+                return null;
+            }
+        };
+");
             
             // 主循环 - 滚动加载
-            js.AppendLine("        let isCompleted = false; // 防止重复resolve");
-            js.AppendLine("        const doScroll = async () => {");
-            js.AppendLine("            if (isCompleted) return; // 已经完成,不再执行");
-            js.AppendLine("            try {");
-            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
-            js.AppendLine("                console.log('[滚动检查] 当前卡片数:', cards.length, ', 已采集:', results.length, ', 滚动次数:', scrollCount);");
-            js.AppendLine("");
-            js.AppendLine("                // 如果卡片数量没有变化,说明页面可能已经到底了");
-            js.AppendLine("                if (cards.length === lastCardCount && cards.length > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                    console.log('[警告] 卡片数量未变化,连续次数:', consecutiveNoNewItems);");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    lastCardCount = cards.length;");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("                for (let i = 0; i < cards.length && results.length < targetCount; i++) {");
-            js.AppendLine("                    const card = cards[i];");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractPostData(card);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                        console.log('[成功提取] URL:', data.url.substring(0, 80));");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                console.log('[本轮结果] 新发现:', newItemsFound, ', 总计:', results.length);");
-            js.AppendLine("");
-            js.AppendLine("                // 达到目标数量,立即停止");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    isCompleted = true;");
-            js.AppendLine("                    console.log('[采集完成] 达到目标数量:', results.length);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 连续多次无新数据或达到最大滚动次数,停止采集");
-            js.AppendLine("                console.log('[停止检查] scrollCount:', scrollCount, '/', maxScrolls, ', consecutiveNoNewItems:', consecutiveNoNewItems, '/', maxConsecutiveNoNew);");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    isCompleted = true;");
-            js.AppendLine("                    console.log('[采集结束] 原因:', consecutiveNoNewItems >= maxConsecutiveNoNew ? '无新数据' : '达到最大滚动次数', ', 总数:', results.length);");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 执行滚动");
-            js.AppendLine("                console.log('[执行滚动] 第', scrollCount + 1, '次滚动');");
-            js.AppendLine("                // 根据可视区域高度动态计算滚动距离，确保能触发懒加载");
-            js.AppendLine("                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;");
-            js.AppendLine("                const minScroll = Math.max(600, viewportHeight * 0.8); // 最小600px或80%窗口高度");
-            js.AppendLine("                const maxScroll = Math.max(1000, viewportHeight * 1.2); // 最小1000px或120%窗口高度");
-            js.AppendLine("                const scrollDistance = randomDelay(Math.floor(minScroll), Math.floor(maxScroll));");
-            js.AppendLine("                console.log('[滚动距离]', scrollDistance, 'px, 窗口高度:', viewportHeight, 'px');");
-            js.AppendLine("");
-            js.AppendLine("                // 模拟人手滚动：分多次小幅度滚动");
-            js.AppendLine("                const scrollSteps = randomDelay(3, 7);");
-            js.AppendLine("                const stepSize = scrollDistance / scrollSteps;");
-            js.AppendLine("                for (let i = 0; i < scrollSteps; i++) {");
-            js.AppendLine("                    window.scrollBy({ top: stepSize + randomDelay(-10, 10), behavior: 'auto' });");
-            js.AppendLine("                    await new Promise(resolve => setTimeout(resolve, randomDelay(50, 150)));");
-            js.AppendLine("                }");
-            js.AppendLine("                ");
-            js.AppendLine("                // 滚动后随机停顿，模拟阅读内容");
-            js.AppendLine("                const readPause = randomDelay(1000, 3000);");
-            js.AppendLine("                console.log('[阅读停顿]', readPause, 'ms');");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, readPause));");
-            js.AppendLine("");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("                console.log('[滚动完成] scrollCount现在是:', scrollCount);");
-            js.AppendLine("");
-            js.AppendLine("                // 随机延迟后继续下一轮");
-            js.AppendLine("                const nextDelay = randomDelay(2000, 3500);");
-            js.AppendLine("                setTimeout(() => doScroll(), nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('[采集错误]', e);");
-            js.AppendLine("                // 出错后也继续尝试");
-            js.AppendLine("                setTimeout(() => doScroll(), 3000);");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-            js.AppendLine("        // 启动第一次滚动");
-            js.AppendLine("        doScroll();");
-            js.AppendLine("");
+            js.AppendLine(@"
+        let isCompleted = false;
+        const doScroll = async () => {
+            if (isCompleted) return;
+            try {
+                const cards = document.querySelectorAll('[role=""article""]');
+                if (cards.length === lastCardCount && cards.length > 0) {
+                    consecutiveNoNewItems++;
+                } else {
+                    lastCardCount = cards.length;
+                    consecutiveNoNewItems = 0;
+                }
+                
+                let newItemsFound = 0;
+                for (let i = 0; i < cards.length && results.length < targetCount; i++) {
+                    const data = extractPostData(cards[i]);
+                    if (data) {
+                        results.push(data);
+                        newItemsFound++;
+                    }
+                }
+                
+                if (results.length >= targetCount) {
+                    isCompleted = true;
+                    resolve(JSON.stringify(results.slice(0, targetCount)));
+                    return;
+                }
+                
+                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {
+                    isCompleted = true;
+                    resolve(JSON.stringify(results));
+                    return;
+                }
+                
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                const minScroll = Math.max(600, viewportHeight * 0.8);
+                const maxScroll = Math.max(1000, viewportHeight * 1.2);
+                const scrollDistance = randomDelay(Math.floor(minScroll), Math.floor(maxScroll));
+                
+                const scrollSteps = randomDelay(3, 7);
+                const stepSize = scrollDistance / scrollSteps;
+                for (let i = 0; i < scrollSteps; i++) {
+                    window.scrollBy({ top: stepSize + randomDelay(-10, 10), behavior: 'auto' });
+                    await new Promise(resolve => setTimeout(resolve, randomDelay(50, 150)));
+                }
+                
+                const readPause = randomDelay(1000, 3000);
+                await new Promise(resolve => setTimeout(resolve, readPause));
+                
+                scrollCount++;
+                setTimeout(() => doScroll(), randomDelay(2000, 3500));
+            } catch (e) {
+                console.error('[采集错误]', e);
+                setTimeout(() => doScroll(), 3000);
+            }
+        };
+        
+        doScroll();
+");
             
             // 超时保护（5分钟）
             js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' posts');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
+            js.AppendLine("            if (results.length > 0) resolve(JSON.stringify(results));");
+            js.AppendLine("            else reject(new Error('Collection timeout with no data'));");
             js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
             
-            return js.ToString();
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
-        /// 生成群组采集脚本
+        /// 生成群组采集脚本（简化版）
         /// </summary>
         private string GenerateGroupCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
             
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUrls = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine("        const maxScrolls = 50;");
-            js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const extractGroupData = (card) => {
+            try {
+                const groupLinkEl = card.querySelector('a[href*=""/groups/""]');
+                if (!groupLinkEl) return null;
+                
+                const url = groupLinkEl.href.split('?')[0];
+                if (!url || seenUrls.has(url)) return null;
+                
+                const groupName = groupLinkEl.textContent.trim();
+                if (!groupName) return null;
+                
+                let type = 'Public';
+                const typeEl = card.querySelector('[aria-label*=""Public""], [aria-label*=""Private""], [aria-label*=""Closed""]');
+                if (typeEl) {
+                    const ariaLabel = typeEl.getAttribute('aria-label') || '';
+                    if (ariaLabel.includes('Private') || ariaLabel.includes('Closed')) type = 'Private';
+                }
+                
+                let memberQuantity = '', activeQuantity = '';
+                const allSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
+                for (const span of allSpans) {
+                    const text = span.textContent.trim();
+                    if (!text) continue;
+                    
+                    const memberMatch = text.match(/([\d]+[\.,]?\d*)\s*(K|M|B|members?)/i);
+                    if (memberMatch && !memberQuantity) {
+                        memberQuantity = text;
+                        continue;
+                    }
+                    
+                    const activeMatch = text.match(/[\d]+\s*(posts?).*?(day|week|month)/i);
+                    if (activeMatch && !activeQuantity) activeQuantity = text;
+                }
+                
+                seenUrls.add(url);
+                return { groupName, url, type, memberQuantity, activeQuantity, collectedAt: new Date().toISOString() };
+            } catch (e) {
+                console.warn('Extract group failed:', e);
+                return null;
+            }
+        };
+");
             
-            // 提取群组数据的函数
-            js.AppendLine("        const extractGroupData = (card) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 提取群组链接");
-            js.AppendLine("                const groupLinkEl = card.querySelector('a[href*=\"/groups/\"]');");
-            js.AppendLine("                if (!groupLinkEl) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const url = groupLinkEl.href.split('?')[0];");
-            js.AppendLine("                if (!url || seenUrls.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 提取群组名称");
-            js.AppendLine("                const groupName = groupLinkEl.textContent.trim();");
-            js.AppendLine("                if (!groupName) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 提取群组类型（公开/私密）- 英语环境");
-            js.AppendLine("                let type = 'Public';");
-            js.AppendLine("                const typeEl = card.querySelector('[aria-label*=\"Public\"], [aria-label*=\"Private\"], [aria-label*=\"Closed\"]');");
-            js.AppendLine("                if (typeEl) {");
-            js.AppendLine("                    const ariaLabel = typeEl.getAttribute('aria-label') || '';");
-            js.AppendLine("                    if (ariaLabel.includes('Private') || ariaLabel.includes('Closed')) {");
-            js.AppendLine("                        type = 'Private';");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 提取成员数和活跃度");
-            js.AppendLine("                let memberQuantity = '';");
-            js.AppendLine("                let activeQuantity = '';");
-            js.AppendLine("");
-            js.AppendLine("                const allSpans = Array.from(card.querySelectorAll('span[dir=\"auto\"]'));");
-            js.AppendLine("                for (const span of allSpans) {");
-            js.AppendLine("                    const text = span.textContent.trim();");
-            js.AppendLine("                    if (!text) continue;");
-            js.AppendLine("");
-            js.AppendLine("                    // 匹配成员数：如 \"2K members\", \"18.5K members\"");
-            js.AppendLine("                    const memberMatch = text.match(/([\\d]+[\\.,]?\\d*)\\s*(K|M|B|members?)/i);");
-            js.AppendLine("                    if (memberMatch && !memberQuantity) {");
-            js.AppendLine("                        memberQuantity = text;");
-            js.AppendLine("                        continue;");
-            js.AppendLine("                    }");
-            js.AppendLine("");
-            js.AppendLine("                    // 匹配活跃度：如 \"2 posts per day\", \"5 posts per week\"");
-            js.AppendLine("                    const activeMatch = text.match(/[\\d]+\\s*(posts?).*?(day|week|month)/i);");
-            js.AppendLine("                    if (activeMatch && !activeQuantity) {");
-            js.AppendLine("                        activeQuantity = text;");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                seenUrls.add(url);");
-            js.AppendLine("");
-            js.AppendLine("                return {");
-            js.AppendLine("                    groupName: groupName,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    type: type,");
-            js.AppendLine("                    memberQuantity: memberQuantity,");
-            js.AppendLine("                    activeQuantity: activeQuantity,");
-            js.AppendLine("                    collectedAt: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract group failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractGroupData", "[role=\"article\"]"));
             
-            // 主循环 - 滚动加载
-            js.AppendLine("        const interval = setInterval(() => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const cards = document.querySelectorAll('[role=\"article\"]');");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("");
-            js.AppendLine("                cards.forEach(card => {");
-            js.AppendLine("                    if (results.length >= targetCount) return;");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractGroupData(card);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                    }");
-            js.AppendLine("                });");
-            js.AppendLine("");
-            js.AppendLine("                if (newItemsFound > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Group collection complete: ' + results.length + '/' + targetCount);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Group collection ended: ' + results.length + ' items');");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
-            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("");
-            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
-            js.AppendLine("                clearInterval(interval);");
-            js.AppendLine("                setTimeout(() => {");
-            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
-            js.AppendLine("                }, nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('Group collection error:', e);");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 2000);");
-            js.AppendLine("");
-            
-            // 超时保护（5分钟）
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            clearInterval(interval);");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' groups');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-            
-            return js.ToString();
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
-        /// 生成群组成员采集脚本
+        /// 生成群组成员采集脚本（简化版）
         /// </summary>
         private string GenerateGroupMemberCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
             
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUserIds = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine("        const maxScrolls = 50;");
-            js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const extractMemberData = (listItem) => {
+            try {
+                const userLinkEl = listItem.querySelector('a[href*=""/user/""]');
+                if (!userLinkEl) return null;
+                
+                const url = userLinkEl.href.split('?')[0];
+                if (!url || seenUserIds.has(url)) return null;
+                
+                const userName = userLinkEl.textContent.trim();
+                if (!userName) return null;
+                
+                const userIdMatch = url.match(/\/user\/(\d+)/);
+                const fbUserId = userIdMatch ? userIdMatch[1] : '';
+                
+                const infoDivs = listItem.querySelectorAll('div > div > div > div > div');
+                let joinTime = '', workInfo = '', location = '';
+                
+                for (const div of infoDivs) {
+                    const text = div.textContent.trim();
+                    if (!text) continue;
+                    
+                    if (text.includes('加入') && !joinTime) {
+                        joinTime = text;
+                    } else if ((text.includes('在') && text.includes('工作')) || text.includes('studied at')) {
+                        workInfo = text;
+                    } else if (!joinTime && !workInfo && text.length > 2) {
+                        location = text;
+                    }
+                }
+                
+                seenUserIds.add(url);
+                return { fbUserId, userName, url, location, workExperience: workInfo, dataType: 1, fromResource: 'group_member', syncTime: new Date().toISOString() };
+            } catch (e) {
+                console.warn('Extract member failed:', e);
+                return null;
+            }
+        };
+");
             
-            // 提取群组成员数据的函数
-            js.AppendLine("        const extractMemberData = (listItem) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 提取用户链接");
-            js.AppendLine("                const userLinkEl = listItem.querySelector('a[href*=\"/user/\"]');");
-            js.AppendLine("                if (!userLinkEl) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const url = userLinkEl.href.split('?')[0];");
-            js.AppendLine("                if (!url || seenUserIds.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 提取用户名");
-            js.AppendLine("                const userName = userLinkEl.textContent.trim();");
-            js.AppendLine("                if (!userName) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 从URL中提取FB用户ID");
-            js.AppendLine("                const userIdMatch = url.match(/\\/user\\/(\\d+)/);");
-            js.AppendLine("                const fbUserId = userIdMatch ? userIdMatch[1] : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取其他信息（加入时间、工作/学校等）");
-            js.AppendLine("                const infoDivs = listItem.querySelectorAll('div > div > div > div > div');");
-            js.AppendLine("                let joinTime = '';");
-            js.AppendLine("                let workInfo = '';");
-            js.AppendLine("                let location = '';");
-            js.AppendLine("");
-            js.AppendLine("                for (const div of infoDivs) {");
-            js.AppendLine("                    const text = div.textContent.trim();");
-            js.AppendLine("                    if (!text) continue;");
-            js.AppendLine("");
-            js.AppendLine("                    // 检测加入时间（包含'加入'关键词）");
-            js.AppendLine("                    if (text.includes('加入') && !joinTime) {");
-            js.AppendLine("                        joinTime = text;");
-            js.AppendLine("                    }");
-            js.AppendLine("                    // 检测工作信息（包含'在'和'工作'）");
-            js.AppendLine("                    else if ((text.includes('在') && text.includes('工作')) || text.includes('studied at')) {");
-            js.AppendLine("                        workInfo = text;");
-            js.AppendLine("                    }");
-            js.AppendLine("                    // 其他文本可能是地点");
-            js.AppendLine("                    else if (!joinTime && !workInfo && text.length > 2) {");
-            js.AppendLine("                        location = text;");
-            js.AppendLine("                    }");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                seenUserIds.add(url);");
-            js.AppendLine("");
-            js.AppendLine("                return {");
-            js.AppendLine("                    fbUserId: fbUserId,");
-            js.AppendLine("                    userName: userName,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    location: location,");
-            js.AppendLine("                    workExperience: workInfo,");
-            js.AppendLine("                    dataType: 1,");
-            js.AppendLine("                    fromResource: 'group_member',");
-            js.AppendLine("                    syncTime: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract member failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractMemberData", "div[role=\"listitem\"]"));
             
-            // 主循环 - 滚动加载
-            js.AppendLine("        const interval = setInterval(() => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 查找所有 listitem 元素");
-            js.AppendLine("                const listItems = document.querySelectorAll('div[role=\"listitem\"]');");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("");
-            js.AppendLine("                listItems.forEach(item => {");
-            js.AppendLine("                    if (results.length >= targetCount) return;");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractMemberData(item);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                    }");
-            js.AppendLine("                });");
-            js.AppendLine("");
-            js.AppendLine("                if (newItemsFound > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Group member collection complete: ' + results.length + '/' + targetCount);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('Group member collection ended: ' + results.length + ' items');");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
-            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("");
-            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
-            js.AppendLine("                clearInterval(interval);");
-            js.AppendLine("                setTimeout(() => {");
-            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
-            js.AppendLine("                }, nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('Group member collection error:', e);");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 2000);");
-            js.AppendLine("");
-            
-            // 超时保护（5分钟）
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            clearInterval(interval);");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' members');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-            
-            return js.ToString();
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
-        /// 生成用户关系采集脚本（粉丝/关注/好友）
+        /// 生成用户关系采集脚本（简化版）
         /// </summary>
         private string GenerateUserRelationCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
             
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
             js.AppendLine($"        const targetCount = {expectedCount};");
             js.AppendLine("        const seenUserIds = new Set();");
-            js.AppendLine("");
-            js.AppendLine("        let scrollCount = 0;");
-            js.AppendLine("        const maxScrolls = 50;");
-            js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const extractUserData = (container) => {
+            try {
+                const userLinkEl = container.querySelector('a[href*=""/profile.php?id=""]') || container.querySelector('a[href*=""/user/""]');
+                if (!userLinkEl) return null;
+                
+                const url = userLinkEl.href.split('?')[0];
+                if (!url || seenUserIds.has(url)) return null;
+                
+                const userName = userLinkEl.textContent.trim();
+                if (!userName) return null;
+                
+                let fbUserId = '';
+                const idMatch = url.match(/[?&]id=(\d+)/);
+                if (idMatch) {
+                    fbUserId = idMatch[1];
+                } else {
+                    const userIdMatch = url.match(/\/user\/(\d+)/);
+                    fbUserId = userIdMatch ? userIdMatch[1] : '';
+                }
+                
+                const imgEl = container.querySelector('img');
+                const avatar = imgEl ? (imgEl.src || '') : '';
+                
+                let fromResource = 'peer_follower';
+                if (window.location.href.includes('&sk=following')) fromResource = 'peer_following';
+                else if (window.location.href.includes('&sk=friends')) fromResource = 'peer_friend';
+                
+                seenUserIds.add(url);
+                return { fbUserId, userName, url, avatar, dataType: 1, fromResource, syncTime: new Date().toISOString() };
+            } catch (e) {
+                console.warn('Extract user relation failed:', e);
+                return null;
+            }
+        };
+");
             
-            // 提取用户关系数据的函数
-            js.AppendLine("        const extractUserData = (container) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 查找用户链接");
-            js.AppendLine("                const userLinkEl = container.querySelector('a[href*=\"/profile.php?id=\"]') ||");
-            js.AppendLine("                                  container.querySelector('a[href*=\"/user/\"]');");
-            js.AppendLine("                if (!userLinkEl) return null;");
-            js.AppendLine("");
-            js.AppendLine("                const url = userLinkEl.href.split('?')[0];");
-            js.AppendLine("                if (!url || seenUserIds.has(url)) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 提取用户名");
-            js.AppendLine("                const userName = userLinkEl.textContent.trim();");
-            js.AppendLine("                if (!userName) return null;");
-            js.AppendLine("");
-            js.AppendLine("                // 从URL中提取FB用户ID");
-            js.AppendLine("                let fbUserId = '';");
-            js.AppendLine("                const idMatch = url.match(/[?&]id=(\\d+)/);");
-            js.AppendLine("                if (idMatch) {");
-            js.AppendLine("                    fbUserId = idMatch[1];");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    const userIdMatch = url.match(/\\/user\\/(\\d+)/);");
-            js.AppendLine("                    fbUserId = userIdMatch ? userIdMatch[1] : '';");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 提取头像");
-            js.AppendLine("                const imgEl = container.querySelector('img');");
-            js.AppendLine("                const avatar = imgEl ? (imgEl.src || '') : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 判断关系类型（根据URL参数）");
-            js.AppendLine("                let fromResource = 'peer_follower';");
-            js.AppendLine("                if (window.location.href.includes('&sk=following')) {");
-            js.AppendLine("                    fromResource = 'peer_following';");
-            js.AppendLine("                } else if (window.location.href.includes('&sk=friends')) {");
-            js.AppendLine("                    fromResource = 'peer_friend';");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                seenUserIds.add(url);");
-            js.AppendLine("");
-            js.AppendLine("                return {");
-            js.AppendLine("                    fbUserId: fbUserId,");
-            js.AppendLine("                    userName: userName,");
-            js.AppendLine("                    url: url,");
-            js.AppendLine("                    avatar: avatar,");
-            js.AppendLine("                    dataType: 1,");
-            js.AppendLine("                    fromResource: fromResource,");
-            js.AppendLine("                    syncTime: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract user relation failed:', e);");
-            js.AppendLine("                return null;");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div[class*=\"x6s0dn4\"]"));
             
-            // 主循环 - 滚动加载
-            js.AppendLine("        const interval = setInterval(() => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 查找所有用户容器元素");
-            js.AppendLine("                const containers = document.querySelectorAll('div[class*=\"x6s0dn4\"]');");
-            js.AppendLine("                let newItemsFound = 0;");
-            js.AppendLine("");
-            js.AppendLine("                containers.forEach(container => {");
-            js.AppendLine("                    if (results.length >= targetCount) return;");
-            js.AppendLine("");
-            js.AppendLine("                    const data = extractUserData(container);");
-            js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        newItemsFound++;");
-            js.AppendLine("                    }");
-            js.AppendLine("                });");
-            js.AppendLine("");
-            js.AppendLine("                if (newItemsFound > 0) {");
-            js.AppendLine("                    consecutiveNoNewItems = 0;");
-            js.AppendLine("                } else {");
-            js.AppendLine("                    consecutiveNoNewItems++;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (results.length >= targetCount) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('User relation collection complete: ' + results.length + '/' + targetCount);");
-            js.AppendLine("                    resolve(JSON.stringify(results.slice(0, targetCount)));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {");
-            js.AppendLine("                    clearInterval(interval);");
-            js.AppendLine("                    console.log('User relation collection ended: ' + results.length + ' items');");
-            js.AppendLine("                    resolve(JSON.stringify(results));");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                const scrollDistance = randomDelay(600, 1000);");
-            js.AppendLine("                window.scrollBy({ top: scrollDistance, behavior: 'smooth' });");
-            js.AppendLine("                scrollCount++;");
-            js.AppendLine("");
-            js.AppendLine("                const nextDelay = randomDelay(1500, 3000);");
-            js.AppendLine("                clearInterval(interval);");
-            js.AppendLine("                setTimeout(() => {");
-            js.AppendLine("                    interval = setInterval(arguments.callee, 2000);");
-            js.AppendLine("                }, nextDelay);");
-            js.AppendLine("");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('User relation collection error:', e);");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 2000);");
-            js.AppendLine("");
-            
-            // 超时保护（5分钟）
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            clearInterval(interval);");
-            js.AppendLine("            if (results.length > 0) {");
-            js.AppendLine("                console.log('Timeout: returning ' + results.length + ' users');");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } else {");
-            js.AppendLine("                reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("            }");
-            js.AppendLine("        }, 300000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-            
-            return js.ToString();
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
-        /// 生成链接加组采集脚本（直接访问群组页面并执行加组操作）
-        /// 注意：C#层面已经通过IsLoading智能等待页面加载完成，这里不需要再等待
+        /// 生成链接加组采集脚本（简化版）
         /// </summary>
         private string GenerateAddGroupCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
-                    
-            js.AppendLine("(function() {");
-            js.AppendLine("    return new Promise((resolve, reject) => {");
+            
             js.AppendLine("        const results = [];");
-            js.AppendLine("");
-            js.AppendLine("        const randomDelay = (min, max) => {");
-            js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
+            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
             
-            // 添加贝塞尔曲线鼠标轨迹模拟函数
-            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
-            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
-            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
-            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
-            js.AppendLine("            const steps = randomDelay(5, 10);");
-            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
-            js.AppendLine("            ");
-            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
-            js.AppendLine("                const t = i / steps;");
-            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
-            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
-            js.AppendLine("                ");
-            js.AppendLine("                const event = new MouseEvent('mousemove', { clientX: Math.floor(x), clientY: Math.floor(y), bubbles: true });");
-            js.AppendLine("                document.dispatchEvent(event);");
-            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(20, 50)));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
             // 获取当前用户信息
-            js.AppendLine("        const getCurrentUserInfo = () => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const currentUrl = window.location.href.split('?')[0];");
-            js.AppendLine("                const userIdMatch = currentUrl.match(/[?&]id=(\\d+)/);");
-            js.AppendLine("                const accountId = userIdMatch ? userIdMatch[1] : '';");
-            js.AppendLine("                return { accountId, targetUrl: currentUrl };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Get user info failed:', e);");
-            js.AppendLine("                return { accountId: '', targetUrl: window.location.href };");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
-            // 查找并点击加入群组按钮
-            js.AppendLine("        const findAndClickJoinButton = () => {");
-            js.AppendLine("            return new Promise((resolve) => {");
-            js.AppendLine("                try {");
-            js.AppendLine("                    // 首先检查是否已经是'Joined'状态（已加入）");
-            js.AppendLine("                    const joinedEl = Array.from(document.querySelectorAll('span')).find(el => {");
-            js.AppendLine("                        return el.textContent.trim() === 'Joined';");
-            js.AppendLine("                    });");
-            js.AppendLine("                    ");
-            js.AppendLine("                    if (joinedEl) {");
-            js.AppendLine("                        console.log('Already joined this group');");
-            js.AppendLine("                        resolve({ success: true, status: 3, reason: 'Already joined' });");
-            js.AppendLine("                        return;");
-            js.AppendLine("                    }");
-            js.AppendLine("");
-            js.AppendLine("                    // 检查是否是'pending'状态（待审核）");
-            js.AppendLine("                    const pendingEl = Array.from(document.querySelectorAll('span')).find(el => {");
-            js.AppendLine("                        return el.textContent.includes('membership is pending');");
-            js.AppendLine("                    });");
-            js.AppendLine("                    ");
-            js.AppendLine("                    if (pendingEl) {");
-            js.AppendLine("                        console.log('Membership is pending approval');");
-            js.AppendLine("                        resolve({ success: true, status: 3, reason: 'Pending approval' });");
-            js.AppendLine("                        return;");
-            js.AppendLine("                    }");
-            js.AppendLine("");
-            js.AppendLine("                    // 查找'Join group'按钮（使用aria-label精确定位）");
-            js.AppendLine("                    const joinButton = document.querySelector('[aria-label=\"Join group\"]');");
-            js.AppendLine("                    ");
-            js.AppendLine("                    if (!joinButton) {");
-            js.AppendLine("                        console.warn('Join button not found');");
-            js.AppendLine("                        resolve({ success: false, reason: 'No join button found' });");
-            js.AppendLine("                        return;");
-            js.AppendLine("                    }");
-            js.AppendLine("");
-            js.AppendLine("                    // 点击加入按钮");
-            js.AppendLine("                    joinButton.click();");
-            js.AppendLine("                    console.log('Clicked join button');");
-            js.AppendLine("");
-            js.AppendLine("                    // 等待3-4秒后检查结果（无需处理弹窗）");
-            js.AppendLine("                    setTimeout(() => {");
-            js.AppendLine("                        checkJoinResult(resolve);");
-            js.AppendLine("                    }, randomDelay(3000, 4000));");
-            js.AppendLine("                } catch (e) {");
-            js.AppendLine("                    console.error('Find join button error:', e);");
-            js.AppendLine("                    resolve({ success: false, reason: e.message });");
-            js.AppendLine("                }");
-            js.AppendLine("            });");
-            js.AppendLine("        };");
-            js.AppendLine("");
+            js.AppendLine(@"
+        const getCurrentUserInfo = () => {
+            try {
+                const currentUrl = window.location.href.split('?')[0];
+                const userIdMatch = currentUrl.match(/[?&]id=(\d+)/);
+                return { accountId: userIdMatch ? userIdMatch[1] : '', targetUrl: currentUrl };
+            } catch (e) {
+                return { accountId: '', targetUrl: window.location.href };
+            }
+        };
+");
             
-            // 检查加组结果（点击按钮后直接检查）
-            js.AppendLine("        const checkJoinResult = (resolve) => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                // 检查是否显示'Joined'（已成功加入）");
-            js.AppendLine("                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => {");
-            js.AppendLine("                    return el.textContent.trim() === 'Joined';");
-            js.AppendLine("                });");
-            js.AppendLine("                ");
-            js.AppendLine("                if (joinedEl) {");
-            js.AppendLine("                    console.log('Successfully joined the group');");
-            js.AppendLine("                    resolve({ success: true, status: 1, reason: 'Joined successfully' });");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 检查是否显示'pending'（待审核）");
-            js.AppendLine("                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => {");
-            js.AppendLine("                    return el.textContent.includes('membership is pending');");
-            js.AppendLine("                });");
-            js.AppendLine("                ");
-            js.AppendLine("                if (pendingEl) {");
-            js.AppendLine("                    console.log('Membership request is pending approval');");
-            js.AppendLine("                    resolve({ success: true, status: 3, reason: 'Pending approval' });");
-            js.AppendLine("                    return;");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                // 如果没有找到明确的状态，假设成功");
-            js.AppendLine("                console.log('Join operation completed, status unclear');");
-            js.AppendLine("                resolve({ success: true, status: 1, reason: 'Completed' });");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('Check result error:', e);");
-            js.AppendLine("                resolve({ success: false, reason: e.message });");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
+            // 查找并点击加入群组按钮
+            js.AppendLine(@"
+        const findAndClickJoinButton = async () => {
+            try {
+                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.trim() === 'Joined');
+                if (joinedEl) return { success: true, status: 3, reason: 'Already joined' };
+                
+                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.includes('membership is pending'));
+                if (pendingEl) return { success: true, status: 3, reason: 'Pending approval' };
+                
+                const joinButton = document.querySelector('[aria-label=""Join group""]');
+                if (!joinButton) return { success: false, reason: 'No join button found' };
+                
+                joinButton.click();
+                await new Promise(resolve => setTimeout(resolve, randomDelay(3000, 4000)));
+                return checkJoinResult();
+            } catch (e) {
+                return { success: false, reason: e.message };
+            }
+        };
+");
+            
+            // 检查加组结果
+            js.AppendLine(@"
+        const checkJoinResult = () => {
+            try {
+                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.trim() === 'Joined');
+                if (joinedEl) return { success: true, status: 1, reason: 'Joined successfully' };
+                
+                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.includes('membership is pending'));
+                if (pendingEl) return { success: true, status: 3, reason: 'Pending approval' };
+                
+                return { success: true, status: 1, reason: 'Completed' };
+            } catch (e) {
+                return { success: false, reason: e.message };
+            }
+        };
+");
+            
             // 提取群组信息
-            js.AppendLine("        const extractGroupInfo = () => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                const groupUrl = window.location.href.split('?')[0];");
-            js.AppendLine("                const groupIdMatch = groupUrl.match(/\\/groups\\/(\\d+)/);");
-            js.AppendLine("                const groupId = groupIdMatch ? groupIdMatch[1] : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 尝试提取群组名称");
-            js.AppendLine("                let groupName = '';");
-            js.AppendLine("                const titleEl = document.querySelector('h1, [data-testid=\"group_name\"]');");
-            js.AppendLine("                if (titleEl) {");
-            js.AppendLine("                    groupName = titleEl.textContent.trim();");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                return { groupId, groupName, groupUrl };");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.warn('Extract group info failed:', e);");
-            js.AppendLine("                return { groupId: '', groupName: '', groupUrl: window.location.href };");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
-            // 主执行逻辑（无需等待页面加载，C#已处理）
-            js.AppendLine("        const executeJoinGroup = async () => {");
-            js.AppendLine("            try {");
-            js.AppendLine("                console.log('Starting join group operation...');");
-            js.AppendLine("");
-            js.AppendLine("                // 获取用户信息");
-            js.AppendLine("                const userInfo = getCurrentUserInfo();");
-            js.AppendLine("");
-            js.AppendLine("                // 获取群组信息");
-            js.AppendLine("                const groupInfo = extractGroupInfo();");
-            js.AppendLine("");
-            js.AppendLine("                // 执行加组操作");
-            js.AppendLine("                const result = await findAndClickJoinButton();");
-            js.AppendLine("");
-            js.AppendLine("                // 构建结果对象");
-            js.AppendLine("                const joinResult = {");
-            js.AppendLine("                    accountId: userInfo.accountId,");
-            js.AppendLine("                    targetUrl: userInfo.targetUrl,");
-            js.AppendLine("                    groupId: groupInfo.groupId,");
-            js.AppendLine("                    groupName: groupInfo.groupName,");
-            js.AppendLine("                    groupUrl: groupInfo.groupUrl,");
-            js.AppendLine("                    joinStatus: result.status || (result.success ? 1 : 2),");
-            js.AppendLine("                    failReason: result.reason || '',");
-            js.AppendLine("                    joinTime: new Date().toISOString(),");
-            js.AppendLine("                    syncTime: new Date().toISOString()");
-            js.AppendLine("                };");
-            js.AppendLine("");
-            js.AppendLine("                results.push(joinResult);");
-            js.AppendLine("");
-            js.AppendLine("                console.log('Join result:', joinResult);");
-            js.AppendLine("");
-            js.AppendLine("                // 返回结果");
-            js.AppendLine("                resolve(JSON.stringify(results));");
-            js.AppendLine("            } catch (e) {");
-            js.AppendLine("                console.error('Execute join group error:', e);");
-            js.AppendLine("                reject(new Error(e.message));");
-            js.AppendLine("            }");
-            js.AppendLine("        };");
-            js.AppendLine("");
-                    
-            // 立即启动执行（页面已由C#智能等待加载完成）
-            js.AppendLine("        executeJoinGroup();");
-            js.AppendLine("");
-                    
+            js.AppendLine(@"
+        const extractGroupInfo = () => {
+            try {
+                const groupUrl = window.location.href.split('?')[0];
+                const groupIdMatch = groupUrl.match(/\/groups\/(\d+)/);
+                const groupId = groupIdMatch ? groupIdMatch[1] : '';
+                
+                let groupName = '';
+                const titleEl = document.querySelector('h1, [data-testid=""group_name""]');
+                if (titleEl) groupName = titleEl.textContent.trim();
+                
+                return { groupId, groupName, groupUrl };
+            } catch (e) {
+                return { groupId: '', groupName: '', groupUrl: window.location.href };
+            }
+        };
+");
+            
+            // 主执行逻辑
+            js.AppendLine(@"
+        const executeJoinGroup = async () => {
+            try {
+                const userInfo = getCurrentUserInfo();
+                const groupInfo = extractGroupInfo();
+                const result = await findAndClickJoinButton();
+                
+                results.push({
+                    accountId: userInfo.accountId,
+                    targetUrl: userInfo.targetUrl,
+                    groupId: groupInfo.groupId,
+                    groupName: groupInfo.groupName,
+                    groupUrl: groupInfo.groupUrl,
+                    joinStatus: result.status || (result.success ? 1 : 2),
+                    failReason: result.reason || '',
+                    joinTime: new Date().toISOString(),
+                    syncTime: new Date().toISOString()
+                });
+                
+                resolve(JSON.stringify(results));
+            } catch (e) {
+                reject(new Error(e.message));
+            }
+        };
+        
+        executeJoinGroup();
+");
+            
             // 超时保护（30秒）
             js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            if (results.length === 0) {");
-            js.AppendLine("                reject(new Error('Join group timeout'));");
-            js.AppendLine("            }");
+            js.AppendLine("            if (results.length === 0) reject(new Error('Join group timeout'));");
             js.AppendLine("        }, 30000);");
-            js.AppendLine("    });");
-            js.AppendLine("})();");
-                    
-            return js.ToString();
+            
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
         /// <summary>
@@ -2947,7 +2125,7 @@ namespace SocialMatrix.WpfHost.Windows
         private string GenerateCommentLikeCollectScript(int expectedCount)
         {
             var js = new System.Text.StringBuilder();
-            
+                    
             js.AppendLine("(function() {");
             js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
@@ -2964,44 +2142,153 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        };");
             js.AppendLine("");
             
-            // 贝塞尔曲线鼠标轨迹模拟
-            AddHumanBehaviorSimulation(js);
+            // 添加贝塞尔曲线鼠标轨迹模拟函数（参考其他采集脚本）
+            js.AppendLine("        // 贝塞尔曲线鼠标轨迹模拟");
+            js.AppendLine("        const simulateMouseMovement = async (targetX, targetY) => {");
+            js.AppendLine("            const startX = Math.random() * window.innerWidth;");
+            js.AppendLine("            const startY = Math.random() * window.innerHeight;");
+            js.AppendLine("            const steps = randomDelay(5, 10);");
+            js.AppendLine("            const controlX = (startX + targetX) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            const controlY = (startY + targetY) / 2 + randomDelay(-100, 100);");
+            js.AppendLine("            ");
+            js.AppendLine("            for (let i = 1; i <= steps; i++) {");
+            js.AppendLine("                const t = i / steps;");
+            js.AppendLine("                const x = Math.pow(1-t, 2) * startX + 2 * (1-t) * t * controlX + Math.pow(t, 2) * targetX + randomDelay(-2, 2);");
+            js.AppendLine("                const y = Math.pow(1-t, 2) * startY + 2 * (1-t) * t * controlY + Math.pow(t, 2) * targetY + randomDelay(-2, 2);");
+            js.AppendLine("                ");
+            js.AppendLine("                const event = new MouseEvent('mousemove', {");
+            js.AppendLine("                    view: window,");
+            js.AppendLine("                    bubbles: true,");
+            js.AppendLine("                    cancelable: true,");
+            js.AppendLine("                    clientX: x,");
+            js.AppendLine("                    clientY: y");
+            js.AppendLine("                });");
+            js.AppendLine("                document.dispatchEvent(event);");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(30, 80)));");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
             
-            // extractCommentData 函数
+            // 人类点击（带鼠标轨迹）
+            js.AppendLine("        const humanClick = async (element) => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                if (!element) return false;");
+            js.AppendLine("                const rect = element.getBoundingClientRect();");
+            js.AppendLine("                const targetX = rect.left + rect.width / 2;");
+            js.AppendLine("                const targetY = rect.top + rect.height / 2;");
+            js.AppendLine("                await simulateMouseMovement(targetX, targetY);");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, randomDelay(100, 300)));");
+            js.AppendLine("                element.click();");
+            js.AppendLine("                return true;");
+            js.AppendLine("            } catch (e) { console.warn('[人类行为] 点击失败:', e); return false; }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // 第一步：点击 "All comments" 按钮展开评论区
+            js.AppendLine("        // 步骤1: 点击 'All comments' 按钮展开评论区");
+            js.AppendLine("        const clickAllComments = async () => {");
+            js.AppendLine("            try {");
+            js.AppendLine("                // 查找 'All comments' 或 'Leave a comment' 按钮");
+            js.AppendLine("                const allCommentsSelectors = [");
+            js.AppendLine("                    '[aria-label=\"Leave a comment\"]',");
+            js.AppendLine("                    'span[dir=\"auto\"]:contains(\"All comments\")',");
+            js.AppendLine("                    'div[role=\"button\"]:has(span[dir=\"auto\"])'");
+            js.AppendLine("                ];");
+            js.AppendLine("");
+            js.AppendLine("                for (const selector of allCommentsSelectors) {");
+            js.AppendLine("                    const buttons = Array.from(document.querySelectorAll(selector));");
+            js.AppendLine("                    for (const btn of buttons) {");
+            js.AppendLine("                        const text = btn.textContent.trim();");
+            js.AppendLine("                        if (text.includes('All comments') || text.includes('comments')) {");
+            js.AppendLine("                            console.log('🔍 找到 All comments 按钮，准备点击...');");
+            js.AppendLine("                            btn.scrollIntoView({ behavior: 'smooth', block: 'center' });");
+            js.AppendLine("                            await new Promise(resolve => setTimeout(resolve, randomDelay(500, 1000)));");
+            js.AppendLine("                            await humanClick(btn);  // 使用人类点击模拟");
+            js.AppendLine("                            console.log('✅ 已点击 All comments 按钮');");
+            js.AppendLine("                            await new Promise(resolve => setTimeout(resolve, randomDelay(2000, 3000)));  // 等待评论加载");
+            js.AppendLine("                            return true;");
+            js.AppendLine("                        }");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 如果没找到特定按钮，尝试查找评论区容器");
+            js.AppendLine("                const commentContainer = document.querySelector('[data-testid=\"UFI2CommentsRoot\"]') || document.querySelector('[role=\"article\"]');");
+            js.AppendLine("                if (commentContainer) {");
+            js.AppendLine("                    console.log('⚠️ 未找到 All comments 按钮，但检测到评论区已存在');");
+            js.AppendLine("                    return true;");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                console.warn('❌ 未找到评论区元素');");
+            js.AppendLine("                return false;");
+            js.AppendLine("            } catch (e) {");
+            js.AppendLine("                console.error('点击 All comments 失败:', e);");
+            js.AppendLine("                return false;");
+            js.AppendLine("            }");
+            js.AppendLine("        };");
+            js.AppendLine("");
+                    
+            // extractCommentData 函数 - 基于实际HTML结构优化
+            js.AppendLine("        // 步骤2: 提取评论数据");
             js.AppendLine("        const extractCommentData = (commentElement) => {");
             js.AppendLine("            try {");
-            js.AppendLine("                // 提取评论者信息");
-            js.AppendLine("                const authorLink = commentElement.querySelector('a[href*=\"facebook.com/\"]');");
+            js.AppendLine("                // 查找用户链接（在 role='article' 内）");
+            js.AppendLine("                const authorLinks = commentElement.querySelectorAll('a[href*=\"facebook.com/\"]');");
+            js.AppendLine("                let authorLink = null;");
+            js.AppendLine("                for (const link of authorLinks) {");
+            js.AppendLine("                    // 排除包含 'comment_id' 的链接（这些是评论本身的链接）");
+            js.AppendLine("                    if (!link.href.includes('comment_id=')) {");
+            js.AppendLine("                        authorLink = link;");
+            js.AppendLine("                        break;");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
             js.AppendLine("                if (!authorLink) return null;");
             js.AppendLine("");
             js.AppendLine("                const url = authorLink.href.split('?')[0];");
-            js.AppendLine("                if (seenUserIds.has(url)) return null;");
+            js.AppendLine("                if (seenUserIds.has(url)) return null;  // 去重");
             js.AppendLine("");
-            js.AppendLine("                const userName = authorLink.textContent.trim();");
+            js.AppendLine("                // 提取用户名（从 aria-label 或文本内容）");
+            js.AppendLine("                let userName = authorLink.getAttribute('aria-label');");
+            js.AppendLine("                if (!userName) {");
+            js.AppendLine("                    userName = authorLink.textContent.trim();");
+            js.AppendLine("                }");
+            js.AppendLine("                // 清理用户名（移除 ', view story' 等后缀）");
+            js.AppendLine("                if (userName) {");
+            js.AppendLine("                    userName = userName.replace(/,\\s*view\\s+story/i, '').trim();");
+            js.AppendLine("                }");
             js.AppendLine("                if (!userName) return null;");
             js.AppendLine("");
-            js.AppendLine("                // 提取头像");
-            js.AppendLine("                const avatarImg = commentElement.querySelector('img');");
-            js.AppendLine("                const avatar = avatarImg ? (avatarImg.src || '') : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取评论内容");
-            js.AppendLine("                const contentElement = commentElement.querySelector('[dir=\"auto\"]') || commentElement.querySelector('span');");
-            js.AppendLine("                const commentContent = contentElement ? contentElement.textContent.trim() : '';");
-            js.AppendLine("");
-            js.AppendLine("                // 提取点赞数");
-            js.AppendLine("                const likeButton = commentElement.querySelector('[aria-label*=\"赞\"], [aria-label*=\"like\"], [aria-label*=\"J’aime\"]');");
-            js.AppendLine("                let likeCount = 0;");
-            js.AppendLine("                if (likeButton) {");
-            js.AppendLine("                    const likeText = likeButton.parentElement?.textContent.match(/\\d+/);");
-            js.AppendLine("                    likeCount = likeText ? parseInt(likeText[0]) : 0;");
+            js.AppendLine("                // 提取头像（SVG 内的 image xlink:href）");
+            js.AppendLine("                const svgImage = commentElement.querySelector('svg[mask] image[xlink\\:href], svg[mask] img');");
+            js.AppendLine("                let avatar = '';");
+            js.AppendLine("                if (svgImage) {");
+            js.AppendLine("                    avatar = svgImage.getAttribute('xlink:href') || svgImage.getAttribute('src') || '';");
             js.AppendLine("                }");
             js.AppendLine("");
-            js.AppendLine("                // 提取评论时间");
-            js.AppendLine("                const timeElement = commentElement.querySelector('abbr') || commentElement.querySelector('[data-testid*=\"timestamp\"]');");
-            js.AppendLine("                const commentTime = timeElement ? timeElement.textContent.trim() : '';");
+            js.AppendLine("                // 提取评论内容（dir='auto' 的 div）");
+            js.AppendLine("                const contentDiv = commentElement.querySelector('div[dir=\"auto\"]');");
+            js.AppendLine("                const commentContent = contentDiv ? contentDiv.textContent.trim() : '';");
             js.AppendLine("");
-            js.AppendLine("                // 提取回复数");
-            js.AppendLine("                const replyElement = commentElement.querySelector('[aria-label*=\"回复\"], [aria-label*=\"reply\"]');");
+            js.AppendLine("                // 提取评论时间（如 '5w'）");
+            js.AppendLine("                const timeLink = commentElement.querySelector('a[role=\"link\"]:not([href*=\"facebook.com/\"])');");
+            js.AppendLine("                const commentTime = timeLink ? timeLink.textContent.trim() : '';");
+            js.AppendLine("");
+            js.AppendLine("                // 提取点赞数（查找 'Like' 按钮旁边的数字）");
+            js.AppendLine("                const likeElements = commentElement.querySelectorAll('[aria-label=\"Like\"], [aria-label=\"React\"]');");
+            js.AppendLine("                let likeCount = 0;");
+            js.AppendLine("                for (const likeEl of likeElements) {");
+            js.AppendLine("                    const parent = likeEl.closest('ul') || likeEl.parentElement;");
+            js.AppendLine("                    if (parent) {");
+            js.AppendLine("                        const likeText = parent.textContent.match(/\\d+/);");
+            js.AppendLine("                        if (likeText) {");
+            js.AppendLine("                            likeCount = parseInt(likeText[0]);");
+            js.AppendLine("                            break;");
+            js.AppendLine("                        }");
+            js.AppendLine("                    }");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 提取回复数（查找 'Reply' 或 'See translation'）");
+            js.AppendLine("                const replyElement = commentElement.querySelector('[role=\"button\"]:has(div):not([aria-label])');");
             js.AppendLine("                let replyCount = 0;");
             js.AppendLine("                if (replyElement) {");
             js.AppendLine("                    const replyText = replyElement.textContent.match(/\\d+/);");
@@ -3032,23 +2319,14 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        };");
             js.AppendLine("");
             
-            // collectComments 主函数
+            // collectComments 主函数 - 基于实际HTML结构优化
+            js.AppendLine("        // 步骤3: 采集所有评论");
             js.AppendLine("        const collectComments = () => {");
-            js.AppendLine("            // Facebook评论区选择器（多种可能）");
-            js.AppendLine("            const commentSelectors = [");
-            js.AppendLine("                '[role=\"article\"]',");
-            js.AppendLine("                '[data-testid=\"UFI2CommentsRoot\"]',");
-            js.AppendLine("                '.x1i10hfl'");
-            js.AppendLine("            ];");
-            js.AppendLine("");
-            js.AppendLine("            let commentElements = [];");
-            js.AppendLine("            for (const selector of commentSelectors) {");
-            js.AppendLine("                commentElements = Array.from(document.querySelectorAll(selector));");
-            js.AppendLine("                if (commentElements.length > 0) break;");
-            js.AppendLine("            }");
+            js.AppendLine("            // 查找所有评论元素（role='article'）");
+            js.AppendLine("            const commentElements = Array.from(document.querySelectorAll('[role=\"article\"]'));");
             js.AppendLine("");
             js.AppendLine("            if (commentElements.length === 0) {");
-            js.AppendLine("                console.warn('未找到评论区元素');");
+            js.AppendLine("                console.warn('⚠️ 未找到评论区元素');");
             js.AppendLine("                return false;");
             js.AppendLine("            }");
             js.AppendLine("");
@@ -3069,24 +2347,50 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        };");
             js.AppendLine("");
             
-            // 滚动加载更多
+            // 滚动加载更多 - 人类化滚动（参考帖子采集脚本）
             js.AppendLine("        const scrollToLoadMore = async () => {");
             js.AppendLine("            const scrollHeight = document.documentElement.scrollHeight;");
             js.AppendLine("            const currentScroll = document.documentElement.scrollTop + window.innerHeight;");
             js.AppendLine("");
             js.AppendLine("            if (currentScroll < scrollHeight - 200) {");
-            js.AppendLine("                const scrollTarget = Math.min(scrollHeight, currentScroll + 800);");
-            js.AppendLine("                window.scrollTo({ top: scrollTarget, behavior: 'smooth' });");
-            js.AppendLine("                await randomDelay(1500, 2500);");
+            js.AppendLine("                // 根据可视区域高度动态计算滚动距离");
+            js.AppendLine("                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;");
+            js.AppendLine("                const minScroll = Math.max(600, viewportHeight * 0.8);");
+            js.AppendLine("                const maxScroll = Math.max(1000, viewportHeight * 1.2);");
+            js.AppendLine("                const scrollDistance = randomDelay(Math.floor(minScroll), Math.floor(maxScroll));");
+            js.AppendLine("");
+            js.AppendLine("                // 模拟人手滚动：分多次小幅度滚动");
+            js.AppendLine("                const scrollSteps = randomDelay(3, 7);");
+            js.AppendLine("                const stepSize = scrollDistance / scrollSteps;");
+            js.AppendLine("                for (let i = 0; i < scrollSteps; i++) {");
+            js.AppendLine("                    window.scrollBy({ top: stepSize + randomDelay(-10, 10), behavior: 'auto' });");
+            js.AppendLine("                    await new Promise(resolve => setTimeout(resolve, randomDelay(50, 150)));");
+            js.AppendLine("                }");
+            js.AppendLine("                ");
+            js.AppendLine("                // 滚动后随机停顿，模拟阅读评论");
+            js.AppendLine("                const readPause = randomDelay(1000, 3000);");
+            js.AppendLine("                console.log('[阅读停顿]', readPause, 'ms');");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, readPause));");
+            js.AppendLine("");
             js.AppendLine("                return true;");
             js.AppendLine("            }");
             js.AppendLine("            return false;");
             js.AppendLine("        };");
             js.AppendLine("");
             
-            // 主循环
+            // 主循环 - 先点击All comments，再滚动采集
+            js.AppendLine("        // 步骤4: 主循环");
             js.AppendLine("        const mainLoop = async () => {");
             js.AppendLine("            try {");
+            js.AppendLine("                // 第一步：点击 All comments 按钮");
+            js.AppendLine("                console.log('🔍 步骤1: 点击 All comments 按钮...');");
+            js.AppendLine("                const clicked = await clickAllComments();");
+            js.AppendLine("                if (!clicked) {");
+            js.AppendLine("                    console.warn('⚠️ 未能点击 All comments，但仍尝试采集...');");
+            js.AppendLine("                }");
+            js.AppendLine("");
+            js.AppendLine("                // 第二步：滚动采集评论");
+            js.AppendLine("                console.log('🔍 步骤2: 开始滚动采集评论...');");
             js.AppendLine("                while (results.length < targetCount && scrollCount < maxScrolls) {");
             js.AppendLine("                    const foundNew = collectComments();");
             js.AppendLine("");
