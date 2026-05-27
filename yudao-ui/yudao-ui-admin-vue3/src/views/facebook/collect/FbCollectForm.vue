@@ -146,6 +146,33 @@
           />
         </el-form-item>
 
+        <!-- 帖子评论点赞采集：采集选项 -->
+        <el-form-item v-if="formData.taskType === 11" label="采集选项">
+          <el-checkbox-group v-model="commentLikeOptions">
+            <el-checkbox label="comment">采集评论</el-checkbox>
+            <el-checkbox label="like">采集点赞数</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+
+        <!-- 帖子评论点赞采集：期望数量（分开展示） -->
+        <el-form-item v-if="formData.taskType === 11 && commentLikeOptions.includes('comment')" label="评论期望数量" prop="expectedCount">
+          <el-input-number
+            v-model="formData.expectedCount"
+            :min="1"
+            :max="10000"
+            style="width: 100%"
+          />
+        </el-form-item>
+
+        <el-form-item v-if="formData.taskType === 11 && commentLikeOptions.includes('like')" label="点赞期望数量">
+          <el-input-number
+            v-model="likeExpectedCount"
+            :min="1"
+            :max="10000"
+            style="width: 100%"
+          />
+        </el-form-item>
+
         <!-- 群组成员采集特殊UI：链接输入和群组选择二选一 -->
         <el-form-item v-if="formData.taskType === 7" label="采集方式" prop="searchUrl">
           <el-radio-group v-model="groupInputMode" @change="handleGroupInputModeChange">
@@ -244,7 +271,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="期望数量" prop="expectedCount">
+        <el-form-item v-else label="期望数量" prop="expectedCount">
           <el-input-number
             v-model="formData.expectedCount"
             :min="1"
@@ -544,6 +571,10 @@ const userInputMode = ref<'manual' | 'select'>('select') // 用户关系采集�
 const userSelectorVisible = ref(false) // 用户选择弹框显示状态
 const selectedUsers = ref<FbCollectUser[]>([]) // 已选择的用户
 
+// 帖子评论点赞采集相关
+const commentLikeOptions = ref<string[]>(['comment', 'like']) // 默认同时采集评论和点赞
+const likeExpectedCount = ref(100) // 点赞期望数量
+
 /** 打开弹窗 */
 const open = async (type: string, id?: number, taskTypeValue?: number) => {
   dialogVisible.value = true
@@ -729,6 +760,18 @@ const submitForm = async () => {
       remark: data.remark
     }
 
+    // 如果是帖子评论点赞采集，将配置保存到remark字段（临时方案）
+    if (data.taskType === 11) {
+      const config = {
+        collectComment: commentLikeOptions.value.includes('comment'),
+        collectLike: commentLikeOptions.value.includes('like'),
+        likeExpectedCount: likeExpectedCount.value
+      }
+      // 将配置JSON附加到remark后面
+      taskData.remark = `${data.remark || ''}
+__CONFIG__:${JSON.stringify(config)}`
+    }
+
     // 一次性创建任务和所有明细
     let details: Array<{ detailId: number; fbAccount: string; searchUrl: string }> = []
     if (formType.value === 'create') {
@@ -767,13 +810,25 @@ const submitForm = async () => {
         
         console.log(`🔍 账号 ${fbAccount} 的 Cookie:`, cookie ? '已提供' : '未提供')
         
+        // 构建配置JSON（仅针对帖子评论点赞采集）
+        let configJson: string | undefined = undefined
+        if (data.taskType === 11) {
+          configJson = JSON.stringify({
+            collectComment: commentLikeOptions.value.includes('comment'),
+            collectLike: commentLikeOptions.value.includes('like'),
+            likeExpectedCount: likeExpectedCount.value
+          })
+          console.log('📋 帖子评论点赞采集配置:', configJson)
+        }
+        
         startBrowserCollect(
           String(firstDetail.detailId),
           String(fbAccount),
           cookie,  // ✅ 传入 Cookie
           firstDetail.searchUrl,
           data.expectedCount,
-          data.taskType // 传递任务类型(1主页/2帖子/3用户等)
+          data.taskType, // 传递任务类型(1主页/2帖子/3用户等)
+          configJson  // 传递配置（可选）
         )
         createdTasks.push({
           detailId: firstDetail.detailId,
@@ -824,6 +879,8 @@ const resetForm = () => {
   userPageNo.value = 1
   userPageSize.value = 20
   activeTab.value = 'details'
+  commentLikeOptions.value = ['comment', 'like'] // 重置评论点赞选项
+  likeExpectedCount.value = 100 // 重置点赞期望数量
   formRef.value?.resetFields()
 }
 

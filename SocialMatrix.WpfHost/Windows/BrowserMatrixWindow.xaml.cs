@@ -219,8 +219,14 @@ namespace SocialMatrix.WpfHost.Windows
         /// 创建浏览器实例并启动自动化采集
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com", 
-            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1)
+            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null)
         {
+            // 记录配置信息（如果有）
+            if (!string.IsNullOrEmpty(config))
+            {
+                System.Diagnostics.Debug.WriteLine($"📋 BrowserMatrixWindow 收到配置: {config}");
+            }
+
             // 检查是否超过最大并发数
             if (_browsers.Count >= _maxConcurrentBrowsers)
             {
@@ -243,7 +249,7 @@ namespace SocialMatrix.WpfHost.Windows
                     // 异步启动采集（不阻塞）
                     Task.Run(async () =>
                     {
-                        await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType);
+                        await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
                     });
                 }
                 return;
@@ -359,7 +365,7 @@ namespace SocialMatrix.WpfHost.Windows
                             // 3. 如果 Cookie 有效且提供了搜索 URL，启动自动化采集
                             if (isCookieValid && !string.IsNullOrEmpty(searchUrl))
                             {
-                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType);
+                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
                             }
                         }
                     }
@@ -718,7 +724,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// 启动自动化采集
         /// </summary>
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId, 
-            string searchUrl, int expectedCount, int taskType = 1)
+            string searchUrl, int expectedCount, int taskType = 1, string? config = null)
         {
             try
             {
@@ -886,7 +892,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 // 3. 注入采集脚本(根据任务类型)
-                var collectScript = GenerateCollectScript(expectedCount, taskType);
+                var collectScript = GenerateCollectScript(expectedCount, taskType, config);
                 System.Diagnostics.Debug.WriteLine($"🚀 开始执行采集脚本, 目标数量: {expectedCount}");
                 
                 // ❗ 最后一次验证浏览器状态
@@ -959,7 +965,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 生成采集脚本（根据任务类型）
         /// </summary>
-        private string GenerateCollectScript(int expectedCount, int taskType = 1)
+        private string GenerateCollectScript(int expectedCount, int taskType = 1, string? config = null)
         {
             System.Diagnostics.Debug.WriteLine($"🔍 GenerateCollectScript 被调用: taskType={taskType}, expectedCount={expectedCount}");
             
@@ -1003,7 +1009,7 @@ namespace SocialMatrix.WpfHost.Windows
             else if (taskType == 11) // 帖子评论点赞采集
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入帖子评论点赞采集分支");
-                return GenerateCommentLikeCollectScript(expectedCount);
+                return GenerateCommentLikeCollectScript(expectedCount, config);
             }
             else // 默认主页采集
             {
@@ -2122,14 +2128,53 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 生成帖子评论点赞采集脚本
         /// </summary>
-        private string GenerateCommentLikeCollectScript(int expectedCount)
+        private string GenerateCommentLikeCollectScript(int expectedCount, string? configJson = null)
         {
+            // 解析配置
+            bool collectComment = true;
+            bool collectLike = true;
+            int likeExpectedCount = expectedCount;
+            
+            if (!string.IsNullOrEmpty(configJson))
+            {
+                try
+                {
+                    var config = Newtonsoft.Json.Linq.JObject.Parse(configJson);
+                    collectComment = config.ContainsKey("collectComment") ? config.Value<bool>("collectComment") : true;
+                    collectLike = config.ContainsKey("collectLike") ? config.Value<bool>("collectLike") : true;
+                    likeExpectedCount = config.ContainsKey("likeExpectedCount") ? config.Value<int>("likeExpectedCount") : expectedCount;
+                    System.Diagnostics.Debug.WriteLine($"📋 帖子评论点赞采集配置: collectComment={collectComment}, collectLike={collectLike}, likeExpectedCount={likeExpectedCount}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 解析配置失败: {ex.Message}，使用默认配置");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ 未提供配置，使用默认配置（同时采集评论和点赞）");
+            }
+            
             var js = new System.Text.StringBuilder();
                     
             js.AppendLine("(function() {");
             js.AppendLine("    return new Promise((resolve, reject) => {");
             js.AppendLine("        const results = [];");
-            js.AppendLine($"        const targetCount = {expectedCount};");
+            
+            // 根据配置设置目标数量
+            if (collectComment && collectLike)
+            {
+                js.AppendLine($"        const targetCount = {expectedCount}; // 同时采集评论和点赞");
+            }
+            else if (collectComment)
+            {
+                js.AppendLine($"        const targetCount = {expectedCount}; // 只采集评论");
+            }
+            else
+            {
+                js.AppendLine($"        const targetCount = {likeExpectedCount}; // 只采集点赞");
+            }
+            
             js.AppendLine("        const seenUserIds = new Set();");
             js.AppendLine("");
             js.AppendLine("        let scrollCount = 0;");
@@ -2137,6 +2182,12 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        let consecutiveNoNewItems = 0;");
             js.AppendLine("        const maxConsecutiveNoNew = 5;");
             js.AppendLine("");
+            
+            // 注入配置常量到 JavaScript
+            js.AppendLine($"        const COLLECT_COMMENT = {(collectComment ? "true" : "false")};");
+            js.AppendLine($"        const COLLECT_LIKE = {(collectLike ? "true" : "false")};");
+            js.AppendLine("");
+            
             js.AppendLine("        const randomDelay = (min, max) => {");
             js.AppendLine("            return Math.floor(Math.random() * (max - min + 1)) + min;");
             js.AppendLine("        };");
@@ -2273,18 +2324,22 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                const timeLink = commentElement.querySelector('a[role=\"link\"]:not([href*=\"facebook.com/\"])');");
             js.AppendLine("                const commentTime = timeLink ? timeLink.textContent.trim() : '';");
             js.AppendLine("");
-            js.AppendLine("                // 提取点赞数（查找 'Like' 按钮旁边的数字）");
-            js.AppendLine("                const likeElements = commentElement.querySelectorAll('[aria-label=\"Like\"], [aria-label=\"React\"]');");
+            js.AppendLine("                // 提取点赞数（查找 'Like' 按钮旁边的数字）- 仅在配置允许时提取");
             js.AppendLine("                let likeCount = 0;");
-            js.AppendLine("                for (const likeEl of likeElements) {");
-            js.AppendLine("                    const parent = likeEl.closest('ul') || likeEl.parentElement;");
-            js.AppendLine("                    if (parent) {");
-            js.AppendLine("                        const likeText = parent.textContent.match(/\\d+/);");
-            js.AppendLine("                        if (likeText) {");
-            js.AppendLine("                            likeCount = parseInt(likeText[0]);");
-            js.AppendLine("                            break;");
+            js.AppendLine("                if (COLLECT_LIKE) {");
+            js.AppendLine("                    const likeElements = commentElement.querySelectorAll('[aria-label=\"Like\"], [aria-label=\"React\"]');");
+            js.AppendLine("                    for (const likeEl of likeElements) {");
+            js.AppendLine("                        const parent = likeEl.closest('ul') || likeEl.parentElement;");
+            js.AppendLine("                        if (parent) {");
+            js.AppendLine("                            const likeText = parent.textContent.match(/\\d+/);");
+            js.AppendLine("                            if (likeText) {");
+            js.AppendLine("                                likeCount = parseInt(likeText[0]);");
+            js.AppendLine("                                break;");
+            js.AppendLine("                            }");
             js.AppendLine("                        }");
             js.AppendLine("                    }");
+            js.AppendLine("                } else {");
+            js.AppendLine("                    console.log('⚠️ 跳过点赞数提取（配置未启用）');");
             js.AppendLine("                }");
             js.AppendLine("");
             js.AppendLine("                // 提取回复数（查找 'Reply' 或 'See translation'）");
@@ -2334,11 +2389,35 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("            for (const element of commentElements) {");
             js.AppendLine("                if (results.length >= targetCount) break;");
             js.AppendLine("");
-            js.AppendLine("                const data = extractCommentData(element);");
-            js.AppendLine("                if (data) {");
-            js.AppendLine("                    results.push(data);");
-            js.AppendLine("                    newCount++;");
-            js.AppendLine("                    console.log(`✅ 采集到评论: ${data.userName} (${data.followers}个赞)`);");
+            
+            // 根据配置决定是否提取数据
+            js.AppendLine("                // 如果只采集点赞，跳过评论提取");
+            js.AppendLine("                if (!COLLECT_COMMENT && COLLECT_LIKE) {");
+            js.AppendLine("                    // 只提取点赞数，不保存评论数据");
+            js.AppendLine("                    const likeElements = element.querySelectorAll('[aria-label=\"Like\"], [aria-label=\"React\"]');");
+            js.AppendLine("                    for (const likeEl of likeElements) {");
+            js.AppendLine("                        const parent = likeEl.closest('ul') || likeEl.parentElement;");
+            js.AppendLine("                        if (parent) {");
+            js.AppendLine("                            const likeText = parent.textContent.match(/\\d+/);");
+            js.AppendLine("                            if (likeText) {");
+            js.AppendLine("                                const likeCount = parseInt(likeText[0]);");
+            js.AppendLine("                                if (likeCount > 0) {");
+            js.AppendLine("                                    results.push({ fbUserId: 'like_' + likeCount, userName: '点赞用户', url: '', avatar: '', followers: likeCount, profileStatus: '', lastPostSummary: '', fromResource: '帖子点赞采集', config: '{}' });");
+            js.AppendLine("                                    newCount++;");
+            js.AppendLine("                                    console.log(`✅ 采集到点赞: ${likeCount}个`);");
+            js.AppendLine("                                }");
+            js.AppendLine("                                break;");
+            js.AppendLine("                            }");
+            js.AppendLine("                        }");
+            js.AppendLine("                    }");
+            js.AppendLine("                } else if (COLLECT_COMMENT) {");
+            js.AppendLine("                    // 正常提取评论数据");
+            js.AppendLine("                    const data = extractCommentData(element);");
+            js.AppendLine("                    if (data) {");
+            js.AppendLine("                        results.push(data);");
+            js.AppendLine("                        newCount++;");
+            js.AppendLine("                        console.log(`✅ 采集到评论: ${data.userName} (${data.followers}个赞)`);");
+            js.AppendLine("                    }");
             js.AppendLine("                }");
             js.AppendLine("            }");
             js.AppendLine("");
@@ -2420,7 +2499,7 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                    await randomDelay(1000, 2000);");
             js.AppendLine("                }");
             js.AppendLine("");
-            js.AppendLine("                console.log(`🎉 采集完成！共采集 ${results.length} 条评论`);");
+            js.AppendLine("                console.log(`🎉 采集完成！共采集 ${results.length} 条数据`);");
             js.AppendLine("                resolve(results);");
             js.AppendLine("            } catch (error) {");
             js.AppendLine("                console.error('❌ 采集过程出错:', error);");

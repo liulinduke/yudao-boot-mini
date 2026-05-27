@@ -30,16 +30,24 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="cookie">Cookie</param>
         /// <param name="searchUrl">搜索URL</param>
         /// <param name="expectedCount">期望采集数量</param>
-        /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
-        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1)
+        /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论/11帖子评论点赞)</param>
+        /// <param name="config">配置JSON字符串（可选，用于taskType=11时指定采集选项）</param>
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null)
         {
+            // 记录配置信息（如果有）
+            if (!string.IsNullOrEmpty(config))
+            {
+                System.Diagnostics.Debug.WriteLine($"📋 收到采集配置: {config}");
+            }
+
             Application.Current.Dispatcher.Invoke(() =>
             {
                 _mainWindow.CreateBrowserForAccount(detailId, accountId, 
                     string.IsNullOrEmpty(cookie) ? null : cookie, 
                     string.IsNullOrEmpty(searchUrl) ? null : searchUrl, 
                     expectedCount,
-                    taskType: taskType);
+                    taskType: taskType,
+                    config: config);  // ✅ 传递config参数
             });
         }
 

@@ -17,7 +17,8 @@ declare global {
                 cookie: string | null,
                 url: string,
                 expectedCount: number,
-                taskType: number
+                taskType: number,
+                config?: string
               ) => void
             }
           }
@@ -37,7 +38,8 @@ export {}
  * @param cookie Cookie字符串
  * @param url 采集URL
  * @param expectedCount 期望采集数量
- * @param taskType 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
+ * @param taskType 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论/11帖子评论点赞)
+ * @param config 配置JSON字符串（可选，用于taskType=11时指定采集选项）
  */
 export function startBrowserCollect(
   taskId: string,
@@ -45,20 +47,31 @@ export function startBrowserCollect(
   cookie: string | null,
   url: string,
   expectedCount: number,
-  taskType: number = 1
+  taskType: number = 1,
+  config?: string
 ): void {
   try {
     // 检查是否在 WPF 环境中
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      window.chrome.webview.hostObjects.sync.wpfBridge.StartBrowser(
-        taskId,
-        accountId,
-        cookie,
-        url,
-        expectedCount,
-        taskType
-      )
-      console.log(`已启动浏览器自动化采集 - 任务ID: ${taskId}, 账号ID: ${accountId}, URL: ${url}, 类型: ${taskType}`)
+      const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
+      
+      // 如果有config参数，尝试传递（需要WPF端支持）
+      if (config) {
+        console.log(`📋 传递配置到WPF: ${config}`)
+        // 注意：这里需要WPF端的StartBrowser方法支持第7个参数
+        // 如果WPF端尚未更新，会抛出异常，需要在catch中处理
+        try {
+          // @ts-ignore - 动态调用以支持可选参数
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
+        } catch (e) {
+          console.warn('⚠️ WPF端不支持config参数，使用6参数版本')
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType)
+        }
+      } else {
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType)
+      }
+      
+      console.log(`已启动浏览器自动化采集 - 任务ID: ${taskId}, 账号ID: ${accountId}, URL: ${url}, 类型: ${taskType}${config ? ', 配置: ' + config : ''}`)
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
     }
