@@ -265,7 +265,7 @@ namespace SocialMatrix.WpfHost.Windows
             var requestContextSettings = new RequestContextSettings
             {
                 CachePath = cachePath,
-                PersistSessionCookies = false
+                PersistSessionCookies = true
             };
 
             var requestContext = new RequestContext(requestContextSettings);
@@ -1645,17 +1645,32 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine(@"
         const extractMemberData = (listItem) => {
             try {
-                const userLinkEl = listItem.querySelector('a[href*=""/user/""]');
-                if (!userLinkEl) return null;
-
+                // ✅ 匹配群组成员页面的链接格式: /groups/{groupId}/user/{userId}/
+                const userLinkEl = listItem.querySelector('a[href*=""/groups/""]');
+                if (!userLinkEl) {
+                    console.log('❌ No link found');
+                    return null;
+                }
+                
                 const url = userLinkEl.href.split('?')[0];
+                // 验证是否包含 /user/ 路径
+                if (!url.includes('/user/')) {
+                    console.log('❌ URL without /user/:', url);
+                    return null;
+                }
                 if (!url || seenUserIds.has(url)) return null;
-
-                const userName = userLinkEl.textContent.trim();
-                if (!userName) return null;
-
+                
+                // ✅ 从 aria-label 属性获取用户名（Facebook 群成员页面的用户名在这个属性中）
+                const userName = userLinkEl.getAttribute('aria-label') || userLinkEl.textContent.trim();
+                if (!userName) {
+                    console.log('❌ Empty username');
+                    return null;
+                }
+                
+                // ✅ 从完整URL中提取用户ID
                 const userIdMatch = url.match(/\/user\/(\d+)/);
                 const fbUserId = userIdMatch ? userIdMatch[1] : '';
+                console.log('✅ Member found:', userName, fbUserId);
 
                 // ✅ 提取角色信息(Admin/Moderator等)
                 let role = 'Member';
@@ -1684,7 +1699,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 // ✅ 提取头像
-                const imgEl = listItem.querySelector('image[xlink:href], img');
+                const imgEl = listItem.querySelector('img') || listItem.querySelector('svg image');
                 const avatar = imgEl ? (imgEl.getAttribute('xlink:href') || imgEl.src || '') : '';
 
                 seenUserIds.add(url);
@@ -1708,7 +1723,7 @@ namespace SocialMatrix.WpfHost.Windows
         };
 ");
 
-            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractMemberData", "div[role=\"listitem\"]"));
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractMemberData", "div.x78zum5.xdt5ytf.x1xmf6yo.x1e56ztr"));
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }

@@ -83,6 +83,7 @@ namespace SocialMatrix.WpfHost.Helpers
         const doScroll = () => {{
             try {{
                 const cards = document.querySelectorAll('{selector}');
+                console.log('Selector: ' + '{selector}' + ', Found: ' + cards.length + ' items');
                 let newItemsFound = 0;
 
                 cards.forEach(card => {{
