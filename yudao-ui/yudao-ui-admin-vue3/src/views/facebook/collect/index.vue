@@ -644,7 +644,7 @@ onMounted(() => {
       }
 
       // 🔄 检查该账号是否有下一个待执行的任务
-      await checkAndStartNextTask(accountId)
+      await checkAndStartNextTask(accountId, results.length)
 
       // 刷新列表
       await getList()
@@ -657,8 +657,10 @@ onMounted(() => {
 
 /**
  * 检查并启动账号的下一个任务
+ * @param accountId 账号ID
+ * @param collectedCount 本次采集到的数据条数
  */
-const checkAndStartNextTask = async (accountId: string) => {
+const checkAndStartNextTask = async (accountId: string, collectedCount: number = 0) => {
   try {
     // 查询该账号的所有待执行明细(status=0)
     const response = await request.get({
@@ -687,8 +689,16 @@ const checkAndStartNextTask = async (accountId: string) => {
     } else {
       // 没有下一个任务,关闭浏览器
       console.log(`✅ 账号 ${accountId} 所有任务已完成,关闭浏览器`)
-      //closeBrowser(accountId)
-      message.success(`账号 ${accountId} 所有任务已完成`)
+      
+      // ✅ 如果采集到0条数据，也关闭浏览器（避免浪费资源）
+      if (collectedCount === 0) {
+        console.log(`⚠️ 采集到0条数据，关闭浏览器`)
+        closeBrowser(accountId)
+        message.warning(`账号 ${accountId} 未采集到数据，已关闭浏览器`)
+      } else {
+        closeBrowser(accountId)
+        message.success(`账号 ${accountId} 所有任务已完成`)
+      }
     }
   } catch (error) {
     console.error('检查下一个任务失败:', error)

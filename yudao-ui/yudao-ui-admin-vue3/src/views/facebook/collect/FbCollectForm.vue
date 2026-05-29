@@ -729,7 +729,7 @@ const loadAccounts = async () => {
 }
 
 /** 提交表单 */
-const emit = defineEmits(['success']) // 定义 success 事件，用于操作成功后的回调
+const emit = defineEmits(['success']) // 定义 success 事件,用于操作成功后的回调
 const submitForm = async () => {
   // 校验表单
   if (!formRef.value) return
@@ -739,8 +739,21 @@ const submitForm = async () => {
   try {
     const data = formData.value as unknown as FbCollect
 
-    // 解析URL列表（支持换行分隔）
-    const urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
+    // 解析URL列表(支持换行分隔)
+    let urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
+    
+    // ✅ 群组成员采集(taskType=7):自动为群组链接添加/members后缀
+    if (data.taskType === 7 && urls.length > 0) {
+      urls = urls.map(url => {
+        const trimmedUrl = url.trim()
+        // 如果URL是群组链接但不包含/members,则添加
+        if (trimmedUrl.includes('/groups/') && !trimmedUrl.includes('/members')) {
+          return `${trimmedUrl}/members`
+        }
+        return trimmedUrl
+      })
+      console.log('✅ 群组成员采集URL已自动补全:', urls)
+    }
 
     // 获取选中的账号信息
     const selectedAccounts = accounts.value.filter((acc) =>

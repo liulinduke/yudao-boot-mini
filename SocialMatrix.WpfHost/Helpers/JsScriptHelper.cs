@@ -80,7 +80,7 @@ namespace SocialMatrix.WpfHost.Helpers
         let consecutiveNoNewItems = 0;
         const maxConsecutiveNoNew = 5;
 
-        const interval = setInterval(() => {{
+        const doScroll = () => {{
             try {{
                 const cards = document.querySelectorAll('{selector}');
                 let newItemsFound = 0;
@@ -101,14 +101,12 @@ namespace SocialMatrix.WpfHost.Helpers
                 }}
 
                 if (results.length >= targetCount) {{
-                    clearInterval(interval);
                     console.log('Collection complete: ' + results.length + '/' + targetCount);
                     resolve(JSON.stringify(results.slice(0, targetCount)));
                     return;
                 }}
 
                 if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {{
-                    clearInterval(interval);
                     console.log('Collection ended: ' + results.length + ' items');
                     resolve(JSON.stringify(results));
                     return;
@@ -118,14 +116,13 @@ namespace SocialMatrix.WpfHost.Helpers
                 scrollCount++;
 
                 const nextDelay = randomDelay(1500, 3000);
-                clearInterval(interval);
-                setTimeout(() => {{
-                    interval = setInterval(arguments.callee, 2000);
-                }}, nextDelay);
+                setTimeout(doScroll, nextDelay);
             }} catch (e) {{
                 console.error('Collection error:', e);
             }}
-        }}, 2000);
+        }};
+        
+        const interval = setInterval(doScroll, 2000);
 
         setTimeout(() => {{
             clearInterval(interval);
@@ -143,12 +140,12 @@ namespace SocialMatrix.WpfHost.Helpers
         /// </summary>
         public static string CreatePromiseWrapper(string body)
         {
-            return $@"(function() {{{{
-    return new Promise((resolve, reject) => {{{{
+            return $@"(function() {{
+    return new Promise((resolve, reject) => {{
         const results = [];
 {body}
     }});
-}}}})();";
+}})();";
         }
     }
 }

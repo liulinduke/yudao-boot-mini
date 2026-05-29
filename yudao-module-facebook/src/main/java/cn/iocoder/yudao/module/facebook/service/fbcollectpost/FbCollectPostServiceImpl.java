@@ -97,10 +97,6 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Integer batchSaveFbCollectPost(Long detailId, List<FbCollectPostSaveReqVO> results) {
-        if (CollUtil.isEmpty(results)) {
-            return 0;
-        }
-        
         // 1. 查询明细信息
         FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
         if (detail == null) {
@@ -109,26 +105,28 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         }
         
         int count = 0;
-        for (FbCollectPostSaveReqVO result : results) {
-            // 设置 taskId 和 fbAccount
-            result.setTaskId(detail.getTaskId());
-            result.setFbAccount(detail.getFbAccount());
-            
-            FbCollectPostDO fbCollectPost = BeanUtils.toBean(result, FbCollectPostDO.class);
-            
-            // 清空id字段,让数据库自动生成主键
-            fbCollectPost.setId(null);
-            fbCollectPostMapper.insert(fbCollectPost);
-            count++;
+        if (CollUtil.isNotEmpty(results)) {
+            for (FbCollectPostSaveReqVO result : results) {
+                // 设置 taskId 和 fbAccount
+                result.setTaskId(detail.getTaskId());
+                result.setFbAccount(detail.getFbAccount());
+                
+                FbCollectPostDO fbCollectPost = BeanUtils.toBean(result, FbCollectPostDO.class);
+                
+                // 清空id字段,让数据库自动生成主键
+                fbCollectPost.setId(null);
+                fbCollectPostMapper.insert(fbCollectPost);
+                count++;
+            }
         }
         
-        // 2. 使用 Redis 原子递增采集数量(明细级别)
+        // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);
         
         // 3. 同时递增主表总采集数量(并发安全)
         countService.incrementTaskTotalCount(detail.getTaskId(), count);
         
-        // 4. 异步更新数据库和主表(避免阻塞)
+        // 4. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
         updateDetailAndMainTableAsync(detailId);
         
         return count;

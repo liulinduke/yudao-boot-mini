@@ -16,7 +16,6 @@ public class FbCollectUserBatchSaveReqVO {
     private Long detailId;
 
     @Schema(description = "采集结果列表", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotEmpty(message = "采集结果列表不能为空")
     @Valid
     private List<FbCollectUserSaveReqVO> results;
 

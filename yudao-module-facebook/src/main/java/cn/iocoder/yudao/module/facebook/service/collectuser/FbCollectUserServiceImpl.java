@@ -102,10 +102,6 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Integer batchSaveFbCollectUser(Long detailId, List<FbCollectUserSaveReqVO> results) {
-        if (CollUtil.isEmpty(results)) {
-            return 0;
-        }
-        
         // 1. 查询明细信息
         FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
         if (detail == null) {
@@ -114,44 +110,46 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         }
         
         int count = 0;
-        for (FbCollectUserSaveReqVO result : results) {
-            // 设置 taskId 和 fbAccount
-            result.setTaskId(detail.getTaskId());
-            result.setFbAccount(detail.getFbAccount());
-            
-            // 先保存 VO 的 id(Facebook用户ID)
-            String fbUserId = result.getId();
-            // 清空 VO 的 id,避免 BeanUtil 尝试转换到 DO.id(Long类型)
-            result.setId(null);
-            
-            FbCollectUserDO fbCollectUser = BeanUtils.toBean(result, FbCollectUserDO.class);
-            
-            // 字段映射：Facebook API -> DO
-            // 设置 Facebook用户ID
-            if (fbUserId != null) {
-                fbCollectUser.setFbUserId(fbUserId);
+        if (CollUtil.isNotEmpty(results)) {
+            for (FbCollectUserSaveReqVO result : results) {
+                // 设置 taskId 和 fbAccount
+                result.setTaskId(detail.getTaskId());
+                result.setFbAccount(detail.getFbAccount());
+                
+                // 先保存 VO 的 id(Facebook用户ID)
+                String fbUserId = result.getId();
+                // 清空 VO 的 id,避免 BeanUtil 尝试转换到 DO.id(Long类型)
+                result.setId(null);
+                
+                FbCollectUserDO fbCollectUser = BeanUtils.toBean(result, FbCollectUserDO.class);
+                
+                // 字段映射：Facebook API -> DO
+                // 设置 Facebook用户ID
+                if (fbUserId != null) {
+                    fbCollectUser.setFbUserId(fbUserId);
+                }
+                
+                // name -> userName (如果userName为空)
+                if (fbCollectUser.getUserName() == null && result.getName() != null) {
+                    fbCollectUser.setUserName(result.getName());
+                }
+                
+                // snippet -> profileStatus (签名/状态)
+                if (result.getProfileStatus() == null && result.getSnippet() != null) {
+                    fbCollectUser.setProfileStatus(result.getSnippet());
+                }
+                
+                // 清空id字段,让数据库自动生成主键
+                fbCollectUser.setId(null);
+                fbCollectUserMapper.insert(fbCollectUser);
+                count++;
             }
-            
-            // name -> userName (如果userName为空)
-            if (fbCollectUser.getUserName() == null && result.getName() != null) {
-                fbCollectUser.setUserName(result.getName());
-            }
-            
-            // snippet -> profileStatus (签名/状态)
-            if (result.getProfileStatus() == null && result.getSnippet() != null) {
-                fbCollectUser.setProfileStatus(result.getSnippet());
-            }
-            
-            // 清空id字段,让数据库自动生成主键
-            fbCollectUser.setId(null);
-            fbCollectUserMapper.insert(fbCollectUser);
-            count++;
         }
         
-        // 2. 使用 Redis 原子递增采集数量
+        // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);
         
-        // 3. 异步更新数据库和主表(避免阻塞)
+        // 3. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
         updateDetailAndMainTableAsync(detailId);
         
         return count;
