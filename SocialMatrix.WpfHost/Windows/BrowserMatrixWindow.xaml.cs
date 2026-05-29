@@ -265,7 +265,7 @@ namespace SocialMatrix.WpfHost.Windows
             var requestContextSettings = new RequestContextSettings
             {
                 CachePath = cachePath,
-                PersistSessionCookies = true
+                PersistSessionCookies = false
             };
 
             var requestContext = new RequestContext(requestContextSettings);
