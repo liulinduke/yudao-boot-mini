@@ -1590,7 +1590,8 @@ namespace SocialMatrix.WpfHost.Windows
                 const url = groupLinkEl.href.split('?')[0];
                 if (!url || seenUrls.has(url)) return null;
 
-                const groupName = groupLinkEl.textContent.trim();
+                // ✅ 从 aria-label 属性获取群组名称（Facebook 群组页面的名称在这个属性中）
+                const groupName = groupLinkEl.getAttribute('aria-label') || groupLinkEl.textContent.trim();
                 if (!groupName) return null;
 
                 let type = 'Public';
@@ -1743,24 +1744,25 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine(@"
         const extractUserData = (container) => {
             try {
-                const userLinkEl = container.querySelector('a[href*=""/profile.php?id=""]') || container.querySelector('a[href*=""/user/""]');
-                if (!userLinkEl) return null;
+                // ✅ 查找包含用户链接的元素（用户头像链接）
+                const avatarLink = container.querySelector('a[href*=""/profile.php?id=""]');
+                if (!avatarLink) return null;
 
-                const url = userLinkEl.href.split('?')[0];
+                // ✅ 保留完整URL（包括查询参数）
+                const url = avatarLink.href;
                 if (!url || seenUserIds.has(url)) return null;
 
-                const userName = userLinkEl.textContent.trim();
-                if (!userName) return null;
-
-                let fbUserId = '';
+                // ✅ 从完整URL中提取用户ID
                 const idMatch = url.match(/[?&]id=(\d+)/);
-                if (idMatch) {
-                    fbUserId = idMatch[1];
-                } else {
-                    const userIdMatch = url.match(/\/user\/(\d+)/);
-                    fbUserId = userIdMatch ? userIdMatch[1] : '';
-                }
+                if (!idMatch) return null;
+                const fbUserId = idMatch[1];
+                if (!fbUserId) return null;
 
+                // ✅ 从aria-label或子元素获取用户名
+                const userName = avatarLink.getAttribute('aria-label') || '';
+                if (!userName || userName.includes('followers') || userName.includes('following')) return null;
+
+                // ✅ 获取头像
                 const imgEl = container.querySelector('img');
                 const avatar = imgEl ? (imgEl.src || '') : '';
 
@@ -1777,7 +1779,7 @@ namespace SocialMatrix.WpfHost.Windows
         };
 ");
 
-            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div[class*=\"x6s0dn4\"]"));
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div.x78zum5.x1q0g3np.x1a02dak.x1qughib"));
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }

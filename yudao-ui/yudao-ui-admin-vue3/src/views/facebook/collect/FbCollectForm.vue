@@ -271,7 +271,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item v-else label="期望数量" prop="expectedCount">
+        <el-form-item label="期望数量" prop="expectedCount">
           <el-input-number
             v-model="formData.expectedCount"
             :min="1"
@@ -1082,21 +1082,26 @@ const generateUserRelationUrls = () => {
   const urls: string[] = []
 
   selectedUsers.value.forEach((user) => {
-    const baseUrl = user.url.split('?')[0] // 移除查询参数
+    // 保留原始URL（包括查询参数）
+    const originalUrl = user.url
+    // 判断URL是否已有查询参数
+    const hasQuery = originalUrl.includes('?')
 
     // 根据选中的关系类型生成不同的链接
     relationTypes.value.forEach((relationType) => {
-      let suffix = ''
+      let param = ''
       if (relationType === 'followers') {
-        suffix = '&sk=followers'
+        param = 'sk=followers'
       } else if (relationType === 'following') {
-        suffix = '&sk=following'
+        param = 'sk=following'
       } else if (relationType === 'friends') {
-        suffix = '&sk=friends'
+        param = 'sk=friends'
       }
 
-      if (suffix) {
-        urls.push(`${baseUrl}${suffix}`)
+      if (param) {
+        // 如果已有查询参数用 &，否则用 ?
+        const separator = hasQuery ? '&' : '?'
+        urls.push(`${originalUrl}${separator}${param}`)
       }
     })
   })
