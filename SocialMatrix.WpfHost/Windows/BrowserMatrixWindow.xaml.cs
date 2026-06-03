@@ -1744,25 +1744,74 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine(@"
         const extractUserData = (container) => {
             try {
-                // ✅ 查找包含用户链接的元素（用户头像链接）
-                const avatarLink = container.querySelector('a[href*=""/profile.php?id=""]');
-                if (!avatarLink) return null;
+                // ✅ 查找所有可能的用户链接（支持多种格式）
+                const userLinks = container.querySelectorAll('a[href^=""https://www.facebook.com/""]');
+                if (!userLinks || userLinks.length === 0) {
+                    console.log('❌ No user link found');
+                    return null;
+                }
 
-                // ✅ 保留完整URL（包括查询参数）
-                const url = avatarLink.href;
-                if (!url || seenUserIds.has(url)) return null;
+                // 找到第一个有效的用户链接
+                let userLinkEl = null;
+                let userName = '';
+                for (const link of userLinks) {
+                    const linkUrl = link.href;
+                    if (!linkUrl) continue;
+                    
+                    // 跳过群组、页面等非用户链接
+                    if (linkUrl.includes('/groups/') || linkUrl.includes('/pages/') || 
+                        linkUrl.includes('/events/') || linkUrl.includes('/marketplace/')) continue;
+                    
+                    // 跳过静态资源和非用户页面
+                    if (linkUrl.includes('static.') || linkUrl.includes('rsrc.php')) continue;
+                    
+                    // 从aria-label或textContent获取用户名
+                    let label = link.getAttribute('aria-label') || link.textContent.trim();
+                    if (!label || label.includes('followers') || label.includes('following') || 
+                        label.includes('Friends') || label.includes('Profile') || label.length < 2) continue;
+                    
+                    userLinkEl = link;
+                    userName = label;
+                    break;
+                }
 
-                // ✅ 从完整URL中提取用户ID
+                if (!userLinkEl) {
+                    console.log('❌ No valid user link found');
+                    return null;
+                }
+
+                // ✅ 保留完整URL
+                const url = userLinkEl.href;
+                if (!url || seenUserIds.has(url)) {
+                    console.log('❌ URL empty or already seen:', url);
+                    return null;
+                }
+
+                // ✅ 从URL中提取用户标识（支持多种格式）
+                let fbUserId = '';
                 const idMatch = url.match(/[?&]id=(\d+)/);
-                if (!idMatch) return null;
-                const fbUserId = idMatch[1];
-                if (!fbUserId) return null;
+                if (idMatch) {
+                    fbUserId = idMatch[1];
+                } else {
+                    // 尝试从 /user/XXX 格式提取
+                    const userMatch = url.match(/\/user\/(\d+)/);
+                    if (userMatch) {
+                        fbUserId = userMatch[1];
+                    } else {
+                        // 如果没有数字ID，使用用户名作为标识
+                        const pathMatch = url.match(/facebook\.com\/([^/?#]+)/);
+                        if (pathMatch && pathMatch[1] !== 'profile.php' && pathMatch[1] !== 'user') {
+                            fbUserId = pathMatch[1]; // 用户名
+                        }
+                    }
+                }
 
-                // ✅ 从aria-label或子元素获取用户名
-                const userName = avatarLink.getAttribute('aria-label') || '';
-                if (!userName || userName.includes('followers') || userName.includes('following')) return null;
+                if (!fbUserId) {
+                    console.log('❌ Could not extract user ID from URL:', url);
+                    return null;
+                }
 
-                // ✅ 获取头像
+                // ✅ 获取头像（可选）
                 const imgEl = container.querySelector('img');
                 const avatar = imgEl ? (imgEl.src || '') : '';
 
@@ -1770,6 +1819,7 @@ namespace SocialMatrix.WpfHost.Windows
                 if (window.location.href.includes('&sk=following')) fromResource = 'peer_following';
                 else if (window.location.href.includes('&sk=friends')) fromResource = 'peer_friend';
 
+                console.log('✅ User found:', userName, fbUserId);
                 seenUserIds.add(url);
                 return { fbUserId, userName, url, avatar, dataType: 1, fromResource, syncTime: new Date().toISOString() };
             } catch (e) {
@@ -1779,7 +1829,7 @@ namespace SocialMatrix.WpfHost.Windows
         };
 ");
 
-            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div.x78zum5.x1q0g3np.x1a02dak.x1qughib"));
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div.x78zum5.x1q0g3np.x1a02dak"));
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
