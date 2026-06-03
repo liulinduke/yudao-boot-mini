@@ -1744,84 +1744,70 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine(@"
         const extractUserData = (container) => {
             try {
-                // ✅ 查找所有可能的用户链接（支持多种格式）
-                const userLinks = container.querySelectorAll('a[href^=""https://www.facebook.com/""]');
-                if (!userLinks || userLinks.length === 0) {
-                    console.log('❌ No user link found');
+                // ✅ 直接从卡片结构获取用户名区域
+                var nameArea = container.querySelector('div.x1iyjqo2');
+                if (!nameArea) {
+                    console.log('No name area');
+                    return null;
+                }
+                var nameLink = nameArea.querySelector('a');
+                if (!nameLink) {
+                    console.log('No name link');
+                    return null;
+                }
+                
+                // ✅ 获取URL
+                var url = nameLink.href;
+                if (!url || !url.includes('facebook.com')) {
+                    console.log('Invalid URL');
+                    return null;
+                }
+                
+                // 跳过当前用户导航链接和已见过的链接
+                if (url.includes('&sk=') || seenUserIds.has(url)) {
+                    console.log('Skip link');
                     return null;
                 }
 
-                // 找到第一个有效的用户链接
-                let userLinkEl = null;
-                let userName = '';
-                for (const link of userLinks) {
-                    const linkUrl = link.href;
-                    if (!linkUrl) continue;
-                    
-                    // 跳过群组、页面等非用户链接
-                    if (linkUrl.includes('/groups/') || linkUrl.includes('/pages/') || 
-                        linkUrl.includes('/events/') || linkUrl.includes('/marketplace/')) continue;
-                    
-                    // 跳过静态资源和非用户页面
-                    if (linkUrl.includes('static.') || linkUrl.includes('rsrc.php')) continue;
-                    
-                    // 从aria-label或textContent获取用户名
-                    let label = link.getAttribute('aria-label') || link.textContent.trim();
-                    if (!label || label.includes('followers') || label.includes('following') || 
-                        label.includes('Friends') || label.includes('Profile') || label.length < 2) continue;
-                    
-                    userLinkEl = link;
-                    userName = label;
-                    break;
-                }
-
-                if (!userLinkEl) {
-                    console.log('❌ No valid user link found');
+                // ✅ 获取用户名
+                var userName = nameLink.textContent.trim();
+                if (!userName || userName.length < 2 || userName.length > 150) {
+                    console.log('Invalid username');
                     return null;
                 }
-
-                // ✅ 保留完整URL
-                const url = userLinkEl.href;
-                if (!url || seenUserIds.has(url)) {
-                    console.log('❌ URL empty or already seen:', url);
-                    return null;
-                }
-
-                // ✅ 从URL中提取用户标识（支持多种格式）
-                let fbUserId = '';
-                const idMatch = url.match(/[?&]id=(\d+)/);
+                
+                // ✅ 获取用户ID（支持两种格式）
+                var fbUserId = '';
+                var idMatch = url.match(/[?&]id=(\\d+)/);
                 if (idMatch) {
+                    // profile.php?id=123格式，只取数字部分
                     fbUserId = idMatch[1];
                 } else {
-                    // 尝试从 /user/XXX 格式提取
-                    const userMatch = url.match(/\/user\/(\d+)/);
-                    if (userMatch) {
-                        fbUserId = userMatch[1];
-                    } else {
-                        // 如果没有数字ID，使用用户名作为标识
-                        const pathMatch = url.match(/facebook\.com\/([^/?#]+)/);
-                        if (pathMatch && pathMatch[1] !== 'profile.php' && pathMatch[1] !== 'user') {
-                            fbUserId = pathMatch[1]; // 用户名
-                        }
-                    }
+                    // 用户名格式：https://www.facebook.com/username
+                    var cleanUrl = url.replace('https://www.facebook.com/', '');
+                    var urlParts = cleanUrl.split('?')[0].split('/');
+                    fbUserId = urlParts[0];
                 }
-
+                
                 if (!fbUserId) {
-                    console.log('❌ Could not extract user ID from URL:', url);
+                    console.log('No user ID');
                     return null;
                 }
 
-                // ✅ 获取头像（可选）
-                const imgEl = container.querySelector('img');
-                const avatar = imgEl ? (imgEl.src || '') : '';
+                // ✅ 获取头像
+                var avatar = '';
+                var imgEl = container.querySelector('img');
+                if (imgEl) {
+                    avatar = imgEl.src || '';
+                }
 
-                let fromResource = 'peer_follower';
+                var fromResource = 'peer_follower';
                 if (window.location.href.includes('&sk=following')) fromResource = 'peer_following';
                 else if (window.location.href.includes('&sk=friends')) fromResource = 'peer_friend';
 
-                console.log('✅ User found:', userName, fbUserId);
+                console.log('Found:', userName, fbUserId);
                 seenUserIds.add(url);
-                return { fbUserId, userName, url, avatar, dataType: 1, fromResource, syncTime: new Date().toISOString() };
+                return { fbUserId: fbUserId, userName: userName, url: url, avatar: avatar, dataType: 1, fromResource: fromResource, syncTime: new Date().toISOString() };
             } catch (e) {
                 console.warn('Extract user relation failed:', e);
                 return null;
@@ -1829,7 +1815,7 @@ namespace SocialMatrix.WpfHost.Windows
         };
 ");
 
-            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div.x78zum5.x1q0g3np.x1a02dak"));
+            js.AppendLine(JsScriptHelper.GetCollectionLoopTemplate("extractUserData", "div.x6s0dn4.x1obq294.x5a5i1n.xde0f50.x15x8krk.x1olyfxc.x9f619.x78zum5.x1e56ztr.xyamay9.xv54qhq"));
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
