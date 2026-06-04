@@ -105,7 +105,12 @@
 
         <!-- 关键词输入框(仅当searchType=1且taskType不是7、8或11时显示) -->
         <el-form-item
-          v-if="formData.searchType === 1 && formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
+          v-if="
+            formData.searchType === 1 &&
+            formData.taskType !== 7 &&
+            formData.taskType !== 8 &&
+            formData.taskType !== 11
+          "
           label="关键词"
           prop="keyword"
         >
@@ -120,7 +125,12 @@
 
         <!-- 采集链接输入框(仅当searchType=0且taskType不是7、8或11时显示) -->
         <el-form-item
-          v-if="formData.searchType === 0 && formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
+          v-if="
+            formData.searchType === 0 &&
+            formData.taskType !== 7 &&
+            formData.taskType !== 8 &&
+            formData.taskType !== 11
+          "
           label="采集链接"
           prop="searchUrl"
         >
@@ -133,11 +143,7 @@
         </el-form-item>
 
         <!-- 帖子评论点赞采集：直接输入帖子链接 -->
-        <el-form-item
-          v-if="formData.taskType === 11"
-          label="帖子链接"
-          prop="searchUrl"
-        >
+        <el-form-item v-if="formData.taskType === 11" label="帖子链接" prop="searchUrl">
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
@@ -154,19 +160,27 @@
           </el-checkbox-group>
         </el-form-item>
 
-        <!-- 帖子评论点赞采集：期望数量（分开展示） -->
-        <el-form-item v-if="formData.taskType === 11 && commentLikeOptions.includes('comment')" label="评论期望数量" prop="expectedCount">
+        <!-- 帖子评论点赞采集：评论期望数量（必填） -->
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeOptions.includes('comment')"
+          label="评论期望数量"
+          prop="commentExpectedCount"
+        >
           <el-input-number
-            v-model="formData.expectedCount"
+            v-model="formData.commentExpectedCount"
             :min="1"
             :max="10000"
             style="width: 100%"
           />
         </el-form-item>
 
-        <el-form-item v-if="formData.taskType === 11 && commentLikeOptions.includes('like')" label="点赞期望数量">
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeOptions.includes('like')"
+          label="点赞期望数量"
+          prop="likeExpectedCount"
+        >
           <el-input-number
-            v-model="likeExpectedCount"
+            v-model="formData.likeExpectedCount"
             :min="1"
             :max="10000"
             style="width: 100%"
@@ -271,7 +285,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="期望数量" prop="expectedCount">
+        <el-form-item v-if="formData.taskType !== 11" label="期望数量" prop="expectedCount">
           <el-input-number
             v-model="formData.expectedCount"
             :min="1"
@@ -497,6 +511,8 @@ const formData = ref({
   keyword: '', // 搜索关键词(仅searchType=1时使用)
   searchUrl: '',
   expectedCount: 100,
+  commentExpectedCount: 100, // 评论期望数量
+  likeExpectedCount: 100, // 点赞期望数量
   intervalSeconds: 5,
   remark: ''
 })
@@ -510,7 +526,11 @@ const formRules = reactive({
       trigger: 'change',
       validator: (rule: any, value: any, callback: any) => {
         // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证搜索方式
-        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
+        if (
+          formData.value.taskType === 7 ||
+          formData.value.taskType === 8 ||
+          formData.value.taskType === 11
+        ) {
           callback()
         } else if (value === undefined || value === null) {
           callback(new Error('请选择搜索方式'))
@@ -527,7 +547,11 @@ const formRules = reactive({
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
         // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证关键词
-        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
+        if (
+          formData.value.taskType === 7 ||
+          formData.value.taskType === 8 ||
+          formData.value.taskType === 11
+        ) {
           callback()
         } else if (formData.value.searchType === 1 && !value) {
           callback(new Error('请输入搜索关键词'))
@@ -544,7 +568,11 @@ const formRules = reactive({
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
         // 群成员采集、用户关系采集、帖子评论点赞采集有自己的链接输入方式，不在此验证
-        if (formData.value.taskType === 7 || formData.value.taskType === 8 || formData.value.taskType === 11) {
+        if (
+          formData.value.taskType === 7 ||
+          formData.value.taskType === 8 ||
+          formData.value.taskType === 11
+        ) {
           callback()
         } else if (formData.value.searchType === 0 && !value) {
           callback(new Error('请输入采集链接'))
@@ -555,6 +583,8 @@ const formRules = reactive({
     }
   ],
   expectedCount: [{ required: true, message: '请输入期望数量', trigger: 'blur' }],
+  commentExpectedCount: [{ required: true, message: '请输入评论期望数量', trigger: 'blur' }],
+  likeExpectedCount: [{ required: true, message: '请输入点赞期望数量', trigger: 'blur' }],
   intervalSeconds: [{ required: true, message: '请输入采集间隔', trigger: 'blur' }]
 })
 const formRef = ref() // 表单 Ref
@@ -741,10 +771,10 @@ const submitForm = async () => {
 
     // 解析URL列表(支持换行分隔)
     let urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
-    
+
     // ✅ 群组成员采集(taskType=7):自动为群组链接添加/members后缀
     if (data.taskType === 7 && urls.length > 0) {
-      urls = urls.map(url => {
+      urls = urls.map((url) => {
         const trimmedUrl = url.trim()
         // 如果URL是群组链接但不包含/members,则添加
         if (trimmedUrl.includes('/groups/') && !trimmedUrl.includes('/members')) {
@@ -778,7 +808,8 @@ const submitForm = async () => {
       const config = {
         collectComment: commentLikeOptions.value.includes('comment'),
         collectLike: commentLikeOptions.value.includes('like'),
-        likeExpectedCount: likeExpectedCount.value
+        commentExpectedCount: formData.value.commentExpectedCount || 100,
+        likeExpectedCount: formData.value.likeExpectedCount || 100
       }
       // 将配置JSON附加到remark后面
       taskData.remark = `${data.remark || ''}
@@ -818,30 +849,31 @@ __CONFIG__:${JSON.stringify(config)}`
     for (const [fbAccount, firstDetail] of accountFirstDetailMap.entries()) {
       try {
         // 从选中的账号列表中获取该账号的 Cookie
-        const selectedAccount = selectedAccounts.find(acc => acc.fbAccount === fbAccount)
+        const selectedAccount = selectedAccounts.find((acc) => acc.fbAccount === fbAccount)
         const cookie = selectedAccount?.cookie || null
-        
+
         console.log(`🔍 账号 ${fbAccount} 的 Cookie:`, cookie ? '已提供' : '未提供')
-        
+
         // 构建配置JSON（仅针对帖子评论点赞采集）
         let configJson: string | undefined = undefined
         if (data.taskType === 11) {
           configJson = JSON.stringify({
             collectComment: commentLikeOptions.value.includes('comment'),
             collectLike: commentLikeOptions.value.includes('like'),
-            likeExpectedCount: likeExpectedCount.value
+            commentExpectedCount: formData.value.commentExpectedCount || 100,
+            likeExpectedCount: formData.value.likeExpectedCount || 100
           })
           console.log('📋 帖子评论点赞采集配置:', configJson)
         }
-        
+
         startBrowserCollect(
           String(firstDetail.detailId),
           String(fbAccount),
-          cookie,  // ✅ 传入 Cookie
+          cookie, // ✅ 传入 Cookie
           firstDetail.searchUrl,
           data.expectedCount,
           data.taskType, // 传递任务类型(1主页/2帖子/3用户等)
-          configJson  // 传递配置（可选）
+          configJson // 传递配置（可选）
         )
         createdTasks.push({
           detailId: firstDetail.detailId,
@@ -883,6 +915,8 @@ const resetForm = () => {
     keyword: '',
     searchUrl: '',
     expectedCount: 100,
+    commentExpectedCount: 100,
+    likeExpectedCount: 100,
     intervalSeconds: 5,
     remark: ''
   }
