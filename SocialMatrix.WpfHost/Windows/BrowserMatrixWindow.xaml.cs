@@ -20,9 +20,10 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, ChromiumWebBrowser> _browsers = new();
         private readonly Dictionary<string, bool> _browserInitialized = new(); // 跟踪指纹注入状态
         private readonly Dictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
+        private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
         private readonly Dictionary<string, IRequestContext> _requestContexts = new(); // 账号 -> 独立请求上下文
 
-        // 当前明细ID(用于回传,单任务场景)
+        // 当前明细ID(用于回传,单任务场景，兼容旧逻辑)
         public string? CurrentDetailId { get; set; }
 
         // 采集结果回调
@@ -219,8 +220,13 @@ namespace SocialMatrix.WpfHost.Windows
         /// 创建浏览器实例并启动自动化采集
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com",
-            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null)
+            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null)
         {
+            if (!string.IsNullOrEmpty(detailId))
+            {
+                _accountDetailIds[accountId] = detailId;
+                CurrentDetailId = detailId;
+            }
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
             {
@@ -239,6 +245,7 @@ namespace SocialMatrix.WpfHost.Windows
             if (_browsers.ContainsKey(accountId))
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的浏览器已存在");
+                _accountTaskTypes[accountId] = taskType;
 
                 // 如果提供了新的搜索 URL，重新启动采集
                 if (!string.IsNullOrEmpty(searchUrl))
@@ -884,11 +891,28 @@ namespace SocialMatrix.WpfHost.Windows
                     return;
                 }
 
+                // 链接加组：由 C# 按群组逐个导航执行，避免 JS 页面跳转导致脚本中断
+                if (taskType == 9)
+                {
+                    var addGroupJson = await ExecuteAddGroupTaskAsync(browser, accountId, config);
+                    if (addGroupJson == null)
+                    {
+                        return;
+                    }
+
+                    int addGroupTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 9;
+                    string addGroupDetailId = _accountDetailIds.ContainsKey(accountId)
+                        ? _accountDetailIds[accountId]
+                        : (CurrentDetailId ?? "");
+                    OnCollectionComplete?.Invoke(addGroupDetailId, accountId, addGroupJson, addGroupTaskType);
+                    return;
+                }
+
                 System.Diagnostics.Debug.WriteLine($"🔍 URL检查通过，准备生成采集脚本...");
 
                 // 3. 注入采集脚本(根据任务类型)
                 System.Diagnostics.Debug.WriteLine($"🔍 调用 GenerateCollectScript, taskType={taskType}");
-                var collectScript = GenerateCollectScript(expectedCount, taskType, config);
+                var collectScript = GenerateCollectScript(accountId, expectedCount, taskType, config);
                 // 对于帖子评论点赞采集，显示实际目标数量
                 if (taskType == 11 && !string.IsNullOrEmpty(config))
                 {
@@ -990,7 +1014,10 @@ namespace SocialMatrix.WpfHost.Windows
 
                     // 4. 触发回调,将数据传回(包含 detailId)
                     int actualTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 1;
-                    OnCollectionComplete?.Invoke(CurrentDetailId ?? "", accountId, jsonData, actualTaskType);
+                    string detailId = _accountDetailIds.ContainsKey(accountId)
+                        ? _accountDetailIds[accountId]
+                        : (CurrentDetailId ?? "");
+                    OnCollectionComplete?.Invoke(detailId, accountId, jsonData, actualTaskType);
                 }
                 else
                 {
@@ -1009,7 +1036,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 生成采集脚本（根据任务类型）
         /// </summary>
-        private string GenerateCollectScript(int expectedCount, int taskType = 1, string? config = null)
+        private string GenerateCollectScript(string accountId, int expectedCount, int taskType = 1, string? config = null)
         {
             System.Diagnostics.Debug.WriteLine($"🔍 GenerateCollectScript 被调用: taskType={taskType}, expectedCount={expectedCount}");
 
@@ -1042,7 +1069,7 @@ namespace SocialMatrix.WpfHost.Windows
             else if (taskType == 9) // 链接加组
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入链接加组分支");
-                return GenerateAddGroupCollectScript(expectedCount, config);
+                return GenerateAddGroupCollectScript(accountId, expectedCount, config);
             }
             else if (taskType == 10) // 转帖任务
             {
@@ -1848,10 +1875,141 @@ namespace SocialMatrix.WpfHost.Windows
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }
 
+        private class AddGroupConfigItem
+        {
+            public string GroupId { get; set; } = "";
+            public string GroupName { get; set; } = "";
+            public string GroupUrl { get; set; } = "";
+        }
+
+        /// <summary>
+        /// 链接加组：按群组逐个导航并执行脚本，汇总结果
+        /// </summary>
+        private async Task<string?> ExecuteAddGroupTaskAsync(ChromiumWebBrowser browser, string accountId, string? config)
+        {
+            var groups = ParseAddGroupConfig(config);
+            if (groups.Count == 0)
+            {
+                OnCollectionError?.Invoke(accountId, "加组配置为空，请检查群组选择");
+                return null;
+            }
+
+            var allResults = new List<object>();
+
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var group = groups[i];
+                if (string.IsNullOrWhiteSpace(group.GroupUrl))
+                {
+                    continue;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"🔄 加组进度 {i + 1}/{groups.Count}: {group.GroupName}");
+
+                if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
+                {
+                    OnCollectionError?.Invoke(accountId, "浏览器已失效，加组任务中断");
+                    return null;
+                }
+
+                Application.Current.Dispatcher.Invoke(() => browser.Load(group.GroupUrl));
+                try
+                {
+                    await WaitForPageLoad(browser, 30000);
+                }
+                catch (TimeoutException ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 群组页面加载超时: {ex.Message}");
+                }
+                await Task.Delay(2000);
+
+                var singleGroupConfig = JsonConvert.SerializeObject(new
+                {
+                    groups = new[]
+                    {
+                        new { groupId = group.GroupId, groupName = group.GroupName, groupUrl = group.GroupUrl }
+                    }
+                });
+
+                var script = GenerateAddGroupCollectScript(accountId, 1, singleGroupConfig);
+                var result = await browser.EvaluateScriptAsync(script);
+                if (!result.Success || result.Result == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 群组 {group.GroupName} 脚本执行失败: {result.Message}");
+                    continue;
+                }
+
+                string jsonData = result.Result is string jsonString
+                    ? jsonString
+                    : System.Text.Json.JsonSerializer.Serialize(result.Result);
+
+                try
+                {
+                    var items = JsonConvert.DeserializeObject<List<object>>(jsonData);
+                    if (items != null && items.Count > 0)
+                    {
+                        allResults.AddRange(items);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 解析群组 {group.GroupName} 结果失败: {ex.Message}");
+                }
+
+                if (i < groups.Count - 1)
+                {
+                    await Task.Delay(3000);
+                }
+            }
+
+            if (allResults.Count == 0)
+            {
+                OnCollectionError?.Invoke(accountId, "加组任务完成但未获取到任何结果");
+                return null;
+            }
+
+            return JsonConvert.SerializeObject(allResults);
+        }
+
+        private List<AddGroupConfigItem> ParseAddGroupConfig(string? config)
+        {
+            var groups = new List<AddGroupConfigItem>();
+            if (string.IsNullOrEmpty(config))
+            {
+                return groups;
+            }
+
+            try
+            {
+                var configObj = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JObject>(config);
+                var groupArray = configObj?["groups"] as Newtonsoft.Json.Linq.JArray;
+                if (groupArray == null)
+                {
+                    return groups;
+                }
+
+                foreach (var item in groupArray)
+                {
+                    groups.Add(new AddGroupConfigItem
+                    {
+                        GroupId = item["groupId"]?.ToString() ?? "",
+                        GroupName = item["groupName"]?.ToString() ?? "",
+                        GroupUrl = item["groupUrl"]?.ToString() ?? ""
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 解析加组配置失败: {ex.Message}");
+            }
+
+            return groups;
+        }
+
         /// <summary>
         /// 生成链接加组采集脚本（支持群组列表）
         /// </summary>
-        private string GenerateAddGroupCollectScript(int expectedCount, string? config = null)
+        private string GenerateAddGroupCollectScript(string accountId, int expectedCount, string? config = null)
         {
             var js = new System.Text.StringBuilder();
 
@@ -1873,6 +2031,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             js.AppendLine("        const GROUP_LIST = " + groupsJson + ";");
+            js.AppendLine("        const ACCOUNT_ID = \"" + accountId + "\";");
 
             string scriptPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "addGroupScript.js");
             if (System.IO.File.Exists(scriptPath))
@@ -1915,7 +2074,7 @@ namespace SocialMatrix.WpfHost.Windows
 
                 if (joined) {
                     console.log('✅ 已加入该群组');
-                    results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 3, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+                    results.push({ accountId: ACCOUNT_ID || '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 3, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
                     continue;
                 }
 
@@ -1938,7 +2097,7 @@ namespace SocialMatrix.WpfHost.Windows
 
                 if (!joinButton) {
                     console.log('❌ 未找到加入按钮');
-                    results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 2, failReason: 'No join button found', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+                    results.push({ accountId: ACCOUNT_ID || '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 2, failReason: 'No join button found', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
                     continue;
                 }
 
@@ -1949,7 +2108,7 @@ namespace SocialMatrix.WpfHost.Windows
                 await randomDelay(3000, 4000);
 
                 var status = 1;
-                results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: status, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+                results.push({ accountId: ACCOUNT_ID || '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: status, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
 
                 console.log('✅ 群组 ' + group.groupName + ' 处理完成');
 

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.operation;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.*;
@@ -12,6 +13,8 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationAddGroupR
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbRepostResultMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,8 +23,11 @@ import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -48,6 +54,9 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     @Resource
     private FbRepostResultMapper repostResultMapper;
 
+    @Resource
+    private FbAccountMapper fbAccountMapper;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createOperationTask(FbOperationTaskSaveReqVO createReqVO) {
@@ -58,12 +67,30 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         task.setAccountIds(String.join(",", createReqVO.getAccountIds()));
         operationTaskMapper.insert(task);
 
-        // 2. 为每个账号创建明细
+        // 2. 规范化账号ID并查询账号信息映射
+        List<String> normalizedAccountIds = createReqVO.getAccountIds().stream()
+                .map(id -> String.valueOf(id).trim())
+                .collect(Collectors.toList());
+        List<Long> accountIdLongs = normalizedAccountIds.stream()
+                .map(Long::valueOf)
+                .collect(Collectors.toList());
+        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(accountIdLongs);
+        Map<Long, String> accountIdToFbAccountMap = accountList.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
+
+        // 3. 为每个账号创建明细
         List<FbOperationTaskDetailDO> details = new ArrayList<>();
-        for (String accountId : createReqVO.getAccountIds()) {
+        for (String accountIdStr : normalizedAccountIds) {
+            Long accountId = Long.valueOf(accountIdStr);
+            String fbAccount = accountIdToFbAccountMap.get(accountId);
+            if (StrUtil.isBlank(fbAccount)) {
+                FbAccountDO account = fbAccountMapper.selectById(accountId);
+                fbAccount = account != null ? StrUtil.nullToEmpty(account.getFbAccount()) : "";
+            }
             FbOperationTaskDetailDO detail = new FbOperationTaskDetailDO();
             detail.setTaskId(task.getId());
-            detail.setAccountId(accountId);
+            detail.setAccountId(accountIdStr);
+            detail.setFbAccount(fbAccount);
             detail.setTargetUrls(createReqVO.getTargetUrls());
             detail.setTargetGroupIds(createReqVO.getTargetGroupIds());
             detail.setExpectedCount(createReqVO.getExpectedCount());
@@ -123,6 +150,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         // 获取明细列表
         List<FbOperationTaskDetailDO> details = operationTaskDetailMapper.selectListByTaskId(id);
         List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems = BeanUtils.toBean(details, FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO.class);
+        enrichDetailFbAccount(detailItems);
         respVO.setDetails(detailItems);
 
         // 获取结果列表（链接加组任务）
@@ -157,21 +185,22 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         }
 
         // 批量保存结果
+        String detailFbAccount = StrUtil.blankToDefault(detail.getFbAccount(), resolveFbAccount(detail.getAccountId()));
         List<FbOperationAddGroupResultDO> results = batchSaveReqVO.getResults().stream()
                 .map(item -> {
                     FbOperationAddGroupResultDO result = new FbOperationAddGroupResultDO();
                     result.setDetailId(detailId);
                     result.setTaskId(detail.getTaskId());
-                    result.setAccountId(item.getAccountId());
-                    result.setFbAccount(item.getFbAccount());
+                    result.setAccountId(StrUtil.blankToDefault(item.getAccountId(), detail.getAccountId()));
+                    result.setFbAccount(StrUtil.blankToDefault(item.getFbAccount(), detailFbAccount));
                     result.setTargetUrl(item.getTargetUrl());
-                    result.setGroupId(item.getGroupId());
+                    result.setGroupId(item.getGroupId() != null ? String.valueOf(item.getGroupId()) : null);
                     result.setGroupName(item.getGroupName());
                     result.setGroupUrl(item.getGroupUrl());
                     result.setJoinStatus(item.getJoinStatus());
                     result.setFailReason(item.getFailReason());
-                    result.setJoinTime(item.getJoinTime());
-                    result.setSyncTime(item.getSyncTime());
+                    result.setJoinTime(parseFlexibleDateTime(item.getJoinTime()));
+                    result.setSyncTime(parseFlexibleDateTime(item.getSyncTime()));
                     return result;
                 })
                 .collect(Collectors.toList());
@@ -263,6 +292,69 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
         // 更新主任务的统计信息
         updateTaskStatistics(detail.getTaskId());
+    }
+
+    /**
+     * 补全明细中的 FB 账号（兼容历史数据）
+     */
+    private void enrichDetailFbAccount(List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems) {
+        if (CollUtil.isEmpty(detailItems)) {
+            return;
+        }
+        for (FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO detailItem : detailItems) {
+            if (StrUtil.isNotBlank(detailItem.getFbAccount()) || StrUtil.isBlank(detailItem.getAccountId())) {
+                continue;
+            }
+            detailItem.setFbAccount(resolveFbAccount(detailItem.getAccountId()));
+        }
+    }
+
+    /**
+     * 根据账号主键解析 FB 账号
+     */
+    private String resolveFbAccount(String accountId) {
+        if (StrUtil.isBlank(accountId)) {
+            return "";
+        }
+        try {
+            FbAccountDO account = fbAccountMapper.selectById(Long.valueOf(accountId.trim()));
+            return account != null ? StrUtil.nullToEmpty(account.getFbAccount()) : "";
+        } catch (NumberFormatException ex) {
+            return "";
+        }
+    }
+
+    /**
+     * 解析 WPF 回传的 ISO 时间字符串
+     */
+    private LocalDateTime parseFlexibleDateTime(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
+        String text = String.valueOf(value).trim();
+        if (StrUtil.isBlank(text)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(text).toLocalDateTime();
+        } catch (Exception ignored) {
+            // ignore
+        }
+        try {
+            return LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (Exception ignored) {
+            // ignore
+        }
+        try {
+            String normalized = text.replace("Z", "").split("\\.")[0];
+            return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return LocalDateTime.now();
     }
 
     /**

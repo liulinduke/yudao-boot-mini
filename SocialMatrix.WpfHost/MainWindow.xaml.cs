@@ -93,12 +93,9 @@ namespace SocialMatrix.WpfHost
                 System.Diagnostics.Debug.WriteLine($"⚠️ BrowserMatrixWindow 已存在，复用现有窗口");
             }
 
-            // 在矩阵窗口中创建浏览器并启动自动化采集
+            // 在矩阵窗口中创建浏览器并启动自动化采集（detailId 按账号绑定，避免多账号互相覆盖）
             _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com", 
-                cookie, searchUrl, expectedCount, taskType: taskType, config: config);  // ✅ 传递config
-            
-            // 保存 detailId 用于回传(taskType 已绑定到 accountId)
-            _browserMatrixWindow.CurrentDetailId = detailId;
+                cookie, searchUrl, expectedCount, taskType: taskType, config: config, detailId: detailId);
             
             // 激活窗口（置顶）
             _browserMatrixWindow.Activate();

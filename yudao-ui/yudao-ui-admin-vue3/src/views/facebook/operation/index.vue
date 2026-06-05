@@ -192,11 +192,14 @@ import RepostForm from './RepostForm.vue'
 import DmTaskForm from './dmtask/DmTaskForm.vue'
 import PublishPostForm from './PublishPostForm.vue'
 import GroupPublishForm from './GroupPublishForm.vue'
+import { FbAccountApi } from '@/api/facebook/account'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
+  batchSaveAddGroupResult,
   FbOperationTask
 } from '@/api/facebook/operation'
+import { onCollectionComplete } from '@/utils/wpfBridge'
 
 defineOptions({ name: 'FbOperation' })
 
@@ -249,6 +252,8 @@ const queryParams = reactive({
   createTime: [] as string[]
 })
 const queryFormRef = ref()
+const handledAddGroupDetailIds = new Set<string>()
+const accountCache = ref<any[]>([])
 
 /** 查询列表 */
 const getList = async () => {
@@ -348,9 +353,60 @@ const handleDelete = async (id: number) => {
   } catch {}
 }
 
+/** 加载账号缓存（用于加组结果保存时补全 fbAccount） */
+const loadAccountCache = async () => {
+  try {
+    const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 500 })
+    accountCache.value = data?.list || []
+  } catch (error) {
+    console.error('加载账号列表失败:', error)
+    accountCache.value = []
+  }
+}
+
+/** 保存链接加组结果 */
+const saveAddGroupResults = async (data: any) => {
+  if (data.taskType !== 9) return
+  const detailId = String(data.detailId || '')
+  if (!detailId || handledAddGroupDetailIds.has(detailId)) return
+  handledAddGroupDetailIds.add(detailId)
+
+  const results = Array.isArray(data.results)
+    ? data.results.map((item: any) => {
+        const accountId = String(item.accountId || data.accountId || '')
+        const accountInfo = accountCache.value.find((acc) => String(acc.id) === accountId)
+        return {
+          ...item,
+          accountId,
+          groupId: item.groupId != null ? String(item.groupId) : undefined,
+          fbAccount: accountInfo?.fbAccount || item.fbAccount || ''
+        }
+      })
+    : []
+
+  if (results.length === 0) {
+    console.warn(`明细 ${detailId} 加组结果为空，跳过保存`)
+    return
+  }
+
+  await batchSaveAddGroupResult({ detailId, results })
+  message.success(`明细 ${detailId} 加组结果已保存，共 ${results.length} 条`)
+  await getList()
+}
+
 /** 初始化 */
 onMounted(() => {
   getList()
+  loadAccountCache()
+  onCollectionComplete(async (data) => {
+    try {
+      await saveAddGroupResults(data)
+    } catch (error) {
+      console.error('保存加组结果失败:', error)
+      message.error('保存加组结果失败')
+      handledAddGroupDetailIds.delete(String(data.detailId || ''))
+    }
+  })
 })
 </script>
 

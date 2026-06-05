@@ -80,7 +80,7 @@
               v-for="account in accounts"
               :key="account.id"
               :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-              :value="account.id"
+              :value="String(account.id)"
             />
           </el-select>
         </el-form-item>
@@ -272,18 +272,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import {
   createFbOperationTask,
   getFbOperationTask,
-  batchSaveAddGroupResult,
   FbOperationTaskSaveReqVO,
   FbOperationTaskDetailRespVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect, onCollectionComplete } from '@/utils/wpfBridge'
+import { startBrowserCollect } from '@/utils/wpfBridge'
 import GroupSelector from '../collect/components/GroupSelector.vue'
 
 const message = useMessage()
@@ -334,35 +333,6 @@ const accounts = ref<any[]>([])
 // 群组选择相关
 const groupSelectorVisible = ref(false)
 const selectedGroups = ref<FbCollectGroup[]>([])
-const handledAddGroupDetailIds = new Set<string>()
-
-onMounted(() => {
-  onCollectionComplete(async (data) => {
-    if (data.taskType !== 9) return
-    if (handledAddGroupDetailIds.has(String(data.detailId))) return
-    handledAddGroupDetailIds.add(String(data.detailId))
-
-    try {
-      const results = Array.isArray(data.results)
-        ? data.results.map((item) => ({
-            ...item,
-            accountId: item.accountId || data.accountId,
-            fbAccount: item.fbAccount || data.accountId
-          }))
-        : []
-      await batchSaveAddGroupResult({
-        detailId: String(data.detailId),
-        results
-      })
-      message.success(`明细 ${data.detailId} 加组结果已保存，共 ${results.length} 条`)
-      emit('success')
-    } catch (error) {
-      console.error('保存加组结果失败:', error)
-      message.error('保存加组结果失败')
-    }
-  })
-})
-
 /** 打开弹窗 */
 const open = async (type: string, id?: string | number, taskTypeValue?: number) => {
   dialogVisible.value = true
@@ -439,7 +409,7 @@ const submitForm = async () => {
 
     const data = {
       ...formData.value,
-      accountIds: usedAccountIds,
+      accountIds: usedAccountIds.map((id) => String(id)),
       taskName: `${taskNamePrefix}_${timestamp}`,
       expectedCount: selectedGroups.value.length // 期望数量 = 选择的群组数量
     } as unknown as FbOperationTaskSaveReqVO
@@ -526,7 +496,7 @@ const submitForm = async () => {
           
           startBrowserCollect(
             detailId,
-            String(accountInfo.fbAccount),
+            String(accountInfo.id), // 传数字ID字符串，不是fbAccount
             cookie,
             startUrl,
             assignedGroups.length,

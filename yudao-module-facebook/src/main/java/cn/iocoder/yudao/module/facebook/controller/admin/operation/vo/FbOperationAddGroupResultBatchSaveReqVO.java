@@ -45,11 +45,11 @@ public class FbOperationAddGroupResultBatchSaveReqVO {
         @Schema(description = "失败原因", example = "群组已满")
         private String failReason;
 
-        @Schema(description = "加入时间")
-        private java.time.LocalDateTime joinTime;
+        @Schema(description = "加入时间（支持 ISO 字符串）")
+        private String joinTime;
 
-        @Schema(description = "同步时间")
-        private java.time.LocalDateTime syncTime;
+        @Schema(description = "同步时间（支持 ISO 字符串）")
+        private String syncTime;
     }
 
 }
