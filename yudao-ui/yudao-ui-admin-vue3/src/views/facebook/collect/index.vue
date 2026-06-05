@@ -119,7 +119,7 @@
             @selection-change="handleRowCheckboxChange"
           >
             <el-table-column type="selection" width="55" />
-            <el-table-column label="任务类型" align="center" prop="taskType" width="100">
+            <el-table-column label="任务类型" align="center" prop="taskType" width="130">
               <template #default="scope">
                 <dict-tag :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
               </template>
@@ -428,7 +428,7 @@ const getTaskTypeByFunction = (funcType: string): number => {
     users: 3,
     groups: 4,
     events: 5,
-    comments: 11,  // 帖子评论点赞采集
+    comments: 11, // 帖子评论点赞采集
     'group-members': 7,
     'user-relations': 8
   }
@@ -440,7 +440,7 @@ const getProgress = (task: FbCollect) => {
   // 使用总期望数量和总已采集数量
   const expectedCount = task.totalExpectedCount || task.expectedCount
   const collectedCount = task.totalCollectedCount || task.collectedCount
-  
+
   if (!expectedCount || expectedCount === 0) {
     return 0
   }
@@ -620,6 +620,9 @@ onMounted(() => {
         })
 
         message.success(`明细 ${detailId} 用户关系采集完成，共采集 ${parsedResults.length} 条数据`)
+      } else if (taskType === 9) {
+        // 链接加组属于运营任务，在 operation/FbOperationForm.vue 中保存，避免采集页重复保存
+        return
       } else {
         // 用户采集、帖子评论点赞采集 - 解析并保存用户数据
         const parsedResults = results.map((item: any) => {
@@ -637,7 +640,9 @@ onMounted(() => {
 
         // 根据任务类型显示不同的提示
         if (taskType === 11) {
-          message.success(`明细 ${detailId} 帖子评论采集完成，共采集 ${parsedResults.length} 条评论`)
+          message.success(
+            `明细 ${detailId} 帖子评论采集完成，共采集 ${parsedResults.length} 条评论`
+          )
         } else {
           message.success(`明细 ${detailId} 采集完成，共采集 ${parsedResults.length} 条数据`)
         }
@@ -689,7 +694,7 @@ const checkAndStartNextTask = async (accountId: string, collectedCount: number =
     } else {
       // 没有下一个任务,关闭浏览器
       console.log(`✅ 账号 ${accountId} 所有任务已完成,关闭浏览器`)
-      
+
       // ✅ 如果采集到0条数据，也关闭浏览器（避免浪费资源）
       if (collectedCount === 0) {
         console.log(`⚠️ 采集到0条数据，关闭浏览器`)

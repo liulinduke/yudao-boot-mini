@@ -116,17 +116,22 @@
 
       <!-- 编辑模式下的Tab -->
       <el-tabs v-if="formType === 'view'" v-model="activeTab" type="border-card">
-        <!-- Tab 1: 采集明细 -->
-        <el-tab-pane label="📊 采集明细" name="details">
+        <!-- Tab 1: 任务明细 -->
+        <el-tab-pane :label="taskDetail?.task?.taskType === 9 ? '📊 加组明细' : '📊 任务明细'" name="details">
           <el-table :data="detailList" stripe border max-height="500">
             <el-table-column label="明细ID" prop="id" width="100" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
-            <el-table-column label="期望/已采" width="120">
+            <el-table-column v-if="taskDetail?.task?.taskType !== 9" label="期望/已采" width="120">
               <template #default="scope">
                 {{ scope.row.expectedCount }}/{{ scope.row.actualCount || 0 }}
               </template>
             </el-table-column>
-            <el-table-column label="进度" width="150">
+            <el-table-column v-if="taskDetail?.task?.taskType === 9" label="群组数量" width="120">
+              <template #default="scope">
+                {{ scope.row.expectedCount }}
+              </template>
+            </el-table-column>
+            <el-table-column v-if="taskDetail?.task?.taskType !== 9" label="进度" width="150">
               <template #default="scope">
                 <el-progress
                   :percentage="getDetailProgress(scope.row)"
@@ -267,17 +272,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import {
   createFbOperationTask,
   getFbOperationTask,
+  batchSaveAddGroupResult,
   FbOperationTaskSaveReqVO,
   FbOperationTaskDetailRespVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
+import { startBrowserCollect, onCollectionComplete } from '@/utils/wpfBridge'
 import GroupSelector from '../collect/components/GroupSelector.vue'
 
 const message = useMessage()
@@ -328,9 +334,37 @@ const accounts = ref<any[]>([])
 // 群组选择相关
 const groupSelectorVisible = ref(false)
 const selectedGroups = ref<FbCollectGroup[]>([])
+const handledAddGroupDetailIds = new Set<string>()
+
+onMounted(() => {
+  onCollectionComplete(async (data) => {
+    if (data.taskType !== 9) return
+    if (handledAddGroupDetailIds.has(String(data.detailId))) return
+    handledAddGroupDetailIds.add(String(data.detailId))
+
+    try {
+      const results = Array.isArray(data.results)
+        ? data.results.map((item) => ({
+            ...item,
+            accountId: item.accountId || data.accountId,
+            fbAccount: item.fbAccount || data.accountId
+          }))
+        : []
+      await batchSaveAddGroupResult({
+        detailId: String(data.detailId),
+        results
+      })
+      message.success(`明细 ${data.detailId} 加组结果已保存，共 ${results.length} 条`)
+      emit('success')
+    } catch (error) {
+      console.error('保存加组结果失败:', error)
+      message.error('保存加组结果失败')
+    }
+  })
+})
 
 /** 打开弹窗 */
-const open = async (type: string, id?: number, taskTypeValue?: number) => {
+const open = async (type: string, id?: string | number, taskTypeValue?: number) => {
   dialogVisible.value = true
   dialogTitle.value = type === 'view' ? '任务详情' : '新建任务'
   formType.value = type
@@ -398,16 +432,122 @@ const submitForm = async () => {
       })
       .replace(/[\/\s:]/g, '')
 
+    const accountsToUse = formData.value.taskType === 9
+      ? Math.min(formData.value.accountIds.length, selectedGroups.value.length)
+      : formData.value.accountIds.length
+    const usedAccountIds = formData.value.accountIds.slice(0, accountsToUse)
+
     const data = {
       ...formData.value,
+      accountIds: usedAccountIds,
       taskName: `${taskNamePrefix}_${timestamp}`,
       expectedCount: selectedGroups.value.length // 期望数量 = 选择的群组数量
     } as unknown as FbOperationTaskSaveReqVO
 
     const result = await createFbOperationTask(data)
     const respData = result.data || result
-
+    const taskId = respData?.id || respData
+    const createdTaskDetail = taskId ? await getFbOperationTask(String(taskId)) : null
+    const createdDetails = createdTaskDetail?.details || []
+    
     message.success('任务创建成功')
+    
+    // 如果是链接加组任务，创建成功后启动浏览器
+    if (formData.value.taskType === 9 && taskId) {
+      const startedAccounts = new Set<string>()
+      const totalGroups = selectedGroups.value.length
+      const totalAccounts = usedAccountIds.length
+      
+      // 群组平均分配：将群组列表分配给账号
+      // 规则：10账号+10群组 → 每个账号1个群组；10账号+1群组 → 1个账号处理；5账号+12群组 → 2个账号处理3个，3个账号处理2个
+      const accountsToUse = Math.min(totalAccounts, totalGroups)
+      
+      // 获取全局配置中的每日加组限制
+      let dailyLimit = 10
+      try {
+        const config = await import('@/api/facebook/dailylimit').then(m => m.DailyLimitApi.getConfig())
+        dailyLimit = config.data?.join_group_daily_limit || 10
+      } catch (e) {
+        console.warn('⚠️ 获取全局配置失败，使用默认每日加组限制: 10')
+      }
+      
+      for (let i = 0; i < accountsToUse; i++) {
+        const accountId = usedAccountIds[i]
+        if (startedAccounts.has(accountId)) continue
+        
+        const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
+        if (!accountInfo) continue
+        
+        // 调用API获取该账号今日剩余加组次数
+        let remainingCount = dailyLimit
+        try {
+          const limitData = await import('@/api/facebook/dailylimit').then(m => m.DailyLimitApi.getRemainingCount(String(accountId), 'join_group'))
+          remainingCount = limitData.data?.remaining || dailyLimit
+        } catch (e) {
+          console.warn(`⚠️ 获取账号 ${accountInfo.fbAccount} 剩余加组次数失败，默认允许 ${dailyLimit} 次`)
+        }
+        
+        // 检查剩余次数
+        if (remainingCount <= 0) {
+          console.warn(`⚠️ 账号 ${accountInfo.fbAccount} 今日加组次数已达上限(${dailyLimit}次)，跳过`)
+          continue
+        }
+        
+        // 计算该账号需要处理的群组索引范围
+        const groupsPerAccount = Math.ceil(totalGroups / accountsToUse)
+        const startIndex = i * groupsPerAccount
+        const endIndex = Math.min(startIndex + groupsPerAccount, totalGroups)
+        
+        // 获取分配给该账号的群组（不超过剩余次数）
+        const maxGroupsToProcess = Math.min(remainingCount, endIndex - startIndex)
+        const assignedGroups = selectedGroups.value.slice(startIndex, startIndex + maxGroupsToProcess)
+        if (assignedGroups.length === 0) continue
+        
+        const cookie = accountInfo.cookie || null
+        const operationDetail = createdDetails.find(detail => String(detail.accountId) === String(accountId))
+        if (!operationDetail?.id) {
+          console.warn(`⚠️ 未找到账号 ${accountInfo.fbAccount} 对应的任务明细ID，跳过启动`)
+          continue
+        }
+        
+        try {
+          // 构造该账号的群组配置
+          const groupConfig = {
+            groups: assignedGroups.map(g => ({
+              groupId: g.id,
+              groupName: g.groupName,
+              groupUrl: g.url
+            }))
+          }
+          const configJson = JSON.stringify(groupConfig)
+          
+          const startUrl = assignedGroups[0]?.url || 'https://www.facebook.com'
+          const detailId = String(operationDetail.id)
+          
+          startBrowserCollect(
+            detailId,
+            String(accountInfo.fbAccount),
+            cookie,
+            startUrl,
+            assignedGroups.length,
+            9, // 任务类型9：链接加组
+            configJson
+          )
+          startedAccounts.add(accountId)
+          console.log(`🚀 启动链接加组任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}, 分配群组=${assignedGroups.length}个[${startIndex+1}-${startIndex+maxGroupsToProcess}]`)
+        } catch (error) {
+          console.error(`启动账号 ${accountInfo.fbAccount} 的浏览器失败:`, error)
+        }
+      }
+      
+      if (startedAccounts.size > 0) {
+        message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行任务，共处理 ${totalGroups} 个群组`)
+      } else {
+        console.warn('⚠️ 未找到有效的账号信息或所有账号已达每日加组上限')
+        message.warning('未启动浏览器：所有账号已达每日加组上限或无有效账号')
+      }
+    }
+    
     dialogVisible.value = false
     emit('success')
   } finally {

@@ -388,8 +388,50 @@ const submitForm = async () => {
       remark: formData.value.remark
     } as unknown as FbOperationTaskSaveReqVO
 
-    await createFbOperationTask(submitData)
+    const result = await createFbOperationTask(submitData)
+    const respData = result.data || result
+    const taskId = respData?.id || respData
+    
     message.success('任务创建成功')
+    
+    // 转帖任务创建成功后启动浏览器执行
+    if (taskId) {
+      const startedAccounts = new Set<string>()
+      
+      for (const accountId of formData.value.accountIds) {
+        if (startedAccounts.has(accountId)) continue
+        
+        const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
+        if (!accountInfo) continue
+        
+        const cookie = accountInfo.cookie || null
+        
+        try {
+          // @ts-ignore
+          if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+            window.chrome.webview.hostObjects.sync.wpfBridge.StartBrowser(
+              `${taskId}_${accountId}`,
+              String(accountInfo.fbAccount),
+              cookie,
+              formData.value.postUrl,
+              expectedCount,
+              10 // 转帖任务类型
+            )
+            startedAccounts.add(accountId)
+            console.log(`🚀 启动转帖任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}`)
+          } else {
+            console.warn('⚠️ WPF桥接未就绪，任务已创建但未启动浏览器')
+          }
+        } catch (error) {
+          console.error(`启动账号 ${accountInfo.fbAccount} 的转帖任务失败:`, error)
+        }
+      }
+      
+      if (startedAccounts.size > 0) {
+        message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行转帖任务`)
+      }
+    }
+    
     dialogVisible.value = false
     emit('success')
   } finally {

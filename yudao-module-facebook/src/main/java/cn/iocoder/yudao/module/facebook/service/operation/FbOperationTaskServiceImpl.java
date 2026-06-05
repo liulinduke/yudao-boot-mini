@@ -125,11 +125,10 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems = BeanUtils.toBean(details, FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO.class);
         respVO.setDetails(detailItems);
 
-        // 获取结果列表（仅链接加组任务）
-        if (task.getTaskType() == 1) {
+        // 获取结果列表（链接加组任务）
+        if (task.getTaskType() != null && task.getTaskType() == 9) {
             List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(id);
-            // TODO: 需要创建对应的VO类
-            // respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
+            respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
         }
 
         return respVO;
@@ -177,17 +176,31 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
                 })
                 .collect(Collectors.toList());
 
+        addGroupResultMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<FbOperationAddGroupResultDO>()
+                .eq(FbOperationAddGroupResultDO::getDetailId, detailId));
         addGroupResultMapper.insertBatch(results);
 
         // 更新明细的实际完成数量和状态
         int successCount = (int) results.stream()
-                .filter(r -> r.getJoinStatus() != null && r.getJoinStatus() == 1) // 1-成功
+                .filter(r -> r.getJoinStatus() != null && (r.getJoinStatus() == 1 || r.getJoinStatus() == 3)) // 1-成功 3-已加入/待审核
                 .count();
 
-        detail.setActualCount(detail.getActualCount() + successCount);
-        if (detail.getActualCount() >= detail.getExpectedCount()) {
-            detail.setStatus(2); // 已完成
-            detail.setEndTime(LocalDateTime.now());
+        int expectedCount = results.size();
+        detail.setExpectedCount(expectedCount);
+        detail.setActualCount(successCount);
+        detail.setStatus(successCount >= expectedCount ? 2 : 3); // 2-已完成 3-失败
+        if (detail.getStartTime() == null) {
+            detail.setStartTime(LocalDateTime.now());
+        }
+        detail.setEndTime(LocalDateTime.now());
+        if (detail.getStatus() == 3) {
+            detail.setErrorMsg(results.stream()
+                    .filter(r -> r.getJoinStatus() != null && r.getJoinStatus() == 2 && r.getFailReason() != null)
+                    .map(FbOperationAddGroupResultDO::getFailReason)
+                    .findFirst()
+                    .orElse("存在加组失败结果"));
+        } else {
+            detail.setErrorMsg(null);
         }
         operationTaskDetailMapper.updateById(detail);
 

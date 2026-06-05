@@ -368,7 +368,10 @@ namespace SocialMatrix.WpfHost.Helpers
         public void OnLogin(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isRetry, string suggestedUserName, string suggestedPassword, IAuthCallback callback) { callback.Dispose(); }
         public bool GetAuthCredentials(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isProxy, string host, int port, string realm, string scheme, IAuthCallback callback) { callback.Dispose(); return false; }
         public bool OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, string url) => false;
-        public void OnConsoleMessage(IWebBrowser browserControl, IBrowser browser, ConsoleMessageEventArgs consoleMessageArgs) { }
+        public void OnConsoleMessage(IWebBrowser browserControl, IBrowser browser, ConsoleMessageEventArgs consoleMessageArgs) 
+        {
+            System.Diagnostics.Debug.WriteLine($"[Browser Console] {consoleMessageArgs.Message} (Line: {consoleMessageArgs.Line}, Source: {consoleMessageArgs.Source})");
+        }
         
         // 关键方法：返回资源请求处理器
         public IResourceRequestHandler? GetResourceRequestHandler(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, bool isNavigation, bool isDownload, string requestInitiator, ref bool disableDefaultHandling)

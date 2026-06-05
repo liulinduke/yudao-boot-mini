@@ -18,6 +18,9 @@ namespace SocialMatrix.WpfHost
             // 初始化 CefSharp - 启用持久化会话支持
             var settings = new CefSettings();
             
+            // 开启远程调试端口（供 Puppeteer MCP 控制）
+            settings.RemoteDebuggingPort = 9222;
+            
             // 设置全局缓存根目录（每个账号会有子目录）
             string cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BrowserCache");
             if (!Directory.Exists(cacheRoot))

@@ -6,7 +6,7 @@
         <ContentWrap>
           <div class="operation-section">
             <h3 class="section-title">
-              <el-icon :size="20"><Operation /></el-icon>
+              <el-icon :size="20"><Tools /></el-icon>
               <span class="ml-6px">运营工具</span>
             </h3>
             <div class="operation-grid">
@@ -105,7 +105,13 @@
                 <el-tag v-else-if="scope.row.taskType === 13" type="danger">发群帖</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="任务名称" align="center" prop="taskName" min-width="120" show-overflow-tooltip />
+            <el-table-column
+              label="任务名称"
+              align="center"
+              prop="taskName"
+              min-width="120"
+              show-overflow-tooltip
+            />
             <el-table-column label="期望/实际" align="center" width="120">
               <template #default="scope">
                 {{ scope.row.expectedCount }}/{{ scope.row.actualCount || 0 }}
@@ -144,9 +150,7 @@
                 <el-button link type="primary" @click="openForm('view', scope.row.id)">
                   详情
                 </el-button>
-                <el-button link type="danger" @click="handleDelete(scope.row.id)">
-                  删除
-                </el-button>
+                <el-button link type="danger" @click="handleDelete(scope.row.id)"> 删除 </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -163,16 +167,16 @@
 
     <!-- 表单弹窗：添加/修改 -->
     <FbOperationForm ref="formRef" @success="getList" />
-    
+
     <!-- 转帖表单弹窗 -->
     <RepostForm ref="repostFormRef" @success="getList" />
-    
+
     <!-- 群发私信表单弹窗 -->
     <DmTaskForm ref="dmTaskFormRef" @success="getList" />
-    
+
     <!-- 发个人帖表单弹窗 -->
     <PublishPostForm ref="publishPostFormRef" @success="getList" />
-    
+
     <!-- 发群帖表单弹窗 -->
     <GroupPublishForm ref="groupPublishFormRef" @success="getList" />
   </div>
@@ -180,7 +184,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Operation, List } from '@element-plus/icons-vue'
+import { Tools, List } from '@element-plus/icons-vue'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
@@ -269,7 +273,7 @@ const selectTool = (type: string) => {
     return
   }
   activeTool.value = type
-  
+
   // 根据不同类型打开不同表单
   if (type === 'repost') {
     repostFormRef.value.open()
@@ -287,11 +291,11 @@ const selectTool = (type: string) => {
 /** 根据工具类型获取任务类型 */
 const getTaskTypeByTool = (toolType: string): number => {
   const typeMap: Record<string, number> = {
-    'add-group': 9,           // 链接加组（运营任务从9开始）
-    repost: 10,               // 转贴
-    'mass-message': 11,       // 群发私信
-    'publish-post': 12,       // 发个人帖
-    'group-publish': 13       // 发群帖
+    'add-group': 9, // 链接加组（运营任务从9开始）
+    repost: 10, // 转贴
+    'mass-message': 11, // 群发私信
+    'publish-post': 12, // 发个人帖
+    'group-publish': 13 // 发群帖
   }
   return typeMap[toolType] || 9
 }

@@ -13,7 +13,7 @@ using System.Windows;
 namespace SocialMatrix.WpfHost.Windows
 {
     /// <summary>
-    /// 浏览器矩阵窗口 - 独立弹窗显示 12 宫格
+    /// 浏览器矩阵窗口 - 独立弹窗显示
     /// </summary>
     public partial class BrowserMatrixWindow : Window
     {
@@ -390,24 +390,9 @@ namespace SocialMatrix.WpfHost.Windows
             double browserWidth;
             double browserHeight;
 
-            if (count == 1)
-            {
-                // 1个账号: 占满整个窗口
-                browserWidth = gridWidth - MarginPadding;
-                browserHeight = windowHeight - MarginPadding - UrlLabelHeight;
-            }
-            else
-            {
-                // 2个及以上: 固定2列布局
-                const int columns = 2;
-                const double MinBrowserHeight = 350; // 最小高度350px,保证足够空间
-
-                // 计算每个浏览器的宽度(2列平分)
-                browserWidth = (gridWidth - MarginPadding) / columns - 10;
-
-                // 高度固定为最小值
-                browserHeight = MinBrowserHeight;
-            }
+            // 每个账号独立一个浏览器窗口，占满整个窗口空间
+            browserWidth = gridWidth - MarginPadding;
+            browserHeight = windowHeight - MarginPadding - UrlLabelHeight;
 
             // 应用布局
             foreach (var container in BrowserGrid.Children.OfType<System.Windows.Controls.StackPanel>())
@@ -421,7 +406,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
 
-            System.Diagnostics.Debug.WriteLine($"📐 布局更新: {count}个账号, 每个{browserWidth:F0}x{browserHeight:F0}px");
+            System.Diagnostics.Debug.WriteLine($"📐 布局更新: {count}个账号, 浏览器尺寸{browserWidth:F0}x{browserHeight:F0}px");
         }
 
         /// <summary>
@@ -930,6 +915,7 @@ namespace SocialMatrix.WpfHost.Windows
 
                 // ❗ 最后一次验证浏览器状态
                 System.Diagnostics.Debug.WriteLine($"🔍 检查浏览器状态: IsDisposed={browser.IsDisposed}, CanExecuteJavascript={browser.CanExecuteJavascriptInMainFrame}");
+                System.Diagnostics.Debug.WriteLine($"🔍 脚本内容预览（前500字符）: {collectScript.Substring(0, Math.Min(500, collectScript.Length))}");
 
                 if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
                 {
@@ -938,11 +924,32 @@ namespace SocialMatrix.WpfHost.Windows
                     return;
                 }
 
+                // ✅ 等待页面完全加载（使用 WaitForPageLoad）
+                System.Diagnostics.Debug.WriteLine($"⏳ 调用 WaitForPageLoad 等待页面加载完成...");
+                try
+                {
+                    await WaitForPageLoad(browser, 30000);
+                    System.Diagnostics.Debug.WriteLine($"✅ 页面加载完成");
+                }
+                catch (TimeoutException ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 页面加载超时: {ex.Message}");
+                    // 继续执行脚本，可能页面已部分加载
+                }
+
                 System.Diagnostics.Debug.WriteLine($"🔍 开始执行 EvaluateScriptAsync...");
                 var result = await browser.EvaluateScriptAsync(collectScript);
                 System.Diagnostics.Debug.WriteLine($"🔍 EvaluateScriptAsync 执行完成: Success={result.Success}");
+                
+                // 检查脚本执行是否失败
+                if (!result.Success)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 脚本执行失败! ErrorMessage={result.Message}, Result={result.Result}");
+                    OnCollectionError?.Invoke(accountId, $"脚本执行失败: {result.Message}");
+                    return;
+                }
 
-                if (result.Success && result.Result != null)
+                if (result.Result != null)
                 {
                     // 重要: CefSharp返回的Result可能是各种类型,需要正确处理
                     string jsonData;
@@ -1035,7 +1042,7 @@ namespace SocialMatrix.WpfHost.Windows
             else if (taskType == 9) // 链接加组
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入链接加组分支");
-                return GenerateAddGroupCollectScript(expectedCount);
+                return GenerateAddGroupCollectScript(expectedCount, config);
             }
             else if (taskType == 10) // 转帖任务
             {
@@ -1842,119 +1849,125 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 生成链接加组采集脚本（简化版）
+        /// 生成链接加组采集脚本（支持群组列表）
         /// </summary>
-        private string GenerateAddGroupCollectScript(int expectedCount)
+        private string GenerateAddGroupCollectScript(int expectedCount, string? config = null)
         {
             var js = new System.Text.StringBuilder();
 
-            js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
-            js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
-
-            // 获取当前用户信息
-            js.AppendLine(@"
-        const getCurrentUserInfo = () => {
-            try {
-                const currentUrl = window.location.href.split('?')[0];
-                const userIdMatch = currentUrl.match(/[?&]id=(\d+)/);
-                return { accountId: userIdMatch ? userIdMatch[1] : '', targetUrl: currentUrl };
-            } catch (e) {
-                return { accountId: '', targetUrl: window.location.href };
+            string groupsJson = "[]";
+            if (!string.IsNullOrEmpty(config))
+            {
+                try
+                {
+                    var configObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(config);
+                    if (configObj.TryGetProperty("groups", out var groups))
+                    {
+                        groupsJson = groups.GetRawText();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 解析群组配置失败: {ex.Message}");
+                }
             }
+
+            js.AppendLine("        const GROUP_LIST = " + groupsJson + ";");
+
+            string scriptPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "addGroupScript.js");
+            if (System.IO.File.Exists(scriptPath))
+            {
+                string scriptContent = System.IO.File.ReadAllText(scriptPath, System.Text.Encoding.UTF8);
+                js.AppendLine(scriptContent);
+                System.Diagnostics.Debug.WriteLine($"✅ 已从文件加载加组脚本: {scriptPath}");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 加组脚本文件不存在: {scriptPath}");
+                js.AppendLine(@"
+        console.log('🚀 开始执行加组任务');
+        console.log('📋 群组数: ' + GROUP_LIST.length);
+        
+        const randomDelay = (min, max) => {
+            return new Promise(resolve => setTimeout(resolve, min + Math.floor(Math.random() * (max - min))));
         };
-");
 
-            // 查找并点击加入群组按钮
-            js.AppendLine(@"
-        const findAndClickJoinButton = async () => {
-            try {
-                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.trim() === 'Joined');
-                if (joinedEl) return { success: true, status: 3, reason: 'Already joined' };
+        async function execute() {
+            for (var i = 0; i < GROUP_LIST.length; i++) {
+                var group = GROUP_LIST[i];
+                console.log('🔄 处理第 ' + (i + 1) + '/' + GROUP_LIST.length + ' 个群组: ' + group.groupName);
 
-                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.includes('membership is pending'));
-                if (pendingEl) return { success: true, status: 3, reason: 'Pending approval' };
+                window.location.href = group.groupUrl;
+                console.log('📍 导航到: ' + group.groupUrl);
 
-                const joinButton = document.querySelector('[aria-label=""Join group""]');
-                if (!joinButton) return { success: false, reason: 'No join button found' };
+                await randomDelay(5000, 7000);
+                await randomDelay(2000, 3000);
 
+                var joined = false;
+                var allSpans = document.querySelectorAll('span');
+                for (var j = 0; j < allSpans.length; j++) {
+                    var text = allSpans[j].textContent;
+                    if (text && text.trim() === 'Joined') {
+                        joined = true;
+                        break;
+                    }
+                }
+
+                if (joined) {
+                    console.log('✅ 已加入该群组');
+                    results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 3, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+                    continue;
+                }
+
+                var joinButton = document.querySelector('[aria-label*=""Join""]');
+                
+                if (!joinButton) {
+                    var buttons = document.querySelectorAll('button');
+                    for (var j = 0; j < buttons.length; j++) {
+                        var text = buttons[j].textContent;
+                        if (text && text.trim().toLowerCase() === 'join') {
+                            joinButton = buttons[j];
+                            break;
+                        }
+                    }
+                }
+
+                if (!joinButton) {
+                    joinButton = document.querySelector('[aria-label*=""group""]');
+                }
+
+                if (!joinButton) {
+                    console.log('❌ 未找到加入按钮');
+                    results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: 2, failReason: 'No join button found', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+                    continue;
+                }
+
+                console.log('✅ 找到加入按钮，准备点击...');
                 joinButton.click();
-                await new Promise(resolve => setTimeout(resolve, randomDelay(3000, 4000)));
-                return checkJoinResult();
-            } catch (e) {
-                return { success: false, reason: e.message };
+                console.log('✅ 已点击加入按钮');
+
+                await randomDelay(3000, 4000);
+
+                var status = 1;
+                results.push({ accountId: '', targetUrl: group.groupUrl, groupId: group.groupId, groupName: group.groupName, groupUrl: group.groupUrl, joinStatus: status, failReason: '', joinTime: new Date().toISOString(), syncTime: new Date().toISOString() });
+
+                console.log('✅ 群组 ' + group.groupName + ' 处理完成');
+
+                if (i < GROUP_LIST.length - 1) {
+                    await randomDelay(3000, 5000);
+                }
             }
-        };
+
+            console.log('🎉 加组任务完成');
+            resolve(JSON.stringify(results));
+        }
+
+        execute().catch(function(err) {
+            console.error('❌ 加组任务出错:', err);
+            reject(err);
+        });
 ");
-
-            // 检查加组结果
-            js.AppendLine(@"
-        const checkJoinResult = () => {
-            try {
-                const joinedEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.trim() === 'Joined');
-                if (joinedEl) return { success: true, status: 1, reason: 'Joined successfully' };
-
-                const pendingEl = Array.from(document.querySelectorAll('span')).find(el => el.textContent.includes('membership is pending'));
-                if (pendingEl) return { success: true, status: 3, reason: 'Pending approval' };
-
-                return { success: true, status: 1, reason: 'Completed' };
-            } catch (e) {
-                return { success: false, reason: e.message };
             }
-        };
-");
-
-            // 提取群组信息
-            js.AppendLine(@"
-        const extractGroupInfo = () => {
-            try {
-                const groupUrl = window.location.href.split('?')[0];
-                const groupIdMatch = groupUrl.match(/\/groups\/(\d+)/);
-                const groupId = groupIdMatch ? groupIdMatch[1] : '';
-
-                let groupName = '';
-                const titleEl = document.querySelector('h1, [data-testid=""group_name""]');
-                if (titleEl) groupName = titleEl.textContent.trim();
-
-                return { groupId, groupName, groupUrl };
-            } catch (e) {
-                return { groupId: '', groupName: '', groupUrl: window.location.href };
-            }
-        };
-");
-
-            // 主执行逻辑
-            js.AppendLine(@"
-        const executeJoinGroup = async () => {
-            try {
-                const userInfo = getCurrentUserInfo();
-                const groupInfo = extractGroupInfo();
-                const result = await findAndClickJoinButton();
-
-                results.push({
-                    accountId: userInfo.accountId,
-                    targetUrl: userInfo.targetUrl,
-                    groupId: groupInfo.groupId,
-                    groupName: groupInfo.groupName,
-                    groupUrl: groupInfo.groupUrl,
-                    joinStatus: result.status || (result.success ? 1 : 2),
-                    failReason: result.reason || '',
-                    joinTime: new Date().toISOString(),
-                    syncTime: new Date().toISOString()
-                });
-
-                resolve(JSON.stringify(results));
-            } catch (e) {
-                reject(new Error(e.message));
-            }
-        };
-
-        executeJoinGroup();
-");
-
-            // 超时保护（30秒）
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            if (results.length === 0) reject(new Error('Join group timeout'));");
-            js.AppendLine("        }, 30000);");
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }

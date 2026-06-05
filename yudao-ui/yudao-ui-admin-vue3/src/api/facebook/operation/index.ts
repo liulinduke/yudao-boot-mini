@@ -1,7 +1,7 @@
 import request from '@/config/axios'
 
 export interface FbOperationTask {
-  id?: number
+  id?: string | number
   taskType: number // 任务类型（1-链接加组 2-转贴 3-群发私信）
   taskName?: string
   status?: number // 任务状态（0-待执行 1-执行中 2-已完成 3-已停止 4-失败）
@@ -15,8 +15,8 @@ export interface FbOperationTask {
 }
 
 export interface FbOperationTaskDetail {
-  id?: number
-  taskId?: number
+  id?: string | number
+  taskId?: string | number
   accountId: string
   fbAccount?: string
   targetUrls?: string
@@ -35,9 +35,9 @@ export interface FbOperationTaskDetail {
 }
 
 export interface FbOperationAddGroupResult {
-  id?: number
-  detailId?: number
-  taskId?: number
+  id?: string | number
+  detailId?: string | number
+  taskId?: string | number
   accountId: string
   fbAccount?: string
   targetUrl?: string
@@ -75,7 +75,7 @@ export interface FbOperationTaskSaveReqVO {
 }
 
 export interface FbOperationAddGroupResultBatchSaveReqVO {
-  detailId: number
+  detailId: string | number
   results: FbOperationAddGroupResultItem[]
 }
 
@@ -144,7 +144,7 @@ export const getFbOperationTaskPage = (params: FbOperationTaskPageReqVO) => {
 }
 
 // 查询运营任务详情
-export const getFbOperationTask = (id: number) => {
+export const getFbOperationTask = (id: string | number) => {
   return request.get({ url: '/facebook/fb-operation-task/get', params: { id } })
 }
 

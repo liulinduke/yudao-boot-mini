@@ -358,8 +358,55 @@ const submitForm = async () => {
     
     const data = formData.value as any
     if (formType.value === 'create') {
-      await DmTaskApi.createDmTask(data)
+      const result = await DmTaskApi.createDmTask(data)
+      const respData = result.data || result
+      const taskId = respData?.id || respData
       message.success('创建成功')
+      
+      // 群发私信任务创建成功后启动浏览器执行
+      if (taskId) {
+        const startedAccounts = new Set<string>()
+        
+        for (const accountId of formData.value.accountIds) {
+          if (startedAccounts.has(accountId)) continue
+          
+          // 获取账号信息
+          const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
+          if (!accountInfo) continue
+          
+          const cookie = accountInfo.cookie || null
+          
+          try {
+            // @ts-ignore
+            if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+              // 为每个目标用户启动私信发送任务
+              for (const targetUserId of formData.value.targetUserIds) {
+                window.chrome.webview.hostObjects.sync.wpfBridge.StartDmTask(
+                  String(taskId),
+                  `${taskId}_${accountId}_${targetUserId}`,
+                  String(accountInfo.fbAccount),
+                  cookie,
+                  targetUserId,
+                  formData.value.scripts[0] || '' // 使用第一条话术
+                )
+                console.log(`📨 启动私信任务: TaskId=${taskId}, Account=${accountInfo.fbAccount}, Target=${targetUserId}`)
+                
+                // 私信间隔
+                await new Promise(resolve => setTimeout(resolve, formData.value.minIntervalSeconds * 1000))
+              }
+              startedAccounts.add(accountId)
+            } else {
+              console.warn('⚠️ WPF桥接未就绪，任务已创建但未启动浏览器')
+            }
+          } catch (error) {
+            console.error(`启动账号 ${accountInfo.fbAccount} 的私信任务失败:`, error)
+          }
+        }
+        
+        if (startedAccounts.size > 0) {
+          message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行私信任务`)
+        }
+      }
     } else {
       await DmTaskApi.updateDmTask(data)
       message.success('修改成功')
