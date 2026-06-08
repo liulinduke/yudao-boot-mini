@@ -144,6 +144,9 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 CleanupAllResources();
             };
+
+            // 预拉取全局配置，创建浏览器时可直接使用拦截设置
+            _ = GetGlobalConfigAsync();
         }
 
         /// <summary>
@@ -316,12 +319,17 @@ namespace SocialMatrix.WpfHost.Windows
 
             System.Diagnostics.Debug.WriteLine($"🔒 为账号 {accountId} 创建独立缓存: {cachePath}");
 
-            var browser = new ChromiumWebBrowser(initialUrl)
+            // 先用 about:blank，避免在未设置资源拦截/Cookie 前就加载 Facebook
+            var browser = new ChromiumWebBrowser("about:blank")
             {
                 RequestContext = requestContext,  // 使用独立的请求上下文
                 Background = System.Windows.Media.Brushes.White  // 设置白色背景，避免灰色遮罩
             };
             browser.Tag = accountId;
+
+            // 立即应用缓存的资源拦截配置（首次 Load 即生效）
+            var cachedConfig = _globalConfig ?? new FingerprintGlobalConfig();
+            FingerprintInjector.ApplyResourceFilter(browser, cachedConfig.DisableImages, cachedConfig.DisableVideos);
 
             // 仅在 Debug 模式下启用右键菜单和开发者工具
 #if DEBUG
@@ -365,64 +373,107 @@ namespace SocialMatrix.WpfHost.Windows
 
             System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 创建浏览器");
 
-            // 页面加载状态变化事件
-            browser.LoadingStateChanged += async (sender, e) =>
+            // LoadingStateChanged 在 CEF 后台线程触发，访问 browser 属性必须切到 UI 线程
+            browser.LoadingStateChanged += (sender, e) =>
             {
-                if (!e.IsLoading)  // 页面加载完成
+                if (e.IsLoading) return;
+
+                _ = RunOnBrowserUiThreadAsync(browser, async () =>
                 {
-                    if (browser.CanExecuteJavascriptInMainFrame)
+                    if (!browser.CanExecuteJavascriptInMainFrame) return;
+
+                    var address = browser.Address ?? "";
+                    if (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase)) return;
+                    if (_browserInitialized.ContainsKey(accountId) && _browserInitialized[accountId]) return;
+
+                    _browserInitialized[accountId] = true;
+
+                    try
                     {
-                        // 只在第一次加载时注入指纹（避免重复注入）
-                        if (!_browserInitialized.ContainsKey(accountId) || !_browserInitialized[accountId])
+                        var globalConfig = await GetGlobalConfigAsync();
+                        FingerprintInjector.ApplyResourceFilter(
+                            browser,
+                            globalConfig?.DisableImages ?? true,
+                            globalConfig?.DisableVideos ?? true);
+
+                        var fingerprint = new FingerprintConfig
                         {
-                            _browserInitialized[accountId] = true;
+                            Area = "",
+                            Latitude = null,
+                            Longitude = null,
+                            DeviceId = deviceId
+                        };
+                        await FingerprintInjector.InjectScriptAsync(browser, fingerprint);
+                        System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹脚本注入完成 (DeviceName={fingerprint.DeviceName})");
 
-                            // 1. 注入指纹（在 Cookie 之前）
-                            var globalConfig = await GetGlobalConfigAsync();
-                            System.Diagnostics.Debug.WriteLine($"🔍 全局配置读取结果: DisableImages={globalConfig?.DisableImages}, DisableVideos={globalConfig?.DisableVideos}");
-
-                            var fingerprint = new FingerprintConfig
+                        bool isCookieValid = true;
+                        if (!string.IsNullOrEmpty(cookie))
+                        {
+                            if (await CheckIfLoginPage(browser))
                             {
-                                Area = "",
-                                Latitude = null,
-                                Longitude = null,
-                                DeviceId = deviceId,
-                                DisableImages = globalConfig?.DisableImages ?? false,
-                                DisableVideos = globalConfig?.DisableVideos ?? false
-                            };
-                            await FingerprintInjector.InjectAsync(browser, fingerprint);
-                            System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹注入完成 (DeviceName={fingerprint.DeviceName}, DisableImages={fingerprint.DisableImages}, DisableVideos={fingerprint.DisableVideos})");
-
-                            // 2. 注入 Cookie（如果有）并验证
-                            bool isCookieValid = true;
-                            if (!string.IsNullOrEmpty(cookie))
-                            {
-                                System.Diagnostics.Debug.WriteLine($"🍪 开始为账号 {accountId} 注入 Cookie...");
-                                isCookieValid = await InjectCookies(browser, accountId, cookie);
+                                System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，停留在登录页");
+                                OnCollectionError?.Invoke(accountId, "Cookie已失效，需要重新登录");
+                                isCookieValid = false;
                             }
                             else
                             {
-                                System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 未提供 Cookie，跳过注入步骤");
+                                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Cookie 验证通过");
                             }
+                        }
 
-                            // 3. 根据 isOperation 分发：运营任务走 StartOperationTask，采集任务走 StartAutoCollect
-                            if (isCookieValid && !string.IsNullOrEmpty(searchUrl))
+                        if (isCookieValid && !string.IsNullOrEmpty(searchUrl))
+                        {
+                            if (isOperation)
                             {
-                                if (isOperation)
-                                {
-                                    // 运营任务（链接加组/群发私信/转帖等）：由独立方法处理
-                                    await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config);
-                                }
-                                else
-                                {
-                                    // 采集任务：走采集脚本逻辑
-                                    await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
-                                }
+                                await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config);
+                            }
+                            else
+                            {
+                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
                             }
                         }
                     }
-                }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 初始化失败: {ex.Message}");
+                        OnCollectionError?.Invoke(accountId, $"浏览器初始化失败: {ex.Message}");
+                    }
+                });
             };
+
+            // 异步：拉取配置 → 注入 Cookie → 首次加载（只加载一次 Facebook）
+            _ = InitializeBrowserAsync(browser, accountId, cookie, initialUrl);
+        }
+
+        /// <summary>
+        /// 浏览器创建后的异步初始化：配置资源拦截、注入 Cookie，再发起首次导航
+        /// </summary>
+        private async Task InitializeBrowserAsync(ChromiumWebBrowser browser, string accountId, string? cookie, string initialUrl)
+        {
+            try
+            {
+                var globalConfig = await GetGlobalConfigAsync() ?? new FingerprintGlobalConfig();
+                System.Diagnostics.Debug.WriteLine($"🔍 全局配置: DisableImages={globalConfig.DisableImages}, DisableVideos={globalConfig.DisableVideos}");
+
+                await RunOnBrowserUiThreadAsync(browser, async () =>
+                {
+                    FingerprintInjector.ApplyResourceFilter(browser, globalConfig.DisableImages, globalConfig.DisableVideos);
+
+                    if (!string.IsNullOrEmpty(cookie))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🍪 为账号 {accountId} 预注入 Cookie（首次加载前）...");
+                        await InjectCookies(browser, accountId, cookie);
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"🔗 首次加载: {initialUrl}");
+                    browser.Load(initialUrl);
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 预初始化失败: {ex.Message}");
+                OnCollectionError?.Invoke(accountId, $"浏览器预初始化失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -634,9 +685,9 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 注入 Cookie（并验证是否有效）
+        /// 预注入 Cookie（在首次页面加载前写入，无需 Reload）
         /// </summary>
-        /// <returns>true: Cookie 有效, false: Cookie 失效或网络问题</returns>
+        /// <returns>true: 至少写入一个 Cookie</returns>
         private async Task<bool> InjectCookies(ChromiumWebBrowser browser, string accountId, string cookieJson)
         {
             try
@@ -697,59 +748,8 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 注入 {successCount}/{cookieList.Count} 个 Cookie (使用独立RequestContext)");
-
-                // 刷新页面使 Cookie 生效（使用 Dispatcher 确保在 UI 线程执行）
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    browser.Reload();
-                });
-
-                // 等待页面加载完成（参考项目 A 的方式）
-                System.Diagnostics.Debug.WriteLine($"📌 等待页面重新加载...");
-                await Task.Delay(2000); // 先等待2秒
-
-                // 循环检查 IsLoading 状态
-                int checkCount = 0;
-                while (checkCount < 15) // 最多检查15次，每次2秒，共30秒
-                {
-                    bool isLoading = true;
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        isLoading = browser.IsLoading;
-                    });
-
-                    if (!isLoading)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"📌 页面加载完成");
-                        break;
-                    }
-
-                    await Task.Delay(2000); // 继续等待2秒
-                    checkCount++;
-
-                    if (checkCount % 3 == 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"⏳ 等待页面加载中... ({checkCount * 2}秒)");
-                    }
-                }
-
-                if (checkCount >= 15)
-                {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ 页面加载超时");
-                }
-
-                // 检查 Cookie 是否有效（通过页面内容判断）
-                var isLoginPage = await CheckIfLoginPage(browser);
-                if (isLoginPage)
-                {
-                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，停留在登录页");
-                    OnCollectionError?.Invoke(accountId, "Cookie已失效，需要重新登录");
-                    return false;
-                }
-
-                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Cookie 验证通过");
-                return true;
+                System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 预注入 {successCount}/{cookieList.Count} 个 Cookie (使用独立RequestContext)");
+                return successCount > 0;
             }
             catch (Exception ex)
             {
@@ -2497,6 +2497,31 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             throw new TimeoutException($"导航超时 ({timeoutMs}ms): {targetUrl}");
+        }
+
+        /// <summary>
+        /// CEF 事件可能在非 UI 线程触发，通过此方法安全访问 ChromiumWebBrowser
+        /// </summary>
+        private static void RunOnBrowserUiThread(ChromiumWebBrowser browser, Action action)
+        {
+            if (browser.Dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                browser.Dispatcher.Invoke(action);
+            }
+        }
+
+        private static Task RunOnBrowserUiThreadAsync(ChromiumWebBrowser browser, Func<Task> action)
+        {
+            if (browser.Dispatcher.CheckAccess())
+            {
+                return action();
+            }
+
+            return browser.Dispatcher.InvokeAsync(action).Task.Unwrap();
         }
 
         /// <summary>

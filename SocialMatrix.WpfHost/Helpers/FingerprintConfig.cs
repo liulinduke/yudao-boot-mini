@@ -112,20 +112,39 @@ namespace SocialMatrix.WpfHost.Helpers
     /// </summary>
     public static class FingerprintInjector
     {
-        public static async Task InjectAsync(ChromiumWebBrowser browser, FingerprintConfig config)
+        /// <summary>
+        /// 在首次导航前设置图片/视频拦截（必须在 browser.Load 之前调用）
+        /// </summary>
+        public static void ApplyResourceFilter(ChromiumWebBrowser browser, bool disableImages, bool disableVideos)
+        {
+            if (browser == null) return;
+
+            if (disableImages || disableVideos)
+            {
+                browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos);
+                System.Diagnostics.Debug.WriteLine($"✅ 资源拦截已启用: DisableImages={disableImages}, DisableVideos={disableVideos}");
+            }
+        }
+
+        /// <summary>
+        /// 页面加载后注入指纹 JS（不包含资源拦截，避免重复设置 RequestHandler）
+        /// </summary>
+        public static async Task InjectScriptAsync(ChromiumWebBrowser browser, FingerprintConfig config)
         {
             if (browser == null || config == null) return;
 
             var script = BuildScript(config);
             await browser.EvaluateScriptAsync(script);
-            
-            // 设置请求处理器来禁用图片/视频
-            if (config.DisableImages || config.DisableVideos)
-            {
-                browser.RequestHandler = new ResourceFilterRequestHandler(config.DisableImages, config.DisableVideos);
-            }
-            
-            System.Diagnostics.Debug.WriteLine($"✅ 指纹注入: Language=自动检测, TZ=自动检测, DeviceName={config.DeviceName}, DisableImages={config.DisableImages}, DisableVideos={config.DisableVideos}");
+
+            System.Diagnostics.Debug.WriteLine($"✅ 指纹脚本注入: DeviceName={config.DeviceName}");
+        }
+
+        public static async Task InjectAsync(ChromiumWebBrowser browser, FingerprintConfig config)
+        {
+            if (browser == null || config == null) return;
+
+            ApplyResourceFilter(browser, config.DisableImages, config.DisableVideos);
+            await InjectScriptAsync(browser, config);
         }
 
         private static string BuildScript(FingerprintConfig config)

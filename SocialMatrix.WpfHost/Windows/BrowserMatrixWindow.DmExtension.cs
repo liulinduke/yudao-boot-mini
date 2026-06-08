@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using System.Windows;
 using CefSharp;
 using CefSharp.Wpf;
 using SocialMatrix.WpfHost.Services;
@@ -63,14 +62,14 @@ namespace SocialMatrix.WpfHost.Windows
                 // 1. 确保已进入私信页面（兜底：防止运营任务未导航成功）
                 var dmUrl = $"https://www.facebook.com/messages/t/{fbUserId}/";
                 string currentUrl = "";
-                Application.Current.Dispatcher.Invoke(() => currentUrl = browser.Address ?? "");
+                RunOnBrowserUiThread(browser, () => currentUrl = browser.Address ?? "");
                 System.Diagnostics.Debug.WriteLine($"🔍 私信前当前 URL: {currentUrl}");
 
                 if (!IsOnTargetUrl(currentUrl, dmUrl))
                 {
                     System.Diagnostics.Debug.WriteLine($"🔗 不在私信页，导航到: {dmUrl}");
                     await NavigateBrowserToUrlAsync(browser, accountId, dmUrl);
-                    Application.Current.Dispatcher.Invoke(() => currentUrl = browser.Address ?? "");
+                    RunOnBrowserUiThread(browser, () => currentUrl = browser.Address ?? "");
                     System.Diagnostics.Debug.WriteLine($"🔍 导航后 URL: {currentUrl}");
                 }
                 else
