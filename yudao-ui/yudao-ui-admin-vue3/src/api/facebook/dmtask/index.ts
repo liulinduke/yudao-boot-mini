@@ -15,12 +15,12 @@ export const DmTaskApi = {
   },
 
   // 删除群发私信任务
-  deleteDmTask: (id: number) => {
+  deleteDmTask: (id: string | number) => {
     return request.delete({ url: '/facebook/dm-task/delete', params: { id } })
   },
 
   // 获得群发私信任务
-  getDmTask: (id: number) => {
+  getDmTask: (id: string | number) => {
     return request.get({ url: '/facebook/dm-task/get', params: { id } })
   },
 
@@ -30,12 +30,12 @@ export const DmTaskApi = {
   },
 
   // 启动任务
-  startTask: (id: number) => {
+  startTask: (id: string | number) => {
     return request.post({ url: `/facebook/dm-task/start/${id}` })
   },
 
   // 取消任务
-  cancelTask: (id: number) => {
+  cancelTask: (id: string | number) => {
     return request.post({ url: `/facebook/dm-task/cancel/${id}` })
   }
 }

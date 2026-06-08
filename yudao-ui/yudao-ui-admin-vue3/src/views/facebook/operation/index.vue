@@ -50,7 +50,7 @@
               >
                 <el-option label="链接加组" :value="9" />
                 <el-option label="转贴" :value="10" />
-                <el-option label="群发私信" :value="11" />
+                <el-option label="群发私信" :value="14" />
                 <el-option label="发个人帖" :value="12" />
                 <el-option label="发群帖" :value="13" />
               </el-select>
@@ -95,23 +95,15 @@
             :stripe="true"
             :show-overflow-tooltip="true"
           >
-            <el-table-column label="任务ID" align="center" prop="id" width="80" />
             <el-table-column label="任务类型" align="center" prop="taskType" width="100">
               <template #default="scope">
                 <el-tag v-if="scope.row.taskType === 9" type="primary">链接加组</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 10" type="success">转贴</el-tag>
-                <el-tag v-else-if="scope.row.taskType === 11" type="warning">群发私信</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 14" type="warning">群发私信</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 12" type="info">发个人帖</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 13" type="danger">发群帖</el-tag>
               </template>
             </el-table-column>
-            <el-table-column
-              label="任务名称"
-              align="center"
-              prop="taskName"
-              min-width="120"
-              show-overflow-tooltip
-            />
             <el-table-column label="期望/实际" align="center" width="120">
               <template #default="scope">
                 {{ scope.row.expectedCount }}/{{ scope.row.actualCount || 0 }}
@@ -283,7 +275,7 @@ const selectTool = (type: string) => {
   if (type === 'repost') {
     repostFormRef.value.open()
   } else if (type === 'mass-message') {
-    dmTaskFormRef.value.open()
+    dmTaskFormRef.value.open('create')
   } else if (type === 'publish-post') {
     publishPostFormRef.value.open()
   } else if (type === 'group-publish') {
@@ -298,7 +290,7 @@ const getTaskTypeByTool = (toolType: string): number => {
   const typeMap: Record<string, number> = {
     'add-group': 9, // 链接加组（运营任务从9开始）
     repost: 10, // 转贴
-    'mass-message': 11, // 群发私信
+    'mass-message': 14, // 群发私信
     'publish-post': 12, // 发个人帖
     'group-publish': 13 // 发群帖
   }

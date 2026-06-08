@@ -30,9 +30,10 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="cookie">Cookie</param>
         /// <param name="searchUrl">搜索URL</param>
         /// <param name="expectedCount">期望采集数量</param>
-        /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论/11帖子评论点赞)</param>
-        /// <param name="config">配置JSON字符串（可选，用于taskType=11时指定采集选项）</param>
-        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null)
+        /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
+        /// <param name="config">配置JSON字符串（可选）</param>
+        /// <param name="isOperation">是否为运营任务（true=运营任务如加组/私信/转帖，false=采集任务）</param>
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false)
         {
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
@@ -42,12 +43,13 @@ namespace SocialMatrix.WpfHost.Services
 
             Application.Current.Dispatcher.Invoke(() =>
             {
-                _mainWindow.CreateBrowserForAccount(detailId, accountId, 
-                    string.IsNullOrEmpty(cookie) ? null : cookie, 
-                    string.IsNullOrEmpty(searchUrl) ? null : searchUrl, 
+                _mainWindow.CreateBrowserForAccount(detailId, accountId,
+                    string.IsNullOrEmpty(cookie) ? null : cookie,
+                    string.IsNullOrEmpty(searchUrl) ? null : searchUrl,
                     expectedCount,
                     taskType: taskType,
-                    config: config);  // ✅ 传递config参数
+                    config: config,
+                    isOperation: isOperation);
             });
         }
 
@@ -208,35 +210,24 @@ namespace SocialMatrix.WpfHost.Services
                     if (needCreateBrowser)
                     {
                         System.Diagnostics.Debug.WriteLine($"🌐 创建浏览器并导航到私信页面...");
+                        // 将私信参数封装到 config JSON 中传给 CreateBrowser
+                        var dmConfig = Newtonsoft.Json.JsonConvert.SerializeObject(new {
+                            fbUserId = fbUserId,
+                            messageText = messageText
+                        });
                         mainWindow.CreateBrowserForAccount(
-                            detailId, 
-                            accountId, 
+                            detailId,
+                            accountId,
                             string.IsNullOrEmpty(cookie) ? null : cookie,
                             $"https://www.facebook.com/messages/t/{fbUserId}/",
                             expectedCount: 0,
-                            taskType: 10); // 私信任务类型
-                        
-                        // 等待浏览器创建和页面加载
-                        await Task.Delay(3000);
-                        
-                        // 重新获取BrowserMatrixWindow
-                        if (browserMatrixField != null)
-                        {
-                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                        }
-                    }
-                    
-                    if (browserMatrixWindow != null)
-                    {
-                        // 执行私信发送
-                        System.Diagnostics.Debug.WriteLine($"📨 开始执行私信发送...");
-                        await browserMatrixWindow.SendDirectMessage(accountId, fbUserId, messageText);
-                        
-                        System.Diagnostics.Debug.WriteLine($"✅ 私信任务完成: TaskId={taskId}, DetailId={detailId}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"❌ BrowserMatrixWindow 未找到");
+                            taskType: 14,
+                            config: dmConfig,
+                            isOperation: true); // 群发私信是运营任务
+                        // 注意：私信发送逻辑已在 BrowserMatrixWindow.StartOperationTask 中处理
+                        // 等待足够时间让页面加载和脚本执行
+                        await Task.Delay(5000);
+                        System.Diagnostics.Debug.WriteLine($"✅ 私信任务已提交执行: TaskId={taskId}, DetailId={detailId}");
                     }
                 }
                 catch (Exception ex)

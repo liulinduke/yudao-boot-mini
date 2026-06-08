@@ -415,7 +415,9 @@ const submitForm = async () => {
               cookie,
               formData.value.postUrl,
               expectedCount,
-              10 // 转帖任务类型
+              10, // 转帖任务类型
+              null, // config
+              true // isOperation: 运营任务
             )
             startedAccounts.add(accountId)
             console.log(`🚀 启动转帖任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}`)

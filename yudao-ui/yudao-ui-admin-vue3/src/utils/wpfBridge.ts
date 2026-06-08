@@ -18,7 +18,8 @@ declare global {
                 url: string,
                 expectedCount: number,
                 taskType: number,
-                config?: string
+                config?: string,
+                isOperation?: boolean
               ) => void
             }
           }
@@ -38,8 +39,9 @@ export {}
  * @param cookie Cookie字符串
  * @param url 采集URL
  * @param expectedCount 期望采集数量
- * @param taskType 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论/11帖子评论点赞)
- * @param config 配置JSON字符串（可选，用于taskType=11时指定采集选项）
+ * @param taskType 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
+ * @param config 配置JSON字符串（可选）
+ * @param isOperation 是否为运营任务（true=加组/转帖等，false=采集）
  */
 export function startBrowserCollect(
   taskId: string,
@@ -48,13 +50,14 @@ export function startBrowserCollect(
   url: string,
   expectedCount: number,
   taskType: number = 1,
-  config?: string
+  config?: string,
+  isOperation: boolean = false
 ): void {
   try {
     // 检查是否在 WPF 环境中
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
-      
+
       // 如果有config参数，尝试传递（需要WPF端支持）
       if (config) {
         console.log(`📋 传递配置到WPF: ${config}`)
@@ -62,16 +65,16 @@ export function startBrowserCollect(
         // 如果WPF端尚未更新，会抛出异常，需要在catch中处理
         try {
           // @ts-ignore - 动态调用以支持可选参数
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
         } catch (e) {
-          console.warn('⚠️ WPF端不支持config参数，使用6参数版本')
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType)
+          console.warn('⚠️ WPF端不支持config参数，使用旧版本')
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
         }
       } else {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation)
       }
-      
-      console.log(`已启动浏览器自动化采集 - 任务ID: ${taskId}, 账号ID: ${accountId}, URL: ${url}, 类型: ${taskType}${config ? ', 配置: ' + config : ''}`)
+
+      console.log(`已启动浏览器任务 - 任务ID: ${taskId}, 账号ID: ${accountId}, URL: ${url}, 类型: ${taskType}, 运营: ${isOperation}`)
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
     }

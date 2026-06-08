@@ -17,7 +17,7 @@
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
-            <el-tag v-else-if="taskDetail.task?.taskType === 3" type="warning">群发私信</el-tag>
+            <el-tag v-else-if="taskDetail.task?.taskType === 14" type="warning">群发私信</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag v-if="taskDetail.task?.status === 0" type="info">待执行</el-tag>
@@ -501,7 +501,8 @@ const submitForm = async () => {
             startUrl,
             assignedGroups.length,
             9, // 任务类型9：链接加组
-            configJson
+            configJson,
+            true // isOperation: 运营任务
           )
           startedAccounts.add(accountId)
           console.log(`🚀 启动链接加组任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}, 分配群组=${assignedGroups.length}个[${startIndex+1}-${startIndex+maxGroupsToProcess}]`)

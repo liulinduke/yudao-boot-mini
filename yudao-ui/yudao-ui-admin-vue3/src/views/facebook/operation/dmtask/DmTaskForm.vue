@@ -199,26 +199,28 @@ const formData = ref({
 
 const formRules = reactive({
   targetUserIds: [
-    { 
-      required: true, 
-      message: '请选择目标用户', 
+    {
+      required: true,
       trigger: 'change',
-      validator: () => selectedUsers.value.length === 0 ? new Error('请选择目标用户') : undefined
+      validator: (_rule: any, _value: any, callback: any) => {
+        if (formData.value.targetUserIds.length === 0) {
+          callback(new Error('请选择目标用户'))
+          return
+        }
+        callback()
+      }
     }
   ],
   scripts: [
     {
       required: true,
-      message: '请输入或选择话术',
       trigger: 'change',
-      validator: () => {
-        if (scriptType.value === 1 && !manualScripts.value.trim()) {
-          return new Error('请输入话术')
+      validator: (_rule: any, _value: any, callback: any) => {
+        if (formData.value.scripts.length === 0) {
+          callback(new Error(scriptType.value === 1 ? '请输入话术' : '请选择话术'))
+          return
         }
-        if (scriptType.value === 2 && selectedScripts.value.length === 0) {
-          return new Error('请选择话术')
-        }
-        return undefined
+        callback()
       }
     }
   ],
@@ -308,7 +310,13 @@ const openUserSelector = () => {
 /** 确认用户选择 */
 const handleUserConfirm = (users: any[]) => {
   selectedUsers.value = users
-  formData.value.targetUserIds = users.map(u => u.fbUserId)
+  formData.value.targetUserIds = users
+    .map((u) => u.fbUserId || u.userId || u.id || u.url)
+    .filter(Boolean)
+
+  if (formData.value.targetUserIds.length === 0) {
+    message.warning('所选潜客缺少可用的 Facebook 用户ID')
+  }
 }
 
 /** 移除选中的用户 */
@@ -338,19 +346,88 @@ const removeSelectedScript = (index: number) => {
   selectedScripts.value.splice(index, 1)
 }
 
+/** 同步话术到表单数据 */
+const syncScriptsToForm = () => {
+  formData.value.scripts = scriptType.value === 1
+    ? manualScripts.value.split('\n').map((s) => s.trim()).filter(Boolean)
+    : selectedScripts.value
+  formData.value.scriptType = scriptType.value
+}
+
+/** 后台通知 WPF 启动群发私信任务 */
+const startDmTaskInWpf = async (taskId: string) => {
+  const accountIds = [...formData.value.accountIds]
+  const targetUserIds = [...formData.value.targetUserIds]
+  const messageText = formData.value.scripts[0] || ''
+  const intervalSeconds = formData.value.minIntervalSeconds
+  const startedAccounts = new Set<string>()
+
+  for (const accountId of accountIds) {
+    if (startedAccounts.has(accountId)) continue
+
+    const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
+    if (!accountInfo) continue
+
+    try {
+      const win = window as any
+      const bridge = win.chrome?.webview?.hostObjects?.sync?.wpfBridge
+
+      if (!bridge) {
+        console.warn('WPF桥接未就绪，任务已创建但未启动浏览器')
+        return
+      }
+
+      for (const targetUserId of targetUserIds) {
+        bridge.StartDmTask(
+          taskId,
+          `${taskId}_${accountId}_${targetUserId}`,
+          String(accountInfo.fbAccount),
+          accountInfo.cookie || null,
+          targetUserId,
+          messageText
+        )
+        console.log(`启动私信任务: TaskId=${taskId}, Account=${accountInfo.fbAccount}, Target=${targetUserId}`)
+
+        await new Promise((resolve) => setTimeout(resolve, intervalSeconds * 1000))
+      }
+      startedAccounts.add(accountId)
+    } catch (error) {
+      console.error(`启动账号 ${accountInfo.fbAccount} 的私信任务失败:`, error)
+    }
+  }
+
+  if (startedAccounts.size > 0) {
+    message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行私信任务`)
+  }
+}
+
 /** 提交表单 */
 const submitForm = async () => {
-  await formRef.value.validate()
+  syncScriptsToForm()
+  formData.value.targetUserIds = formData.value.targetUserIds.filter(Boolean)
+
+  if (formData.value.targetUserIds.length === 0) {
+    message.warning('请选择目标潜客')
+    return
+  }
+  if (formData.value.scripts.length === 0) {
+    message.warning(scriptType.value === 1 ? '请输入话术' : '请选择话术')
+    return
+  }
+  if (formData.value.accountIds.length === 0) {
+    message.warning('请选择执行账号')
+    return
+  }
+
+  try {
+    await formRef.value?.validate()
+  } catch (error) {
+    message.warning('请完善必填项')
+    return
+  }
+
   formLoading.value = true
   try {
-    // 处理话术
-    if (scriptType.value === 1) {
-      formData.value.scripts = manualScripts.value.split('\n').filter(s => s.trim())
-    } else {
-      formData.value.scripts = selectedScripts.value
-    }
-    formData.value.scriptType = scriptType.value
-    
     // 处理间隔
     const [min, max] = intervalRange.value.split('-').map(Number)
     formData.value.minIntervalSeconds = min
@@ -363,49 +440,9 @@ const submitForm = async () => {
       const taskId = respData?.id || respData
       message.success('创建成功')
       
-      // 群发私信任务创建成功后启动浏览器执行
+      // 群发私信任务创建成功后后台启动浏览器执行
       if (taskId) {
-        const startedAccounts = new Set<string>()
-        
-        for (const accountId of formData.value.accountIds) {
-          if (startedAccounts.has(accountId)) continue
-          
-          // 获取账号信息
-          const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
-          if (!accountInfo) continue
-          
-          const cookie = accountInfo.cookie || null
-          
-          try {
-            // @ts-ignore
-            if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-              // 为每个目标用户启动私信发送任务
-              for (const targetUserId of formData.value.targetUserIds) {
-                window.chrome.webview.hostObjects.sync.wpfBridge.StartDmTask(
-                  String(taskId),
-                  `${taskId}_${accountId}_${targetUserId}`,
-                  String(accountInfo.fbAccount),
-                  cookie,
-                  targetUserId,
-                  formData.value.scripts[0] || '' // 使用第一条话术
-                )
-                console.log(`📨 启动私信任务: TaskId=${taskId}, Account=${accountInfo.fbAccount}, Target=${targetUserId}`)
-                
-                // 私信间隔
-                await new Promise(resolve => setTimeout(resolve, formData.value.minIntervalSeconds * 1000))
-              }
-              startedAccounts.add(accountId)
-            } else {
-              console.warn('⚠️ WPF桥接未就绪，任务已创建但未启动浏览器')
-            }
-          } catch (error) {
-            console.error(`启动账号 ${accountInfo.fbAccount} 的私信任务失败:`, error)
-          }
-        }
-        
-        if (startedAccounts.size > 0) {
-          message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行私信任务`)
-        }
+        void startDmTaskInWpf(String(taskId))
       }
     } else {
       await DmTaskApi.updateDmTask(data)
@@ -413,8 +450,9 @@ const submitForm = async () => {
     }
     dialogVisible.value = false
     emit('success')
-  } catch (error) {
+  } catch (error: any) {
     console.error('提交失败:', error)
+    message.error(error?.message || '提交失败')
   } finally {
     formLoading.value = false
   }

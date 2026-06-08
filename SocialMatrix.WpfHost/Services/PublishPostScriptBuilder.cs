@@ -18,7 +18,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <summary>
         /// 生成完整的发个人帖脚本
         /// </summary>
-        public string Build()
+        public override string Build()
         {
             var config = JObject.Parse(_actionConfigJson);
             var postContent = config["postContent"]?.ToString() ?? "";

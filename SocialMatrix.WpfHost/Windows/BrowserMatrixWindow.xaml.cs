@@ -22,6 +22,8 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
         private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
         private readonly Dictionary<string, IRequestContext> _requestContexts = new(); // 账号 -> 独立请求上下文
+        private readonly Dictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
+        private readonly Dictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
 
         // 当前明细ID(用于回传,单任务场景，兼容旧逻辑)
         public string? CurrentDetailId { get; set; }
@@ -220,17 +222,42 @@ namespace SocialMatrix.WpfHost.Windows
         /// 创建浏览器实例并启动自动化采集
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com",
-            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null)
+            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null, bool isOperation = false)
         {
             if (!string.IsNullOrEmpty(detailId))
             {
                 _accountDetailIds[accountId] = detailId;
                 CurrentDetailId = detailId;
             }
+
+            // 存储是否为运营任务
+            _accountIsOperation[accountId] = isOperation;
+            System.Diagnostics.Debug.WriteLine($"📋 BrowserMatrixWindow 存储 isOperation={isOperation} for account={accountId}");
+
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
             {
                 System.Diagnostics.Debug.WriteLine($"📋 BrowserMatrixWindow 收到配置: {config}");
+
+                // 群发私信任务：从config中解析私信参数并存储
+                if (taskType == 14)
+                {
+                    try
+                    {
+                        var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
+                        string? fbUserId = configObj.ContainsKey("fbUserId") ? configObj.Value<string>("fbUserId") : null;
+                        string? messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") : null;
+                        if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
+                        {
+                            _dmOperationParams[accountId] = (fbUserId, messageText);
+                            System.Diagnostics.Debug.WriteLine($"📋 已存储私信参数: 目标={fbUserId}, 消息长度={messageText.Length}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ 解析私信配置失败: {ex.Message}");
+                    }
+                }
             }
 
             // 检查是否超过最大并发数
@@ -247,16 +274,25 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的浏览器已存在");
                 _accountTaskTypes[accountId] = taskType;
 
-                // 如果提供了新的搜索 URL，重新启动采集
+                // 如果提供了新的搜索 URL，重新启动任务
                 if (!string.IsNullOrEmpty(searchUrl))
                 {
                     var existingBrowser = _browsers[accountId];
-                    System.Diagnostics.Debug.WriteLine($"🔄 为已存在的浏览器启动新采集: {searchUrl}");
+                    System.Diagnostics.Debug.WriteLine($"🔄 为已存在的浏览器启动新任务: {searchUrl}, taskType={taskType}");
 
-                    // 异步启动采集（不阻塞）
+                    // 异步启动（不阻塞）
                     Task.Run(async () =>
                     {
-                        await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
+                        if (isOperation)
+                        {
+                            // 运营任务走独立分发
+                            await StartOperationTask(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
+                        }
+                        else
+                        {
+                            // 采集任务走采集逻辑
+                            await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
+                        }
                     });
                 }
                 return;
@@ -329,7 +365,7 @@ namespace SocialMatrix.WpfHost.Windows
 
             System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 创建浏览器");
 
-            // 页面加载状态变化事件（项目 A 的逻辑）
+            // 页面加载状态变化事件
             browser.LoadingStateChanged += async (sender, e) =>
             {
                 if (!e.IsLoading)  // 页面加载完成
@@ -369,10 +405,19 @@ namespace SocialMatrix.WpfHost.Windows
                                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 未提供 Cookie，跳过注入步骤");
                             }
 
-                            // 3. 如果 Cookie 有效且提供了搜索 URL，启动自动化采集
+                            // 3. 根据 isOperation 分发：运营任务走 StartOperationTask，采集任务走 StartAutoCollect
                             if (isCookieValid && !string.IsNullOrEmpty(searchUrl))
                             {
-                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
+                                if (isOperation)
+                                {
+                                    // 运营任务（链接加组/群发私信/转帖等）：由独立方法处理
+                                    await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config);
+                                }
+                                else
+                                {
+                                    // 采集任务：走采集脚本逻辑
+                                    await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
+                                }
                             }
                         }
                     }
@@ -714,6 +759,186 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
+        /// 启动运营任务（taskType >= 9）：群发私信/链接加组/转帖等
+        /// 与采集任务分离，运营任务在 LoadingStateChanged 中等页面加载完成后执行
+        /// </summary>
+        private async Task StartOperationTask(ChromiumWebBrowser browser, string accountId,
+            string searchUrl, int expectedCount, int taskType = 9, string? config = null)
+        {
+            System.Diagnostics.Debug.WriteLine($"🚀 开始运营任务: taskType={taskType}, url={searchUrl}");
+
+            try
+            {
+                // 0. 验证浏览器是否仍然有效（需要在UI线程访问）
+                bool isBrowserDisposed = false;
+                bool canExecuteJavascript = false;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    isBrowserDisposed = browser.IsDisposed;
+                    canExecuteJavascript = browser.CanExecuteJavascriptInMainFrame;
+                });
+
+                if (isBrowserDisposed || !canExecuteJavascript)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已失效");
+                    OnCollectionError?.Invoke(accountId, "浏览器已失效");
+                    return;
+                }
+
+                // 1. 导航到目标任务 URL（Cookie 注入后浏览器停留在 facebook.com 首页，必须主动导航）
+                string currentUrl = "";
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    currentUrl = browser.Address ?? "";
+                });
+                System.Diagnostics.Debug.WriteLine($"🔍 导航前 URL: {currentUrl}");
+
+                if (!string.IsNullOrEmpty(searchUrl) && !IsOnTargetUrl(currentUrl, searchUrl))
+                {
+                    System.Diagnostics.Debug.WriteLine($"🔗 导航到任务 URL: {searchUrl}");
+                    await NavigateBrowserToUrlAsync(browser, accountId, searchUrl);
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        currentUrl = browser.Address ?? "";
+                    });
+                    System.Diagnostics.Debug.WriteLine($"🔍 导航后 URL: {currentUrl}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"⏳ 已在目标页面，等待稳定...");
+                    await Task.Delay(1500);
+                }
+
+                // 2. 检查是否被重定向到登录页
+                if (currentUrl.Contains("/login") || currentUrl.Contains("/checkpoint"))
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，被重定向到: {currentUrl}");
+                    OnCollectionError?.Invoke(accountId, "Cookie已失效或账号被封");
+                    return;
+                }
+
+                // 4. 根据任务类型分发
+                switch (taskType)
+                {
+                    case 9:
+                        // 链接加组：由 ExecuteAddGroupTaskAsync 处理
+                        System.Diagnostics.Debug.WriteLine($"📋 执行链接加组任务...");
+                        var addGroupJson = await ExecuteAddGroupTaskAsync(browser, accountId, config);
+                        if (addGroupJson != null)
+                        {
+                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            OnCollectionComplete?.Invoke(detailId, accountId, addGroupJson, 9);
+                        }
+                        break;
+
+                    case 14:
+                        // 群发私信：等待页面完全加载，然后执行私信发送
+                        System.Diagnostics.Debug.WriteLine($"📨 执行群发私信任务...");
+                        await WaitForPageReady(browser, timeoutMs: 15000);
+                        System.Diagnostics.Debug.WriteLine($"✅ 私信页面已就绪");
+
+                        if (_dmOperationParams.TryGetValue(accountId, out var dmParams))
+                        {
+                            await SendDirectMessage(accountId, dmParams.fbUserId, dmParams.messageText);
+                        }
+                        else
+                        {
+                            // 从 config JSON 中重新解析
+                            if (!string.IsNullOrEmpty(config))
+                            {
+                                try
+                                {
+                                    var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
+                                    string fbUserId = configObj.ContainsKey("fbUserId") ? configObj.Value<string>("fbUserId") ?? "" : "";
+                                    string messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") ?? "" : "";
+                                    if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
+                                    {
+                                        await SendDirectMessage(accountId, fbUserId, messageText);
+                                    }
+                                    else
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"⚠️ 私信参数无效: fbUserId={fbUserId}, messageText为空={string.IsNullOrEmpty(messageText)}");
+                                        OnCollectionError?.Invoke(accountId, "私信参数无效");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"⚠️ 解析私信参数失败: {ex.Message}");
+                                    OnCollectionError?.Invoke(accountId, "解析私信参数失败");
+                                }
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"⚠️ 未找到私信参数，config={config}");
+                                OnCollectionError?.Invoke(accountId, "未找到私信参数");
+                            }
+                        }
+                        break;
+
+                    case 10:
+                        // 转帖任务：调用采集脚本（转帖脚本也在 GenerateCollectScript 中）
+                        System.Diagnostics.Debug.WriteLine($"📋 执行转帖任务...");
+                        var repostScript = GenerateCollectScript(accountId, expectedCount, 10, config);
+                        if (!string.IsNullOrEmpty(repostScript) && !string.IsNullOrWhiteSpace(repostScript))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"🔍 转帖脚本长度: {repostScript.Length} 字符");
+                            var result = await browser.EvaluateScriptAsync(repostScript);
+                            if (result.Success)
+                            {
+                                string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                                string resultStr = result.Result?.ToString() ?? "[]";
+                                OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 10);
+                            }
+                        }
+                        break;
+
+                    default:
+                        System.Diagnostics.Debug.WriteLine($"⚠️ 未知运营任务类型: taskType={taskType}");
+                        OnCollectionError?.Invoke(accountId, $"不支持的任务类型: {taskType}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 运营任务执行异常: {ex.Message}\n{ex.StackTrace}");
+                OnCollectionError?.Invoke(accountId, $"运营任务异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 等待页面完全就绪（不仅是 IsLoading=false，还需要页面 DOM 稳定）
+        /// </summary>
+        private async Task WaitForPageReady(ChromiumWebBrowser browser, int timeoutMs = 15000)
+        {
+            var startTime = DateTime.Now;
+            while (true)
+            {
+                // 检查浏览器是否已释放（需要在UI线程访问）
+                bool isDisposed = false;
+                bool canExecute = false;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    isDisposed = browser.IsDisposed;
+                    canExecute = browser.CanExecuteJavascriptInMainFrame;
+                });
+
+                if (isDisposed) return;
+                if (canExecute)
+                {
+                    // 额外等待页面稳定
+                    await Task.Delay(1500);
+                    break;
+                }
+                if ((DateTime.Now - startTime).TotalMilliseconds > timeoutMs)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 等待页面就绪超时: {timeoutMs}ms");
+                    break;
+                }
+                await Task.Delay(500);
+            }
+        }
+
+        /// <summary>
         /// 启动自动化采集
         /// </summary>
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId,
@@ -888,23 +1113,6 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，被重定向到: {currentUrl}");
                     OnCollectionError?.Invoke(accountId, "Cookie已失效或账号被封，需要重新登录");
-                    return;
-                }
-
-                // 链接加组：由 C# 按群组逐个导航执行，避免 JS 页面跳转导致脚本中断
-                if (taskType == 9)
-                {
-                    var addGroupJson = await ExecuteAddGroupTaskAsync(browser, accountId, config);
-                    if (addGroupJson == null)
-                    {
-                        return;
-                    }
-
-                    int addGroupTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 9;
-                    string addGroupDetailId = _accountDetailIds.ContainsKey(accountId)
-                        ? _accountDetailIds[accountId]
-                        : (CurrentDetailId ?? "");
-                    OnCollectionComplete?.Invoke(addGroupDetailId, accountId, addGroupJson, addGroupTaskType);
                     return;
                 }
 
@@ -2206,6 +2414,89 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 语言切换异常: {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// 判断当前 URL 是否已在目标任务页（私信页允许 e2ee 子路径）
+        /// </summary>
+        private static bool IsOnTargetUrl(string currentUrl, string targetUrl)
+        {
+            if (string.IsNullOrEmpty(currentUrl) || string.IsNullOrEmpty(targetUrl)) return false;
+
+            try
+            {
+                var current = new Uri(currentUrl);
+                var target = new Uri(targetUrl);
+
+                if (target.AbsolutePath.Contains("/messages/", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!current.AbsolutePath.Contains("/messages/", StringComparison.OrdinalIgnoreCase))
+                        return false;
+
+                    // 私信线程 URL 可能在点击 Continue 后变为 /messages/e2ee/t/{id}
+                    var segments = target.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i < segments.Length; i++)
+                    {
+                        if (segments[i] == "t" && i + 1 < segments.Length)
+                        {
+                            var userId = segments[i + 1];
+                            if (currentUrl.Contains(userId, StringComparison.Ordinal))
+                                return true;
+                        }
+                    }
+                    return current.AbsolutePath.Contains("/messages/", StringComparison.OrdinalIgnoreCase);
+                }
+
+                return string.Equals(
+                    current.AbsolutePath.TrimEnd('/'),
+                    target.AbsolutePath.TrimEnd('/'),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return currentUrl.StartsWith(targetUrl, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// 导航浏览器到指定 URL 并等待加载完成
+        /// </summary>
+        private async Task NavigateBrowserToUrlAsync(ChromiumWebBrowser browser, string accountId, string targetUrl, int timeoutMs = 40000)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                browser.Load(targetUrl);
+            });
+
+            System.Diagnostics.Debug.WriteLine($"📌 等待页面加载: {targetUrl}");
+            await Task.Delay(2000);
+
+            var startTime = DateTime.Now;
+            while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
+            {
+                bool isDisposed = false;
+                bool isLoading = true;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    isDisposed = browser.IsDisposed;
+                    isLoading = browser.IsLoading;
+                });
+
+                if (isDisposed)
+                {
+                    throw new InvalidOperationException($"账号 {accountId} 浏览器已被关闭");
+                }
+
+                if (!isLoading)
+                {
+                    await Task.Delay(1000);
+                    return;
+                }
+
+                await Task.Delay(500);
+            }
+
+            throw new TimeoutException($"导航超时 ({timeoutMs}ms): {targetUrl}");
         }
 
         /// <summary>

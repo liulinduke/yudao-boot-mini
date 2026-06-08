@@ -59,8 +59,8 @@ namespace SocialMatrix.WpfHost
         /// <summary>
         /// 为指定账号创建浏览器实例（供 Vue 调用）
         /// </summary>
-        public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null, 
-            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null)
+        public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null,
+            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false)
         {
             // 记录配置信息
             if (!string.IsNullOrEmpty(config))
@@ -94,8 +94,8 @@ namespace SocialMatrix.WpfHost
             }
 
             // 在矩阵窗口中创建浏览器并启动自动化采集（detailId 按账号绑定，避免多账号互相覆盖）
-            _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com", 
-                cookie, searchUrl, expectedCount, taskType: taskType, config: config, detailId: detailId);
+            _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
+                cookie, searchUrl, expectedCount, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation);
             
             // 激活窗口（置顶）
             _browserMatrixWindow.Activate();

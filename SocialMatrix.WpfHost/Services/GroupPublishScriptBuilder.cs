@@ -19,7 +19,7 @@ namespace SocialMatrix.WpfHost.Services
         /// 生成完整的发群帖脚本（已废弃，现在使用C#控制循环）
         /// </summary>
         [System.Obsolete("请使用C#层面的ExecuteGroupPublish方法")]
-        public string Build()
+        public override string Build()
         {
             var config = JObject.Parse(_actionConfigJson);
             var postContent = config["postContent"]?.ToString() ?? "";
