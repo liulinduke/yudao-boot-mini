@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using SocialMatrix.WpfHost.Services;
 
 namespace SocialMatrix.WpfHost.Services
@@ -78,17 +79,27 @@ namespace SocialMatrix.WpfHost.Services
         
         private void InputLexicalMessage()
         {
+            var messageJson = JsonConvert.SerializeObject(_messageText);
             _js.AppendLine("            editor.focus();");
             _js.AppendLine("            await randomDelay(300, 600);");
-            _js.AppendLine("            const messageText = `" + _messageText.Replace("`", "\\`").Replace("\\", "\\\\") + "`;");
+            _js.AppendLine($"            const messageText = {messageJson};");
             _js.AppendLine("            document.execCommand('selectAll', false, null);");
             _js.AppendLine("            document.execCommand('delete', false, null);");
             _js.AppendLine("            await randomDelay(200, 400);");
-            _js.AppendLine("            for (let i = 0; i < messageText.length; i++) {");
-            _js.AppendLine("                const ch = messageText[i];");
-            _js.AppendLine("                document.execCommand('insertText', false, ch);");
-            _js.AppendLine("                editor.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
-            _js.AppendLine("                await randomDelay(30, 80);");
+            _js.AppendLine("            let inputOk = false;");
+            _js.AppendLine("            try {");
+            _js.AppendLine("                const dt = new DataTransfer();");
+            _js.AppendLine("                dt.setData('text/plain', messageText);");
+            _js.AppendLine("                editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));");
+            _js.AppendLine("                await randomDelay(500, 800);");
+            _js.AppendLine("                inputOk = ((editor.textContent || editor.innerText || '').trim().length > 0);");
+            _js.AppendLine("            } catch (pasteErr) { console.warn('[私信发送] paste 失败:', pasteErr); }");
+            _js.AppendLine("            if (!inputOk) {");
+            _js.AppendLine("                for (const ch of messageText) {");
+            _js.AppendLine("                    document.execCommand('insertText', false, ch);");
+            _js.AppendLine("                    editor.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                    await randomDelay(30, 80);");
+            _js.AppendLine("                }");
             _js.AppendLine("            }");
             _js.AppendLine("            await randomDelay(500, 1000);");
             _js.AppendLine("            const typedText = (editor.textContent || editor.innerText || '').trim();");

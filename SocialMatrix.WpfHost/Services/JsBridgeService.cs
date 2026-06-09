@@ -203,15 +203,14 @@ namespace SocialMatrix.WpfHost.Services
                         browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
                     }
                     
-                    // 如果窗口不存在或浏览器不存在，先创建
-                    bool needCreateBrowser = browserMatrixWindow == null || 
-                                            browserMatrixWindow.GetActiveBrowserCount() == 0;
-                    
+                    bool needCreateBrowser = browserMatrixWindow == null ||
+                                            !browserMatrixWindow.HasBrowser(accountId);
+
                     if (needCreateBrowser)
                     {
                         System.Diagnostics.Debug.WriteLine($"🌐 创建浏览器并导航到私信页面...");
-                        // 将私信参数封装到 config JSON 中传给 CreateBrowser
                         var dmConfig = Newtonsoft.Json.JsonConvert.SerializeObject(new {
+                            taskId = taskId,
                             fbUserId = fbUserId,
                             messageText = messageText
                         });
@@ -223,11 +222,13 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 14,
                             config: dmConfig,
-                            isOperation: true); // 群发私信是运营任务
-                        // 注意：私信发送逻辑已在 BrowserMatrixWindow.StartOperationTask 中处理
-                        // 等待足够时间让页面加载和脚本执行
-                        await Task.Delay(5000);
+                            isOperation: true);
                         System.Diagnostics.Debug.WriteLine($"✅ 私信任务已提交执行: TaskId={taskId}, DetailId={detailId}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"♻️ 复用已有浏览器执行私信: AccountId={accountId}, DetailId={detailId}");
+                        await browserMatrixWindow.ExecuteDmDetailAsync(taskId, detailId, accountId, fbUserId, messageText);
                     }
                 }
                 catch (Exception ex)

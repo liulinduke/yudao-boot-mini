@@ -23,6 +23,7 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
         private readonly Dictionary<string, IRequestContext> _requestContexts = new(); // 账号 -> 独立请求上下文
         private readonly Dictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
+        private readonly Dictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
         private readonly Dictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
 
         // 当前明细ID(用于回传,单任务场景，兼容旧逻辑)
@@ -248,12 +249,17 @@ namespace SocialMatrix.WpfHost.Windows
                     try
                     {
                         var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
+                        string? taskId = configObj.ContainsKey("taskId") ? configObj.Value<string>("taskId") : null;
                         string? fbUserId = configObj.ContainsKey("fbUserId") ? configObj.Value<string>("fbUserId") : null;
                         string? messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") : null;
+                        if (!string.IsNullOrEmpty(taskId))
+                        {
+                            _dmTaskIds[accountId] = taskId;
+                        }
                         if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
                         {
                             _dmOperationParams[accountId] = (fbUserId, messageText);
-                            System.Diagnostics.Debug.WriteLine($"📋 已存储私信参数: 目标={fbUserId}, 消息长度={messageText.Length}");
+                            System.Diagnostics.Debug.WriteLine($"📋 已存储私信参数: 任务={taskId}, 目标={fbUserId}, 消息长度={messageText.Length}");
                         }
                     }
                     catch (Exception ex)
@@ -839,7 +845,9 @@ namespace SocialMatrix.WpfHost.Windows
 
                         if (_dmOperationParams.TryGetValue(accountId, out var dmParams))
                         {
-                            await SendDirectMessage(accountId, dmParams.fbUserId, dmParams.messageText);
+                            string dmTaskId = _dmTaskIds.TryGetValue(accountId, out var tid) ? tid : "";
+                            string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+                            await SendDirectMessage(accountId, dmParams.fbUserId, dmParams.messageText, dmTaskId, dmDetailId);
                         }
                         else
                         {
@@ -853,7 +861,9 @@ namespace SocialMatrix.WpfHost.Windows
                                     string messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") ?? "" : "";
                                     if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
                                     {
-                                        await SendDirectMessage(accountId, fbUserId, messageText);
+                                        string dmTaskId = configObj.ContainsKey("taskId") ? configObj.Value<string>("taskId") ?? "" : "";
+                                        string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+                                        await SendDirectMessage(accountId, fbUserId, messageText, dmTaskId, dmDetailId);
                                     }
                                     else
                                     {

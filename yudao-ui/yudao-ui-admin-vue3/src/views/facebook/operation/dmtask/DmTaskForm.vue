@@ -77,7 +77,7 @@
 
           <!-- 随机表情 -->
           <el-checkbox v-model="formData.appendRandomEmoji" class="mt-2">
-            追加随机表情
+            追加随机 Facebook 表情（每条明细话术末尾随机 1~2 个）
           </el-checkbox>
         </div>
       </el-form-item>
@@ -333,17 +333,22 @@ const openScriptSelector = () => {
   scriptSelectorVisible.value = true
 }
 
-/** 确认话术选择 */
-const handleScriptConfirm = (script: any) => {
-  // 多选模式，添加到列表
-  if (!selectedScripts.value.includes(script.scriptContent)) {
-    selectedScripts.value.push(script.scriptContent)
+/** 确认话术选择（支持多条） */
+const handleScriptConfirm = (scripts: any[] | any) => {
+  const list = Array.isArray(scripts) ? scripts : [scripts]
+  for (const script of list) {
+    const content = script?.scriptContent?.trim()
+    if (content && !selectedScripts.value.includes(content)) {
+      selectedScripts.value.push(content)
+    }
   }
+  syncScriptsToForm()
 }
 
 /** 移除选中的话术 */
 const removeSelectedScript = (index: number) => {
   selectedScripts.value.splice(index, 1)
+  syncScriptsToForm()
 }
 
 /** 同步话术到表单数据 */
@@ -354,51 +359,58 @@ const syncScriptsToForm = () => {
   formData.value.scriptType = scriptType.value
 }
 
-/** 后台通知 WPF 启动群发私信任务 */
+const getRandomIntervalMs = (minSec: number, maxSec: number) => {
+  const min = Math.min(minSec, maxSec)
+  const max = Math.max(minSec, maxSec)
+  return (min + Math.random() * (max - min)) * 1000
+}
+
+/** 按明细逐条发送（每条明细含独立话术） */
 const startDmTaskInWpf = async (taskId: string) => {
-  const accountIds = [...formData.value.accountIds]
-  const targetUserIds = [...formData.value.targetUserIds]
-  const messageText = formData.value.scripts[0] || ''
-  const intervalSeconds = formData.value.minIntervalSeconds
-  const startedAccounts = new Set<string>()
+  const win = window as any
+  const bridge = win.chrome?.webview?.hostObjects?.sync?.wpfBridge
+  if (!bridge) {
+    console.warn('WPF桥接未就绪，任务已创建但未启动浏览器')
+    return
+  }
 
-  for (const accountId of accountIds) {
-    if (startedAccounts.has(accountId)) continue
+  const taskDetail = await DmTaskApi.getDmTask(taskId)
+  const details = taskDetail?.details || []
+  if (details.length === 0) {
+    message.warning('任务明细为空，无法启动发送')
+    return
+  }
 
-    const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
-    if (!accountInfo) continue
+  const minInterval = taskDetail.minIntervalSeconds || formData.value.minIntervalSeconds
+  const maxInterval = taskDetail.maxIntervalSeconds || formData.value.maxIntervalSeconds
+  let sentCount = 0
 
-    try {
-      const win = window as any
-      const bridge = win.chrome?.webview?.hostObjects?.sync?.wpfBridge
+  await DmTaskApi.startTask(taskId)
 
-      if (!bridge) {
-        console.warn('WPF桥接未就绪，任务已创建但未启动浏览器')
-        return
-      }
+  for (let i = 0; i < details.length; i++) {
+    const detail = details[i]
+    const accountInfo = accounts.value.find((acc) => String(acc.id) === String(detail.accountId))
+    const cookie = detail.cookie || accountInfo?.cookie || ''
 
-      for (const targetUserId of targetUserIds) {
-        bridge.StartDmTask(
-          taskId,
-          `${taskId}_${accountId}_${targetUserId}`,
-          String(accountInfo.fbAccount),
-          accountInfo.cookie || null,
-          targetUserId,
-          messageText
-        )
-        console.log(`启动私信任务: TaskId=${taskId}, Account=${accountInfo.fbAccount}, Target=${targetUserId}`)
+    bridge.StartDmTask(
+      taskId,
+      String(detail.id),
+      String(detail.accountId),
+      cookie || null,
+      detail.targetUserId,
+      detail.scriptContent || ''
+    )
+    sentCount++
+    console.log(
+      `启动私信 ${i + 1}/${details.length}: 账号=${detail.accountId}, 目标=${detail.targetUserId}, 话术=${detail.scriptContent}`
+    )
 
-        await new Promise((resolve) => setTimeout(resolve, intervalSeconds * 1000))
-      }
-      startedAccounts.add(accountId)
-    } catch (error) {
-      console.error(`启动账号 ${accountInfo.fbAccount} 的私信任务失败:`, error)
+    if (i < details.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, getRandomIntervalMs(minInterval, maxInterval)))
     }
   }
 
-  if (startedAccounts.size > 0) {
-    message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行私信任务`)
-  }
+  message.success(`已提交 ${sentCount} 条私信到 WPF 执行队列`)
 }
 
 /** 提交表单 */

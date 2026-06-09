@@ -188,9 +188,12 @@ const handleStart = async (id: number) => {
           detail.scriptContent
         )
         
-        // 等待间隔时间（从任务配置中获取）
-        const intervalSeconds = (taskDetail.minIntervalSeconds + taskDetail.maxIntervalSeconds) / 2
-        await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000))
+        if (i < taskDetail.details.length - 1) {
+          const min = taskDetail.minIntervalSeconds || 4
+          const max = taskDetail.maxIntervalSeconds || 10
+          const waitMs = (Math.min(min, max) + Math.random() * Math.abs(max - min)) * 1000
+          await new Promise((resolve) => setTimeout(resolve, waitMs))
+        }
       } else {
         console.warn('⚠️ WPF 桥接对象不存在，无法发送私信')
         break

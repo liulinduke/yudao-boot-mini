@@ -37,5 +37,10 @@ export const DmTaskApi = {
   // 取消任务
   cancelTask: (id: string | number) => {
     return request.post({ url: `/facebook/dm-task/cancel/${id}` })
+  },
+
+  // 上报明细发送结果
+  reportDetail: (data: { detailId: number | string; status: number; errorMsg?: string }) => {
+    return request.post({ url: '/facebook/dm-task/report-detail', data })
   }
 }

@@ -14,6 +14,9 @@
         </template>
         <el-descriptions :column="3" border>
           <el-descriptions-item label="任务ID">{{ taskDetail.task?.id }}</el-descriptions-item>
+          <el-descriptions-item label="任务名称">{{
+            taskDetail.task?.taskName || '-'
+          }}</el-descriptions-item>
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
@@ -117,8 +120,59 @@
       <!-- 编辑模式下的Tab -->
       <el-tabs v-if="formType === 'view'" v-model="activeTab" type="border-card">
         <!-- Tab 1: 任务明细 -->
-        <el-tab-pane :label="taskDetail?.task?.taskType === 9 ? '📊 加组明细' : '📊 任务明细'" name="details">
-          <el-table :data="detailList" stripe border max-height="500">
+        <el-tab-pane
+          :label="
+            taskDetail?.task?.taskType === 9
+              ? '📊 加组明细'
+              : taskDetail?.task?.taskType === 14
+                ? '📨 私发明细'
+                : '📊 任务明细'
+          "
+          name="details"
+        >
+          <!-- 群发私信明细 -->
+          <el-table
+            v-if="taskDetail?.task?.taskType === 14"
+            :data="detailList"
+            stripe
+            border
+            max-height="500"
+          >
+            <el-table-column label="明细ID" prop="id" width="90" />
+            <el-table-column label="FB账号" prop="fbAccount" width="150" show-overflow-tooltip />
+            <el-table-column
+              label="目标用户ID"
+              prop="targetUserId"
+              width="160"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              label="话术"
+              prop="scriptContent"
+              min-width="200"
+              show-overflow-tooltip
+            />
+            <el-table-column label="状态" width="100">
+              <template #default="scope">
+                <el-tag v-if="scope.row.status === 0" type="info">待执行</el-tag>
+                <el-tag v-else-if="scope.row.status === 2" type="success">成功</el-tag>
+                <el-tag v-else-if="scope.row.status === 3" type="danger">失败</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="发送时间" prop="sendTime" width="160">
+              <template #default="scope">
+                {{ formatDate(scope.row.sendTime) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="错误信息"
+              prop="errorMsg"
+              min-width="150"
+              show-overflow-tooltip
+            />
+          </el-table>
+          <!-- 其他运营任务明细 -->
+          <el-table v-else :data="detailList" stripe border max-height="500">
             <el-table-column label="明细ID" prop="id" width="100" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
             <el-table-column v-if="taskDetail?.task?.taskType !== 9" label="期望/已采" width="120">
@@ -149,6 +203,7 @@
               </template>
             </el-table-column>
           </el-table>
+          <el-empty v-if="detailList.length === 0" description="暂无明细数据" />
         </el-tab-pane>
 
         <!-- Tab 2: 采集结果（仅链接加组显示） -->
@@ -402,9 +457,10 @@ const submitForm = async () => {
       })
       .replace(/[\/\s:]/g, '')
 
-    const accountsToUse = formData.value.taskType === 9
-      ? Math.min(formData.value.accountIds.length, selectedGroups.value.length)
-      : formData.value.accountIds.length
+    const accountsToUse =
+      formData.value.taskType === 9
+        ? Math.min(formData.value.accountIds.length, selectedGroups.value.length)
+        : formData.value.accountIds.length
     const usedAccountIds = formData.value.accountIds.slice(0, accountsToUse)
 
     const data = {
@@ -419,81 +475,94 @@ const submitForm = async () => {
     const taskId = respData?.id || respData
     const createdTaskDetail = taskId ? await getFbOperationTask(String(taskId)) : null
     const createdDetails = createdTaskDetail?.details || []
-    
+
     message.success('任务创建成功')
-    
+
     // 如果是链接加组任务，创建成功后启动浏览器
     if (formData.value.taskType === 9 && taskId) {
       const startedAccounts = new Set<string>()
       const totalGroups = selectedGroups.value.length
       const totalAccounts = usedAccountIds.length
-      
+
       // 群组平均分配：将群组列表分配给账号
       // 规则：10账号+10群组 → 每个账号1个群组；10账号+1群组 → 1个账号处理；5账号+12群组 → 2个账号处理3个，3个账号处理2个
       const accountsToUse = Math.min(totalAccounts, totalGroups)
-      
+
       // 获取全局配置中的每日加组限制
       let dailyLimit = 10
       try {
-        const config = await import('@/api/facebook/dailylimit').then(m => m.DailyLimitApi.getConfig())
+        const config = await import('@/api/facebook/dailylimit').then((m) =>
+          m.DailyLimitApi.getConfig()
+        )
         dailyLimit = config.data?.join_group_daily_limit || 10
       } catch (e) {
         console.warn('⚠️ 获取全局配置失败，使用默认每日加组限制: 10')
       }
-      
+
       for (let i = 0; i < accountsToUse; i++) {
         const accountId = usedAccountIds[i]
         if (startedAccounts.has(accountId)) continue
-        
-        const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
+
+        const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
         if (!accountInfo) continue
-        
+
         // 调用API获取该账号今日剩余加组次数
         let remainingCount = dailyLimit
         try {
-          const limitData = await import('@/api/facebook/dailylimit').then(m => m.DailyLimitApi.getRemainingCount(String(accountId), 'join_group'))
+          const limitData = await import('@/api/facebook/dailylimit').then((m) =>
+            m.DailyLimitApi.getRemainingCount(String(accountId), 'join_group')
+          )
           remainingCount = limitData.data?.remaining || dailyLimit
         } catch (e) {
-          console.warn(`⚠️ 获取账号 ${accountInfo.fbAccount} 剩余加组次数失败，默认允许 ${dailyLimit} 次`)
+          console.warn(
+            `⚠️ 获取账号 ${accountInfo.fbAccount} 剩余加组次数失败，默认允许 ${dailyLimit} 次`
+          )
         }
-        
+
         // 检查剩余次数
         if (remainingCount <= 0) {
-          console.warn(`⚠️ 账号 ${accountInfo.fbAccount} 今日加组次数已达上限(${dailyLimit}次)，跳过`)
+          console.warn(
+            `⚠️ 账号 ${accountInfo.fbAccount} 今日加组次数已达上限(${dailyLimit}次)，跳过`
+          )
           continue
         }
-        
+
         // 计算该账号需要处理的群组索引范围
         const groupsPerAccount = Math.ceil(totalGroups / accountsToUse)
         const startIndex = i * groupsPerAccount
         const endIndex = Math.min(startIndex + groupsPerAccount, totalGroups)
-        
+
         // 获取分配给该账号的群组（不超过剩余次数）
         const maxGroupsToProcess = Math.min(remainingCount, endIndex - startIndex)
-        const assignedGroups = selectedGroups.value.slice(startIndex, startIndex + maxGroupsToProcess)
+        const assignedGroups = selectedGroups.value.slice(
+          startIndex,
+          startIndex + maxGroupsToProcess
+        )
         if (assignedGroups.length === 0) continue
-        
+
         const cookie = accountInfo.cookie || null
-        const operationDetail = createdDetails.find(detail => String(detail.accountId) === String(accountId))
+        const operationDetail = createdDetails.find(
+          (detail) => String(detail.accountId) === String(accountId)
+        )
         if (!operationDetail?.id) {
           console.warn(`⚠️ 未找到账号 ${accountInfo.fbAccount} 对应的任务明细ID，跳过启动`)
           continue
         }
-        
+
         try {
           // 构造该账号的群组配置
           const groupConfig = {
-            groups: assignedGroups.map(g => ({
+            groups: assignedGroups.map((g) => ({
               groupId: g.id,
               groupName: g.groupName,
               groupUrl: g.url
             }))
           }
           const configJson = JSON.stringify(groupConfig)
-          
+
           const startUrl = assignedGroups[0]?.url || 'https://www.facebook.com'
           const detailId = String(operationDetail.id)
-          
+
           startBrowserCollect(
             detailId,
             String(accountInfo.id), // 传数字ID字符串，不是fbAccount
@@ -505,20 +574,24 @@ const submitForm = async () => {
             true // isOperation: 运营任务
           )
           startedAccounts.add(accountId)
-          console.log(`🚀 启动链接加组任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}, 分配群组=${assignedGroups.length}个[${startIndex+1}-${startIndex+maxGroupsToProcess}]`)
+          console.log(
+            `🚀 启动链接加组任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}, 分配群组=${assignedGroups.length}个[${startIndex + 1}-${startIndex + maxGroupsToProcess}]`
+          )
         } catch (error) {
           console.error(`启动账号 ${accountInfo.fbAccount} 的浏览器失败:`, error)
         }
       }
-      
+
       if (startedAccounts.size > 0) {
-        message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行任务，共处理 ${totalGroups} 个群组`)
+        message.success(
+          `已启动 ${startedAccounts.size} 个账号的浏览器执行任务，共处理 ${totalGroups} 个群组`
+        )
       } else {
         console.warn('⚠️ 未找到有效的账号信息或所有账号已达每日加组上限')
         message.warning('未启动浏览器：所有账号已达每日加组上限或无有效账号')
       }
     }
-    
+
     dialogVisible.value = false
     emit('success')
   } finally {

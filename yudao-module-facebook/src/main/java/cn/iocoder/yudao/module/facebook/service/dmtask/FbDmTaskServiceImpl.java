@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.dmtask;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
@@ -75,28 +76,37 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
                 saveReqVO.getTargetUserIds()
         );
 
-        // 3. 创建任务明细
+        // 3. 创建任务明细（账号×用户打散，话术轮询打散，可选随机表情）
         List<FbDmTaskDetailDO> details = new ArrayList<>();
         for (Map.Entry<String, List<String>> entry : allocation.entrySet()) {
             String accountId = entry.getKey();
-            List<String> userIds = entry.getValue();
-
-            for (String userId : userIds) {
+            for (String userId : entry.getValue()) {
                 FbDmTaskDetailDO detail = new FbDmTaskDetailDO();
                 detail.setTaskId(task.getId());
                 detail.setAccountId(accountId);
                 detail.setTargetUserId(userId);
-                detail.setStatus(0); // 待执行
+                detail.setStatus(0);
                 details.add(detail);
             }
         }
 
         if (CollUtil.isNotEmpty(details)) {
+            List<String> scatteredScripts = DmScriptHelper.scatterScripts(saveReqVO.getScripts(), details.size());
+            boolean appendEmoji = Boolean.TRUE.equals(saveReqVO.getAppendRandomEmoji());
+            for (int i = 0; i < details.size(); i++) {
+                String script = scatteredScripts.get(i);
+                if (appendEmoji) {
+                    script = DmScriptHelper.appendRandomEmoji(script);
+                }
+                details.get(i).setScriptContent(script);
+            }
             dmTaskDetailMapper.insertBatch(details);
+            task.setTotalCount(details.size());
+            dmTaskMapper.updateById(task);
         }
 
-        log.info("创建群发私信任务成功，任务ID: {}, 总任务数: {}, 分配账号数: {}",
-                task.getId(), task.getTotalCount(), allocation.size());
+        log.info("创建群发私信任务成功，任务ID: {}, 总任务数: {}, 分配账号数: {}, 话术数: {}",
+                task.getId(), details.size(), allocation.size(), saveReqVO.getScripts().size());
 
         return task.getId();
     }
@@ -137,25 +147,33 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         // 查询任务明细列表
         List<FbDmTaskDetailDO> details = dmTaskDetailMapper.selectListByTaskId(id);
         if (CollUtil.isNotEmpty(details)) {
-            // 收集所有账号ID
             Set<String> accountIds = details.stream()
                     .map(FbDmTaskDetailDO::getAccountId)
                     .collect(Collectors.toSet());
-            
-            // 批量查询账号信息（获取cookie）
+
             Map<String, String> cookieMap = new HashMap<>();
             if (!accountIds.isEmpty()) {
-                List<FbAccountDO> accounts = accountMapper.selectList(
-                    new LambdaQueryWrapper<FbAccountDO>()
-                        .in(FbAccountDO::getFbAccount, accountIds)
-                );
-                cookieMap = accounts.stream()
-                    .filter(acc -> acc.getCookie() != null)
-                    .collect(Collectors.toMap(
-                        FbAccountDO::getFbAccount,
-                        FbAccountDO::getCookie,
-                        (v1, v2) -> v1 // 如果有重复，保留第一个
-                    ));
+                List<Long> accountIdLongs = accountIds.stream()
+                        .filter(StrUtil::isNotBlank)
+                        .map(ida -> {
+                            try {
+                                return Long.valueOf(ida.trim());
+                            } catch (NumberFormatException ex) {
+                                return null;
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+                if (!accountIdLongs.isEmpty()) {
+                    List<FbAccountDO> accounts = accountMapper.selectList(
+                            new LambdaQueryWrapper<FbAccountDO>().in(FbAccountDO::getId, accountIdLongs));
+                    cookieMap = accounts.stream()
+                            .filter(acc -> acc.getCookie() != null)
+                            .collect(Collectors.toMap(
+                                    acc -> String.valueOf(acc.getId()),
+                                    FbAccountDO::getCookie,
+                                    (v1, v2) -> v1));
+                }
             }
             
             // 转换为RespVO并填充cookie
@@ -260,13 +278,26 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         long completedCount = details.stream().filter(d -> d.getStatus() != null && d.getStatus() == 1).count();
         long failedCount = details.stream().filter(d -> d.getStatus() != null && d.getStatus() == 2).count();
 
+        FbDmTaskDO existing = dmTaskMapper.selectById(taskId);
+        if (existing == null) {
+            return;
+        }
+
         FbDmTaskDO task = new FbDmTaskDO();
         task.setId(taskId);
         task.setCompletedCount((int) completedCount);
         task.setFailedCount((int) failedCount);
 
+        long finishedCount = completedCount + failedCount;
+        if (existing.getStartTime() == null && finishedCount > 0) {
+            task.setStartTime(LocalDateTime.now());
+        }
+        if ((existing.getStatus() == null || existing.getStatus() == 0) && finishedCount > 0) {
+            task.setStatus(1);
+        }
+
         // 判断任务是否完成
-        if (completedCount + failedCount >= details.size()) {
+        if (finishedCount >= details.size()) {
             task.setStatus(2); // 已完成
             task.setEndTime(LocalDateTime.now());
         }

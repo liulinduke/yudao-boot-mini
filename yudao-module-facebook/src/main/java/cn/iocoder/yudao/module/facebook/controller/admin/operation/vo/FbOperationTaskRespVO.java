@@ -45,4 +45,7 @@ public class FbOperationTaskRespVO {
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;
 
+    @Schema(description = "数据来源：operation-运营任务表 dm-私信任务表", example = "operation")
+    private String sourceType;
+
 }

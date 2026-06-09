@@ -8,7 +8,11 @@ import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationAddGroupResultDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbRepostResultDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationAddGroupResultMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
@@ -26,6 +30,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -42,8 +47,16 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 @Validated
 public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
+    private static final int DM_TASK_TYPE = 14;
+
     @Resource
     private FbOperationTaskMapper operationTaskMapper;
+
+    @Resource
+    private FbDmTaskMapper dmTaskMapper;
+
+    @Resource
+    private FbDmTaskDetailMapper dmTaskDetailMapper;
 
     @Resource
     private FbOperationTaskDetailMapper operationTaskDetailMapper;
@@ -138,39 +151,197 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
     @Override
     public FbOperationTaskDetailRespVO getOperationTask(Long id) {
-        // 获取主任务
         FbOperationTaskDO task = operationTaskMapper.selectById(id);
-        if (task == null) {
-            throw exception(OPERATION_TASK_NOT_EXISTS);
+        if (task != null) {
+            return buildOperationTaskDetail(task);
         }
+        FbDmTaskDO dmTask = dmTaskMapper.selectById(id);
+        if (dmTask != null) {
+            return buildDmTaskDetail(dmTask);
+        }
+        throw exception(OPERATION_TASK_NOT_EXISTS);
+    }
 
+    private FbOperationTaskDetailRespVO buildOperationTaskDetail(FbOperationTaskDO task) {
         FbOperationTaskDetailRespVO respVO = new FbOperationTaskDetailRespVO();
-        respVO.setTask(BeanUtils.toBean(task, FbOperationTaskRespVO.class));
+        FbOperationTaskRespVO taskVO = BeanUtils.toBean(task, FbOperationTaskRespVO.class);
+        taskVO.setSourceType("operation");
+        respVO.setTask(taskVO);
 
-        // 获取明细列表
-        List<FbOperationTaskDetailDO> details = operationTaskDetailMapper.selectListByTaskId(id);
-        List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems = BeanUtils.toBean(details, FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO.class);
+        List<FbOperationTaskDetailDO> details = operationTaskDetailMapper.selectListByTaskId(task.getId());
+        List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems =
+                BeanUtils.toBean(details, FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO.class);
         enrichDetailFbAccount(detailItems);
         respVO.setDetails(detailItems);
 
-        // 获取结果列表（链接加组任务）
         if (task.getTaskType() != null && task.getTaskType() == 9) {
-            List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(id);
+            List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(task.getId());
             respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
         }
-
         return respVO;
+    }
+
+    private FbOperationTaskDetailRespVO buildDmTaskDetail(FbDmTaskDO dmTask) {
+        FbOperationTaskDetailRespVO respVO = new FbOperationTaskDetailRespVO();
+        respVO.setTask(convertDmTaskToOperation(dmTask));
+
+        List<FbDmTaskDetailDO> dmDetails = dmTaskDetailMapper.selectListByTaskId(dmTask.getId());
+        List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems = dmDetails.stream()
+                .map(this::convertDmDetailToOperation)
+                .collect(Collectors.toList());
+        enrichDetailFbAccount(detailItems);
+        respVO.setDetails(detailItems);
+        return respVO;
+    }
+
+    private FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO convertDmDetailToOperation(FbDmTaskDetailDO detail) {
+        FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO item =
+                new FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO();
+        item.setId(detail.getId());
+        item.setAccountId(detail.getAccountId());
+        item.setTargetUserId(detail.getTargetUserId());
+        item.setScriptContent(detail.getScriptContent());
+        item.setErrorMsg(detail.getErrorMsg());
+        item.setSendTime(detail.getSendTime());
+        item.setCreateTime(detail.getCreateTime());
+        item.setExpectedCount(1);
+        item.setActualCount(detail.getStatus() != null && detail.getStatus() == 1 ? 1 : 0);
+        item.setStatus(mapDmDetailStatusToOperation(detail.getStatus()));
+        if (detail.getSendTime() != null) {
+            item.setEndTime(detail.getSendTime());
+        }
+        return item;
+    }
+
+    private Integer mapDmDetailStatusToOperation(Integer dmStatus) {
+        if (dmStatus == null) {
+            return 0;
+        }
+        switch (dmStatus) {
+            case 1:
+                return 2;
+            case 2:
+                return 3;
+            default:
+                return 0;
+        }
     }
 
     @Override
     public PageResult<FbOperationTaskRespVO> getOperationTaskPage(FbOperationTaskPageReqVO pageReqVO) {
+        Integer taskType = pageReqVO.getTaskType();
+        if (taskType != null && taskType == DM_TASK_TYPE) {
+            return getDmTaskPageAsOperation(pageReqVO);
+        }
+        if (taskType != null) {
+            return getOperationOnlyPage(pageReqVO);
+        }
+        return getMergedOperationTaskPage(pageReqVO);
+    }
+
+    private PageResult<FbOperationTaskRespVO> getOperationOnlyPage(FbOperationTaskPageReqVO pageReqVO) {
         PageResult<FbOperationTaskDO> pageResult = operationTaskMapper.selectPage(pageReqVO,
                 new LambdaQueryWrapperX<FbOperationTaskDO>()
                         .eqIfPresent(FbOperationTaskDO::getTaskType, pageReqVO.getTaskType())
                         .eqIfPresent(FbOperationTaskDO::getStatus, pageReqVO.getStatus())
                         .betweenIfPresent(FbOperationTaskDO::getCreateTime, pageReqVO.getCreateTime())
                         .orderByDesc(FbOperationTaskDO::getId));
-        return BeanUtils.toBean(pageResult, FbOperationTaskRespVO.class);
+        PageResult<FbOperationTaskRespVO> result = BeanUtils.toBean(pageResult, FbOperationTaskRespVO.class);
+        if (result.getList() != null) {
+            result.getList().forEach(item -> item.setSourceType("operation"));
+        }
+        return result;
+    }
+
+    private PageResult<FbOperationTaskRespVO> getDmTaskPageAsOperation(FbOperationTaskPageReqVO pageReqVO) {
+        PageResult<FbDmTaskDO> pageResult = dmTaskMapper.selectPage(pageReqVO,
+                new LambdaQueryWrapperX<FbDmTaskDO>()
+                        .eqIfPresent(FbDmTaskDO::getStatus, mapOperationStatusToDm(pageReqVO.getStatus()))
+                        .betweenIfPresent(FbDmTaskDO::getCreateTime, pageReqVO.getCreateTime())
+                        .orderByDesc(FbDmTaskDO::getId));
+        List<FbOperationTaskRespVO> list = pageResult.getList().stream()
+                .map(this::convertDmTaskToOperation)
+                .collect(Collectors.toList());
+        return new PageResult<>(list, pageResult.getTotal());
+    }
+
+    private PageResult<FbOperationTaskRespVO> getMergedOperationTaskPage(FbOperationTaskPageReqVO pageReqVO) {
+        List<FbOperationTaskDO> operationTasks = operationTaskMapper.selectList(
+                new LambdaQueryWrapperX<FbOperationTaskDO>()
+                        .eqIfPresent(FbOperationTaskDO::getStatus, pageReqVO.getStatus())
+                        .betweenIfPresent(FbOperationTaskDO::getCreateTime, pageReqVO.getCreateTime())
+                        .orderByDesc(FbOperationTaskDO::getId));
+
+        List<FbDmTaskDO> dmTasks = dmTaskMapper.selectList(
+                new LambdaQueryWrapperX<FbDmTaskDO>()
+                        .eqIfPresent(FbDmTaskDO::getStatus, mapOperationStatusToDm(pageReqVO.getStatus()))
+                        .betweenIfPresent(FbDmTaskDO::getCreateTime, pageReqVO.getCreateTime())
+                        .orderByDesc(FbDmTaskDO::getId));
+
+        List<FbOperationTaskRespVO> merged = new ArrayList<>();
+        operationTasks.forEach(task -> {
+            FbOperationTaskRespVO vo = BeanUtils.toBean(task, FbOperationTaskRespVO.class);
+            vo.setSourceType("operation");
+            merged.add(vo);
+        });
+        dmTasks.forEach(task -> merged.add(convertDmTaskToOperation(task)));
+
+        merged.sort(Comparator.comparing(FbOperationTaskRespVO::getCreateTime,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+
+        int pageNo = pageReqVO.getPageNo();
+        int pageSize = pageReqVO.getPageSize();
+        int fromIndex = Math.max((pageNo - 1) * pageSize, 0);
+        int toIndex = Math.min(fromIndex + pageSize, merged.size());
+        List<FbOperationTaskRespVO> pageList = fromIndex >= merged.size()
+                ? new ArrayList<>()
+                : merged.subList(fromIndex, toIndex);
+        return new PageResult<>(pageList, (long) merged.size());
+    }
+
+    private FbOperationTaskRespVO convertDmTaskToOperation(FbDmTaskDO dmTask) {
+        FbOperationTaskRespVO vo = new FbOperationTaskRespVO();
+        vo.setId(dmTask.getId());
+        vo.setTaskType(DM_TASK_TYPE);
+        vo.setTaskName(dmTask.getTaskName());
+        vo.setStatus(mapDmStatusToOperation(dmTask.getStatus()));
+        vo.setExpectedCount(dmTask.getTotalCount());
+        vo.setActualCount(dmTask.getCompletedCount());
+        vo.setAccountIds(dmTask.getAccountIds());
+        vo.setRemark(dmTask.getRemark());
+        vo.setStartTime(dmTask.getStartTime());
+        vo.setEndTime(dmTask.getEndTime());
+        vo.setCreateTime(dmTask.getCreateTime());
+        vo.setSourceType("dm");
+        return vo;
+    }
+
+    private Integer mapDmStatusToOperation(Integer dmStatus) {
+        if (dmStatus == null) {
+            return null;
+        }
+        switch (dmStatus) {
+            case 3:
+                return 4;
+            case 4:
+                return 3;
+            default:
+                return dmStatus;
+        }
+    }
+
+    private Integer mapOperationStatusToDm(Integer operationStatus) {
+        if (operationStatus == null) {
+            return null;
+        }
+        switch (operationStatus) {
+            case 3:
+                return 4;
+            case 4:
+                return 3;
+            default:
+                return operationStatus;
+        }
     }
 
     @Override

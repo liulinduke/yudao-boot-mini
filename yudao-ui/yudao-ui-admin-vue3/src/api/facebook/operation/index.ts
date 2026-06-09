@@ -2,7 +2,7 @@ import request from '@/config/axios'
 
 export interface FbOperationTask {
   id?: string | number
-  taskType: number // 任务类型（1-链接加组 2-转贴 3-群发私信）
+  taskType: number // 任务类型（9-链接加组 10-转贴 14-群发私信 12-发个人帖 13-发群帖）
   taskName?: string
   status?: number // 任务状态（0-待执行 1-执行中 2-已完成 3-已停止 4-失败）
   expectedCount: number
@@ -12,6 +12,7 @@ export interface FbOperationTask {
   endTime?: string
   remark?: string
   createTime?: string
+  sourceType?: 'operation' | 'dm' // operation=fb_operation_task, dm=facebook_dm_task
 }
 
 export interface FbOperationTaskDetail {
@@ -31,6 +32,9 @@ export interface FbOperationTaskDetail {
   startTime?: string
   endTime?: string
   errorMsg?: string
+  targetUserId?: string
+  scriptContent?: string
+  sendTime?: string
   createTime?: string
 }
 

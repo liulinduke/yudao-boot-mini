@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using CefSharp;
 using CefSharp.Wpf;
+using Newtonsoft.Json;
 using SocialMatrix.WpfHost.Services;
 
 namespace SocialMatrix.WpfHost.Windows
@@ -46,18 +47,48 @@ namespace SocialMatrix.WpfHost.Windows
             return false;
         }
 
-        public async Task SendDirectMessage(string accountId, string fbUserId, string messageText)
+        private void NotifyDmResult(string accountId, string taskId, string detailId, string fbUserId, bool success, string? message = null)
         {
+            var payload = JsonConvert.SerializeObject(new
+            {
+                success,
+                taskId,
+                detailId,
+                accountId,
+                targetUserId = fbUserId,
+                message = message ?? ""
+            });
+            OnCollectionComplete?.Invoke(detailId, accountId, payload, 14);
+        }
+
+        /// <summary>
+        /// 在已有浏览器上执行单条私信明细（同账号后续明细复用浏览器）
+        /// </summary>
+        public async Task ExecuteDmDetailAsync(string taskId, string detailId, string accountId, string fbUserId, string messageText)
+        {
+            _accountDetailIds[accountId] = detailId;
+            CurrentDetailId = detailId;
+            _dmTaskIds[accountId] = taskId;
+            _dmOperationParams[accountId] = (fbUserId, messageText);
+            await SendDirectMessage(accountId, fbUserId, messageText, taskId, detailId);
+        }
+
+        public async Task SendDirectMessage(string accountId, string fbUserId, string messageText, string? taskId = null, string? detailId = null)
+        {
+            taskId ??= _dmTaskIds.TryGetValue(accountId, out var tid) ? tid : "";
+            detailId ??= _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+
             if (!_browsers.TryGetValue(accountId, out var browser))
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 的浏览器不存在");
                 OnCollectionError?.Invoke(accountId, "浏览器不存在");
+                NotifyDmResult(accountId, taskId, detailId, fbUserId, false, "浏览器不存在");
                 return;
             }
 
             try
             {
-                System.Diagnostics.Debug.WriteLine($"📨 开始发送私信: 账号={accountId}, 目标={fbUserId}");
+                System.Diagnostics.Debug.WriteLine($"📨 开始发送私信: 任务={taskId}, 明细={detailId}, 账号={accountId}, 目标={fbUserId}");
 
                 // 1. 确保已进入私信页面（兜底：防止运营任务未导航成功）
                 var dmUrl = $"https://www.facebook.com/messages/t/{fbUserId}/";
@@ -93,8 +124,10 @@ namespace SocialMatrix.WpfHost.Windows
 
                     if (i == 9)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 等待私信编辑器超时");
-                        OnCollectionError?.Invoke(accountId, "等待私信编辑器超时，请确认已点击 Continue");
+                        const string err = "等待私信编辑器超时，请确认已点击 Continue";
+                        System.Diagnostics.Debug.WriteLine($"❌ {err}");
+                        OnCollectionError?.Invoke(accountId, err);
+                        NotifyDmResult(accountId, taskId, detailId, fbUserId, false, err);
                         return;
                     }
                 }
@@ -107,31 +140,36 @@ namespace SocialMatrix.WpfHost.Windows
 
                 if (result.Success && result.Result != null)
                 {
-                    var resultStr = result.Result.ToString();
+                    var resultStr = result.Result.ToString() ?? "";
                     System.Diagnostics.Debug.WriteLine($"✅ 私信发送结果: {resultStr}");
 
-                    var resultObj = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(resultStr);
+                    var resultObj = JsonConvert.DeserializeObject<dynamic>(resultStr);
                     if (resultObj != null && resultObj.success == true)
                     {
-                        System.Diagnostics.Debug.WriteLine($"✅ 私信发送成功");
+                        System.Diagnostics.Debug.WriteLine($"✅ 私信发送成功，回传结果到 Vue");
+                        NotifyDmResult(accountId, taskId, detailId, fbUserId, true);
                     }
                     else
                     {
                         var errorMsg = resultObj?.message?.ToString() ?? "未知错误";
                         System.Diagnostics.Debug.WriteLine($"❌ 私信发送失败: {errorMsg}");
                         OnCollectionError?.Invoke(accountId, $"私信发送失败: {errorMsg}");
+                        NotifyDmResult(accountId, taskId, detailId, fbUserId, false, errorMsg);
                     }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ JS执行失败: {result.Message}");
-                    OnCollectionError?.Invoke(accountId, $"JS执行失败: {result.Message}");
+                    var err = $"JS执行失败: {result.Message}";
+                    System.Diagnostics.Debug.WriteLine($"❌ {err}");
+                    OnCollectionError?.Invoke(accountId, err);
+                    NotifyDmResult(accountId, taskId, detailId, fbUserId, false, err);
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 私信发送异常: {ex.Message}");
                 OnCollectionError?.Invoke(accountId, $"私信发送异常: {ex.Message}");
+                NotifyDmResult(accountId, taskId, detailId, fbUserId, false, ex.Message);
             }
         }
     }

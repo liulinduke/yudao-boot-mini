@@ -139,10 +139,10 @@
             </el-table-column>
             <el-table-column label="操作" align="center" width="120" fixed="right">
               <template #default="scope">
-                <el-button link type="primary" @click="openForm('view', scope.row.id)">
+                <el-button link type="primary" @click="openForm('view', scope.row)">
                   详情
                 </el-button>
-                <el-button link type="danger" @click="handleDelete(scope.row.id)"> 删除 </el-button>
+                <el-button link type="danger" @click="handleDelete(scope.row)"> 删除 </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -191,6 +191,7 @@ import {
   batchSaveAddGroupResult,
   FbOperationTask
 } from '@/api/facebook/operation'
+import { DmTaskApi } from '@/api/facebook/dmtask'
 import { onCollectionComplete } from '@/utils/wpfBridge'
 
 defineOptions({ name: 'FbOperation' })
@@ -245,6 +246,7 @@ const queryParams = reactive({
 })
 const queryFormRef = ref()
 const handledAddGroupDetailIds = new Set<string>()
+const handledDmDetailIds = new Set<string>()
 const accountCache = ref<any[]>([])
 
 /** 查询列表 */
@@ -331,15 +333,20 @@ const repostFormRef = ref()
 const dmTaskFormRef = ref()
 const publishPostFormRef = ref()
 const groupPublishFormRef = ref()
-const openForm = (type: string, id?: number) => {
-  formRef.value.open(type, id)
+const openForm = (type: string, row: FbOperationTask) => {
+  // 详情统一走 FbOperationForm（后端会查 facebook_dm_task + facebook_dm_task_detail）
+  formRef.value.open(type, row.id)
 }
 
 /** 删除按钮操作 */
-const handleDelete = async (id: number) => {
+const handleDelete = async (row: FbOperationTask) => {
   try {
     await message.delConfirm()
-    await deleteFbOperationTask(id)
+    if (row.sourceType === 'dm' || row.taskType === 14) {
+      await DmTaskApi.deleteDmTask(row.id!)
+    } else {
+      await deleteFbOperationTask(Number(row.id))
+    }
     message.success(t('common.delSuccess'))
     await getList()
   } catch {}
@@ -354,6 +361,24 @@ const loadAccountCache = async () => {
     console.error('加载账号列表失败:', error)
     accountCache.value = []
   }
+}
+
+/** 保存群发私信发送结果 */
+const saveDmResult = async (data: any) => {
+  if (data.taskType !== 14) return
+  const result = data.results
+  if (!result || typeof result !== 'object') return
+
+  const detailId = String(result.detailId || data.detailId || '')
+  if (!detailId || handledDmDetailIds.has(detailId)) return
+  handledDmDetailIds.add(detailId)
+
+  await DmTaskApi.reportDetail({
+    detailId: Number(detailId),
+    status: result.success ? 1 : 2,
+    errorMsg: result.message || ''
+  })
+  await getList()
 }
 
 /** 保存链接加组结果 */
@@ -392,11 +417,13 @@ onMounted(() => {
   loadAccountCache()
   onCollectionComplete(async (data) => {
     try {
+      await saveDmResult(data)
       await saveAddGroupResults(data)
     } catch (error) {
-      console.error('保存加组结果失败:', error)
-      message.error('保存加组结果失败')
+      console.error('保存运营任务结果失败:', error)
+      message.error('保存运营任务结果失败')
       handledAddGroupDetailIds.delete(String(data.detailId || ''))
+      handledDmDetailIds.delete(String(data.detailId || ''))
     }
   })
 })

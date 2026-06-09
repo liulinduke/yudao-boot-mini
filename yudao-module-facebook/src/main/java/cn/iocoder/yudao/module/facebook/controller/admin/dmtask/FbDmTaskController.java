@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.facebook.controller.admin.dmtask;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskDetailReportReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskSaveReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskRespVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskPageReqVO;
@@ -81,6 +82,14 @@ public class FbDmTaskController {
     @PreAuthorize("@ss.hasPermission('facebook:dm-task:update')")
     public CommonResult<Boolean> cancelTask(@PathVariable("id") Long id) {
         dmTaskService.cancelTask(id);
+        return success(true);
+    }
+
+    @PostMapping("/report-detail")
+    @Operation(summary = "上报私信明细发送结果")
+    @PreAuthorize("@ss.hasPermission('facebook:dm-task:update')")
+    public CommonResult<Boolean> reportDetail(@Valid @RequestBody FbDmTaskDetailReportReqVO reqVO) {
+        dmTaskService.updateDetailStatus(reqVO.getDetailId(), reqVO.getStatus(), reqVO.getErrorMsg());
         return success(true);
     }
 

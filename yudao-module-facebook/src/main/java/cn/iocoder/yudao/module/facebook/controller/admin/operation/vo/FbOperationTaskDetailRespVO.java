@@ -53,6 +53,15 @@ public class FbOperationTaskDetailRespVO {
         @Schema(description = "错误信息")
         private String errorMsg;
 
+        @Schema(description = "目标用户FB ID（群发私信明细）")
+        private String targetUserId;
+
+        @Schema(description = "私信话术（群发私信明细）")
+        private String scriptContent;
+
+        @Schema(description = "发送时间（群发私信明细）")
+        private java.time.LocalDateTime sendTime;
+
         @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
         private java.time.LocalDateTime createTime;
     }
