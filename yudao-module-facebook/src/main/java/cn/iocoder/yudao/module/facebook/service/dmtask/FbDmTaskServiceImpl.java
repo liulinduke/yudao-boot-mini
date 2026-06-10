@@ -250,6 +250,7 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
     public void updateDetailStatus(Long detailId, Integer status, String errorMsg) {
         FbDmTaskDetailDO detail = dmTaskDetailMapper.selectById(detailId);
         if (detail == null) {
+            log.warn("私信明细不存在，无法更新状态，detailId={}", detailId);
             return;
         }
 

@@ -12,6 +12,7 @@ export interface FbOperationTask {
   endTime?: string
   remark?: string
   createTime?: string
+  actionConfig?: string
   sourceType?: 'operation' | 'dm' // operation=fb_operation_task, dm=facebook_dm_task
 }
 
@@ -99,7 +100,8 @@ export interface FbOperationAddGroupResultItem {
 export interface FbOperationTaskDetailRespVO {
   task: FbOperationTask
   details: FbOperationTaskDetail[]
-  results: FbOperationAddGroupResult[] | FbRepostResult[] // 根据任务类型返回不同结果
+  results?: FbOperationAddGroupResult[]
+  repostResults?: FbRepostResult[]
 }
 
 // 转帖结果接口
@@ -110,12 +112,12 @@ export interface FbRepostResult {
   accountId: string
   fbAccount?: string
   postUrl?: string
-  actionType?: number // 操作类型（1-点赞 2-转发到动态 3-转帖到个人中心 4-转贴到好友 5-转发到群组）
+  actionType?: number // 操作类型（1-点赞 2-转发到动态消息 3-已废弃 4-转贴到好友 5-转发到群组）
   targetType?: string // friend/group
   targetId?: string
   targetName?: string
   targetUrl?: string
-  status?: number // 0-待处理 1-成功 2-失败
+  status?: number // 0-待处理 1-成功 2-失败 3-待审核
   failReason?: string
   executeTime?: string
   remark?: string
@@ -123,7 +125,7 @@ export interface FbRepostResult {
 }
 
 export interface FbRepostResultBatchSaveReqVO {
-  detailId: number
+  detailId: number | string
   results: FbRepostResultItem[]
 }
 

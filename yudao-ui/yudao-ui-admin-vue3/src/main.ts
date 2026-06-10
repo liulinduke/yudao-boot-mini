@@ -39,6 +39,7 @@ import './permission'
 
 import '@/plugins/tongji' // 百度统计
 import Logger from '@/utils/Logger'
+import { setupWpfOperationSync } from '@/utils/wpfOperationSync'
 
 import VueDOMPurifyHTML from 'vue-dompurify-html' // 解决v-html 的安全隐患
 
@@ -71,6 +72,8 @@ const setupAll = async () => {
   setupWangEditorPlugin()
 
   await router.isReady()
+
+  setupWpfOperationSync()
 
   app.use(VueDOMPurifyHTML)
 

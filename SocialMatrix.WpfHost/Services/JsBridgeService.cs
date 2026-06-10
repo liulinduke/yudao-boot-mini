@@ -361,18 +361,17 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 12); // 发个人帖任务类型
                         
-                        // 等待浏览器创建和页面加载
-                        await Task.Delay(3000);
-                        
                         // 重新获取BrowserMatrixWindow
                         if (browserMatrixField != null)
                         {
                             browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
                         }
                     }
-                    
+
                     if (browserMatrixWindow != null)
                     {
+                        await browserMatrixWindow.WaitForAccountPageReady(accountId, 30000);
+
                         // 执行发个人帖
                         System.Diagnostics.Debug.WriteLine($"📝 开始执行发个人帖...");
                         await browserMatrixWindow.ExecutePublishPost(accountId, actionConfigJson);
@@ -441,18 +440,17 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 13); // 发群帖任务类型
                         
-                        // 等待浏览器创建和页面加载
-                        await Task.Delay(3000);
-                        
                         // 重新获取BrowserMatrixWindow
                         if (browserMatrixField != null)
                         {
                             browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
                         }
                     }
-                    
+
                     if (browserMatrixWindow != null)
                     {
+                        await browserMatrixWindow.WaitForAccountPageReady(accountId, 30000);
+
                         // 执行发群帖
                         System.Diagnostics.Debug.WriteLine($"👥 开始执行发群帖...");
                         await browserMatrixWindow.ExecuteGroupPublish(accountId, actionConfigJson);

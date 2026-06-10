@@ -31,7 +31,7 @@ public class FbRepostResultBatchSaveReqVO {
         @Schema(description = "原帖子链接", example = "https://www.facebook.com/xxx/posts/123")
         private String postUrl;
 
-        @Schema(description = "操作类型（1-点赞 2-转发到动态 3-转帖到个人中心 4-转贴到好友 5-转发到群组）", example = "5")
+        @Schema(description = "操作类型（1-点赞 2-转发到动态消息 3-已废弃 4-转贴到好友 5-转发到群组）", example = "5")
         private Integer actionType;
 
         @Schema(description = "目标类型（friend/group）", example = "group")
@@ -46,7 +46,7 @@ public class FbRepostResultBatchSaveReqVO {
         @Schema(description = "目标链接", example = "https://www.facebook.com/groups/987654321")
         private String targetUrl;
 
-        @Schema(description = "状态（0-待处理 1-成功 2-失败）", example = "1")
+        @Schema(description = "状态（0-待处理 1-成功 2-失败 3-待审核）", example = "1")
         private Integer status;
 
         @Schema(description = "失败原因", example = "网络错误")

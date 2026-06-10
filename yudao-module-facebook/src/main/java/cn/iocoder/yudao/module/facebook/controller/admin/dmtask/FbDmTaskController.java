@@ -89,7 +89,8 @@ public class FbDmTaskController {
     @Operation(summary = "上报私信明细发送结果")
     @PreAuthorize("@ss.hasPermission('facebook:dm-task:update')")
     public CommonResult<Boolean> reportDetail(@Valid @RequestBody FbDmTaskDetailReportReqVO reqVO) {
-        dmTaskService.updateDetailStatus(reqVO.getDetailId(), reqVO.getStatus(), reqVO.getErrorMsg());
+        long detailId = Long.parseLong(reqVO.getDetailId().trim());
+        dmTaskService.updateDetailStatus(detailId, reqVO.getStatus(), reqVO.getErrorMsg());
         return success(true);
     }
 

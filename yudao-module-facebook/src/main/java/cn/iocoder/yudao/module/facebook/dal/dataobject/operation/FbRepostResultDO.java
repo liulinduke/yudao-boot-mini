@@ -47,7 +47,7 @@ public class FbRepostResultDO extends TenantBaseDO {
      */
     private String postUrl;
     /**
-     * 操作类型（1-点赞 2-转发到动态 3-转帖到个人中心 4-转贴到好友 5-转发到群组）
+     * 操作类型（1-点赞 2-转发到动态消息 3-已废弃 4-转贴到好友 5-转发到群组）
      */
     private Integer actionType;
     /**
@@ -67,7 +67,7 @@ public class FbRepostResultDO extends TenantBaseDO {
      */
     private String targetUrl;
     /**
-     * 状态（0-待处理 1-成功 2-失败）
+     * 状态（0-待处理 1-成功 2-失败 3-待审核）
      */
     private Integer status;
     /**

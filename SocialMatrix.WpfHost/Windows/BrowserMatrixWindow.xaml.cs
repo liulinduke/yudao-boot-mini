@@ -886,19 +886,36 @@ namespace SocialMatrix.WpfHost.Windows
                         break;
 
                     case 10:
-                        // 转帖任务：调用采集脚本（转帖脚本也在 GenerateCollectScript 中）
                         System.Diagnostics.Debug.WriteLine($"📋 执行转帖任务...");
-                        var repostScript = GenerateCollectScript(accountId, expectedCount, 10, config);
-                        if (!string.IsNullOrEmpty(repostScript) && !string.IsNullOrWhiteSpace(repostScript))
+                        await WaitForPageReady(browser, timeoutMs: 30000);
+                        await Task.Delay(2500);
+                        var repostScript = GenerateRepostScriptFromConfig(config);
+                        if (string.IsNullOrWhiteSpace(repostScript))
                         {
-                            System.Diagnostics.Debug.WriteLine($"🔍 转帖脚本长度: {repostScript.Length} 字符");
-                            var result = await browser.EvaluateScriptAsync(repostScript);
-                            if (result.Success)
-                            {
-                                string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
-                                string resultStr = result.Result?.ToString() ?? "[]";
-                                OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 10);
-                            }
+                            OnCollectionError?.Invoke(accountId, "转帖脚本生成失败，请检查任务配置");
+                            break;
+                        }
+                        System.Diagnostics.Debug.WriteLine($"🔍 转帖脚本长度: {repostScript.Length} 字符");
+                        System.Diagnostics.Debug.WriteLine("⏳ 转帖脚本执行中（含等待目标帖，约 25s 内）...");
+                        var evalTask = browser.EvaluateScriptAsync(repostScript);
+                        var completed = await Task.WhenAny(evalTask, Task.Delay(120000));
+                        if (completed != evalTask)
+                        {
+                            OnCollectionError?.Invoke(accountId, "转帖脚本执行超时（120s）");
+                            break;
+                        }
+                        var result = await evalTask;
+                        System.Diagnostics.Debug.WriteLine("⏳ 转帖脚本执行返回");
+                        if (result.Success)
+                        {
+                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string resultStr = result.Result?.ToString() ?? "[]";
+                            System.Diagnostics.Debug.WriteLine($"✅ 转帖执行完成: {resultStr}");
+                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 10);
+                        }
+                        else
+                        {
+                            OnCollectionError?.Invoke(accountId, $"转帖JS执行失败: {result.Message}");
                         }
                         break;
 
@@ -1292,8 +1309,7 @@ namespace SocialMatrix.WpfHost.Windows
             else if (taskType == 10) // 转帖任务
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入转帖任务分支");
-                // 转帖任务需要额外参数，这里返回空脚本，实际执行在 StartAutoCollect 中处理
-                return "(function() { return JSON.stringify([]); })();";
+                return GenerateRepostScriptFromConfig(config);
             }
             else if (taskType == 11) // 帖子评论点赞采集
             {
@@ -2426,6 +2442,36 @@ namespace SocialMatrix.WpfHost.Windows
             }
         }
 
+        private static readonly HashSet<string> FacebookUrlNoiseSegments = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "facebook", "com", "share", "posts", "groups", "photo", "videos", "watch", "permalink", "permalink.php"
+        };
+
+        private static bool IsFacebookUrlNoiseSegment(string segment)
+        {
+            if (string.IsNullOrWhiteSpace(segment)) return true;
+            var s = segment.Trim();
+            if (s.Length < 6) return true;
+            if (FacebookUrlNoiseSegments.Contains(s)) return true;
+            return s.StartsWith("pfbid", StringComparison.OrdinalIgnoreCase) && s.Length <= 12;
+        }
+
+        private static string? GetQueryParamValue(Uri uri, string paramName)
+        {
+            if (uri == null || string.IsNullOrEmpty(paramName)) return null;
+            var query = uri.Query.TrimStart('?');
+            if (string.IsNullOrEmpty(query)) return null;
+            foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var idx = pair.IndexOf('=');
+                if (idx <= 0) continue;
+                var key = Uri.UnescapeDataString(pair[..idx]);
+                if (!string.Equals(key, paramName, StringComparison.OrdinalIgnoreCase)) continue;
+                return Uri.UnescapeDataString(pair[(idx + 1)..]);
+            }
+            return null;
+        }
+
         /// <summary>
         /// 判断当前 URL 是否已在目标任务页（私信页允许 e2ee 子路径）
         /// </summary>
@@ -2457,10 +2503,56 @@ namespace SocialMatrix.WpfHost.Windows
                     return current.AbsolutePath.Contains("/messages/", StringComparison.OrdinalIgnoreCase);
                 }
 
-                return string.Equals(
+                if (string.Equals(
                     current.AbsolutePath.TrimEnd('/'),
                     target.AbsolutePath.TrimEnd('/'),
-                    StringComparison.OrdinalIgnoreCase);
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                // 转帖：share/p/xxx 常会跳转到 permalink.php?story_fbid=pfbid...&share_url=原链接
+                if (target.Host.Contains("facebook.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    var currentLower = currentUrl.ToLowerInvariant();
+                    var targetLower = targetUrl.ToLowerInvariant();
+
+                    var targetKeys = target.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                        .Where(s => s.Length >= 6 && !IsFacebookUrlNoiseSegment(s))
+                        .Select(s => s.ToLowerInvariant())
+                        .ToList();
+                    if (targetKeys.Any(k => currentLower.Contains(k)))
+                    {
+                        return true;
+                    }
+
+                    var shareUrlParam = GetQueryParamValue(current, "share_url");
+                    if (!string.IsNullOrEmpty(shareUrlParam))
+                    {
+                        var decodedShareUrl = Uri.UnescapeDataString(shareUrlParam).ToLowerInvariant();
+                        var targetPath = target.AbsolutePath.TrimEnd('/').ToLowerInvariant();
+                        if (decodedShareUrl.Contains(targetPath)
+                            || string.Equals(decodedShareUrl.TrimEnd('/'), targetLower.TrimEnd('/'), StringComparison.Ordinal))
+                        {
+                            return true;
+                        }
+                        if (targetKeys.Any(k => decodedShareUrl.Contains(k)))
+                        {
+                            return true;
+                        }
+                    }
+
+                    if (current.AbsolutePath.Contains("permalink.php", StringComparison.OrdinalIgnoreCase)
+                        && current.Query.Contains("story_fbid=", StringComparison.OrdinalIgnoreCase)
+                        && (target.AbsolutePath.Contains("/share/p/", StringComparison.OrdinalIgnoreCase)
+                            || target.AbsolutePath.Contains("/posts/", StringComparison.OrdinalIgnoreCase)
+                            || targetKeys.Count > 0))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
             catch
             {

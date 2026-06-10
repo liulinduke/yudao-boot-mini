@@ -106,6 +106,10 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setFbAccount(fbAccount);
             detail.setTargetUrls(createReqVO.getTargetUrls());
             detail.setTargetGroupIds(createReqVO.getTargetGroupIds());
+            detail.setPostUrl(createReqVO.getPostUrl());
+            detail.setActionConfig(createReqVO.getActionConfig());
+            detail.setCommentScript(createReqVO.getCommentScript());
+            detail.setScriptLibraryId(createReqVO.getScriptLibraryId());
             detail.setExpectedCount(createReqVO.getExpectedCount());
             detail.setActualCount(0);
             detail.setStatus(0); // 待执行
@@ -146,6 +150,8 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             // 删除结果
             addGroupResultMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<FbOperationAddGroupResultDO>()
                     .in(FbOperationAddGroupResultDO::getDetailId, detailIds));
+            repostResultMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<FbRepostResultDO>()
+                    .in(FbRepostResultDO::getDetailId, detailIds));
         }
     }
 
@@ -177,6 +183,12 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         if (task.getTaskType() != null && task.getTaskType() == 9) {
             List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(task.getId());
             respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
+        }
+        if (task.getTaskType() != null && task.getTaskType() == 10) {
+            List<FbRepostResultDO> repostResults = repostResultMapper.selectListByTaskId(task.getId());
+            List<FbRepostResultRespVO> repostResultItems = BeanUtils.toBean(repostResults, FbRepostResultRespVO.class);
+            enrichRepostResultFbAccount(repostResultItems);
+            respVO.setRepostResults(repostResultItems);
         }
         return respVO;
     }
@@ -449,15 +461,39 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
         repostResultMapper.insertBatch(results);
 
-        // 更新明细的实际完成数量和状态
+        // actualCount = 成功数（含待审核）；任务完结 = 全部执行项已回报（成败都算执行完）
         int successCount = (int) results.stream()
-                .filter(r -> r.getStatus() != null && r.getStatus() == 1) // 1-成功
+                .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
+                .count();
+        int executedInBatch = (int) results.stream()
+                .filter(r -> r.getStatus() != null && r.getStatus() != 0)
                 .count();
 
-        detail.setActualCount(detail.getActualCount() + successCount);
-        if (detail.getActualCount() >= detail.getExpectedCount()) {
-            detail.setStatus(2); // 已完成
+        int prevActual = detail.getActualCount() != null ? detail.getActualCount() : 0;
+        detail.setActualCount(prevActual + successCount);
+
+        int expected = detail.getExpectedCount() != null ? detail.getExpectedCount() : 0;
+        int totalReported = repostResultMapper.selectListByDetailId(detailId).size();
+        boolean allExecuted = expected > 0
+                && (totalReported >= expected || executedInBatch >= expected);
+        if (allExecuted) {
+            detail.setStatus(2); // 已完成（全部执行完毕，允许部分失败）
             detail.setEndTime(LocalDateTime.now());
+            if (successCount < executedInBatch) {
+                String failMsg = results.stream()
+                        .filter(r -> r.getStatus() != null && r.getStatus() == 2 && StrUtil.isNotBlank(r.getFailReason()))
+                        .map(FbRepostResultDO::getFailReason)
+                        .findFirst()
+                        .orElse("部分执行项失败");
+                detail.setErrorMsg(failMsg);
+            } else {
+                detail.setErrorMsg(null);
+            }
+        } else if (detail.getStartTime() == null) {
+            detail.setStatus(1); // 执行中
+        }
+        if (detail.getStartTime() == null) {
+            detail.setStartTime(LocalDateTime.now());
         }
         operationTaskDetailMapper.updateById(detail);
 
@@ -468,6 +504,18 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     /**
      * 补全明细中的 FB 账号（兼容历史数据）
      */
+    private void enrichRepostResultFbAccount(List<FbRepostResultRespVO> repostResults) {
+        if (CollUtil.isEmpty(repostResults)) {
+            return;
+        }
+        for (FbRepostResultRespVO result : repostResults) {
+            if (StrUtil.isNotBlank(result.getFbAccount()) || StrUtil.isBlank(result.getAccountId())) {
+                continue;
+            }
+            result.setFbAccount(resolveFbAccount(result.getAccountId()));
+        }
+    }
+
     private void enrichDetailFbAccount(List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems) {
         if (CollUtil.isEmpty(detailItems)) {
             return;

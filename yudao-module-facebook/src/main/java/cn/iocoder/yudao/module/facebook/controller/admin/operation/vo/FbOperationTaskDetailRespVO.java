@@ -18,6 +18,9 @@ public class FbOperationTaskDetailRespVO {
     @Schema(description = "加组结果列表")
     private List<FbOperationAddGroupResultRespVO> results;
 
+    @Schema(description = "转帖结果列表")
+    private List<FbRepostResultRespVO> repostResults;
+
     @Data
     public static class FbOperationTaskDetailItemVO {
         @Schema(description = "明细ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
@@ -34,6 +37,12 @@ public class FbOperationTaskDetailRespVO {
 
         @Schema(description = "目标群组ID列表（逗号分隔）")
         private String targetGroupIds;
+
+        @Schema(description = "帖子链接（转帖任务）")
+        private String postUrl;
+
+        @Schema(description = "执行项配置（JSON，转帖任务）")
+        private String actionConfig;
 
         @Schema(description = "期望数量", example = "100")
         private Integer expectedCount;

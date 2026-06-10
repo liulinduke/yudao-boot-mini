@@ -14,9 +14,6 @@
         </template>
         <el-descriptions :column="3" border>
           <el-descriptions-item label="任务ID">{{ taskDetail.task?.id }}</el-descriptions-item>
-          <el-descriptions-item label="任务名称">{{
-            taskDetail.task?.taskName || '-'
-          }}</el-descriptions-item>
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
@@ -47,10 +44,80 @@
           <el-descriptions-item label="结束时间">{{
             formatDate(taskDetail.task?.endTime)
           }}</el-descriptions-item>
+          <el-descriptions-item v-if="taskDetail.task?.taskType === 10" label="帖链接" :span="3">
+            <el-link
+              v-if="repostPostUrl"
+              :href="repostPostUrl"
+              target="_blank"
+              type="primary"
+              class="break-all"
+            >
+              {{ repostPostUrl }}
+            </el-link>
+            <span v-else>-</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="taskDetail.task?.taskType === 10" label="执行项" :span="3">
+            <div v-if="repostActionTags.length > 0" class="flex flex-wrap gap-1">
+              <el-tag v-for="tag in repostActionTags" :key="tag" size="small">{{ tag }}</el-tag>
+            </div>
+            <span v-else>-</span>
+          </el-descriptions-item>
           <el-descriptions-item label="备注" :span="3">{{
             taskDetail.task?.remark || '-'
           }}</el-descriptions-item>
         </el-descriptions>
+      </el-card>
+
+      <!-- 转帖结果（转帖任务直接展示，不显示任务明细 Tab） -->
+      <el-card v-if="formType === 'view' && taskDetail?.task?.taskType === 10" class="mb-4">
+        <template #header>
+          <div class="card-header flex items-center justify-between">
+            <span>🔄 转帖结果</span>
+            <span class="text-sm text-gray-500 font-normal">
+              共 {{ repostResultList.length }} 条 · 成功 {{ repostSuccessCount }} · 待审核
+              {{ repostPendingCount }} · 失败 {{ repostFailCount }}
+            </span>
+          </div>
+        </template>
+        <el-table :data="repostResultList" stripe border max-height="520">
+          <el-table-column label="执行账号" min-width="160" show-overflow-tooltip>
+            <template #default="scope">
+              <div class="font-medium">{{ scope.row.fbAccount || scope.row.accountId || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="执行动作" width="140">
+            <template #default="scope">
+              <el-tag :type="getRepostActionTagType(scope.row.actionType)" size="small">
+                {{ getRepostActionLabel(scope.row.actionType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="目标" min-width="180" show-overflow-tooltip>
+            <template #default="scope">
+              {{ getRepostTargetLabel(scope.row) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="90" align="center">
+            <template #default="scope">
+              <el-tag v-if="scope.row.status === 0" type="info" size="small">待处理</el-tag>
+              <el-tag v-else-if="scope.row.status === 1" type="success" size="small">成功</el-tag>
+              <el-tag v-else-if="scope.row.status === 3" type="warning" size="small">待审核</el-tag>
+              <el-tag v-else-if="scope.row.status === 2" type="danger" size="small">失败</el-tag>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip>
+            <template #default="scope">
+              {{ scope.row.remark || scope.row.failReason || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="执行时间" width="165">
+            <template #default="scope">
+              {{ formatDate(scope.row.executeTime) }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="repostResultList.length === 0" description="暂无转帖执行记录" />
       </el-card>
 
       <!-- 新建/编辑表单 -->
@@ -117,8 +184,12 @@
         </el-form-item>
       </el-form>
 
-      <!-- 编辑模式下的Tab -->
-      <el-tabs v-if="formType === 'view'" v-model="activeTab" type="border-card">
+      <!-- 编辑模式下的Tab（转帖任务不显示任务明细，仅上方展示转帖结果） -->
+      <el-tabs
+        v-if="formType === 'view' && taskDetail?.task?.taskType !== 10"
+        v-model="activeTab"
+        type="border-card"
+      >
         <!-- Tab 1: 任务明细 -->
         <el-tab-pane
           :label="
@@ -246,66 +317,6 @@
           </el-table>
           <el-empty v-if="resultList.length === 0" description="暂无加组数据" />
         </el-tab-pane>
-
-        <!-- Tab 3: 转帖结果（仅转帖任务显示） -->
-        <el-tab-pane
-          v-if="taskDetail?.task?.taskType === 10"
-          label="🔄 转帖结果"
-          name="repostResults"
-        >
-          <el-table :data="repostResultList" stripe border max-height="500">
-            <el-table-column label="Facebook ID" prop="accountId" width="180" />
-            <el-table-column label="FB账号" prop="fbAccount" width="150" />
-            <el-table-column
-              label="帖子链接"
-              prop="postUrl"
-              min-width="250"
-              show-overflow-tooltip
-            />
-            <el-table-column label="操作类型" width="140">
-              <template #default="scope">
-                <el-tag v-if="scope.row.actionType === 1" type="primary">点赞</el-tag>
-                <el-tag v-else-if="scope.row.actionType === 2" type="success">转发到动态</el-tag>
-                <el-tag v-else-if="scope.row.actionType === 3" type="warning"
-                  >转帖到个人中心</el-tag
-                >
-                <el-tag v-else-if="scope.row.actionType === 4" type="info">转贴到好友</el-tag>
-                <el-tag v-else-if="scope.row.actionType === 5" type="danger">转发到群组</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="目标名称"
-              prop="targetName"
-              min-width="150"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              label="目标链接"
-              prop="targetUrl"
-              min-width="250"
-              show-overflow-tooltip
-            />
-            <el-table-column label="状态" width="100">
-              <template #default="scope">
-                <el-tag v-if="scope.row.status === 0" type="info">待处理</el-tag>
-                <el-tag v-else-if="scope.row.status === 1" type="success">成功</el-tag>
-                <el-tag v-else-if="scope.row.status === 2" type="danger">失败</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="失败原因"
-              prop="failReason"
-              min-width="150"
-              show-overflow-tooltip
-            />
-            <el-table-column label="执行时间" prop="executeTime" width="160">
-              <template #default="scope">
-                {{ formatDate(scope.row.executeTime) }}
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="repostResultList.length === 0" description="暂无转帖数据" />
-        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -327,7 +338,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
@@ -352,6 +363,77 @@ const taskDetail = ref<FbOperationTaskDetailRespVO | null>(null)
 const detailList = ref<any[]>([])
 const resultList = ref<any[]>([])
 const repostResultList = ref<any[]>([]) // 转帖结果列表
+
+const REPOST_ACTION_LABELS: Record<number, string> = {
+  1: '点赞',
+  2: '转发到动态消息',
+  3: '个人中心(已废弃)',
+  4: '转贴到好友',
+  5: '转发到群组'
+}
+
+const parsedRepostConfig = computed(() => {
+  const raw = taskDetail.value?.task?.actionConfig || detailList.value[0]?.actionConfig || ''
+  if (!raw) return null
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw
+  } catch {
+    return null
+  }
+})
+
+const repostPostUrl = computed(
+  () => detailList.value[0]?.postUrl || repostResultList.value[0]?.postUrl || ''
+)
+
+const repostActionTags = computed(() => {
+  const config = parsedRepostConfig.value
+  if (!config?.actions?.length) return []
+  const tags: string[] = []
+  for (const action of config.actions) {
+    if (action === 1) tags.push('点赞')
+    else if (action === 2) tags.push('转发到动态消息')
+    else if (action === 4) {
+      const count = config.shareToFriendCount || 1
+      tags.push(`转贴到好友 ×${count}`)
+    } else if (action === 5) {
+      const groups = config.selectedGroups || []
+      if (groups.length > 0) {
+        groups.forEach((g: any) => tags.push(`群组：${g.groupName || g.name || g.groupId}`))
+      } else {
+        tags.push(`转发到群组 ×${config.shareToGroupCount || 1}`)
+      }
+    }
+  }
+  return tags
+})
+
+const repostSuccessCount = computed(
+  () => repostResultList.value.filter((r) => r.status === 1).length
+)
+const repostPendingCount = computed(
+  () => repostResultList.value.filter((r) => r.status === 3).length
+)
+const repostFailCount = computed(() => repostResultList.value.filter((r) => r.status === 2).length)
+
+const getRepostActionLabel = (actionType?: number) =>
+  (actionType && REPOST_ACTION_LABELS[actionType]) || '未知操作'
+
+const getRepostActionTagType = (actionType?: number) => {
+  if (actionType === 1) return 'primary'
+  if (actionType === 2) return 'success'
+  if (actionType === 4) return 'info'
+  if (actionType === 5) return 'warning'
+  return 'info'
+}
+
+const getRepostTargetLabel = (row: any) => {
+  if (row.actionType === 1) return '原帖'
+  if (row.actionType === 2) return '本人动态（Feed）'
+  if (row.actionType === 4) return row.targetName || 'Messenger 推荐好友'
+  if (row.actionType === 5) return row.targetName || row.targetId || '未命名群组'
+  return row.targetName || '-'
+}
 
 const formData = ref({
   id: undefined,
@@ -408,11 +490,9 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
       taskDetail.value = data
       detailList.value = data.details || []
       resultList.value = data.results || []
-      // 如果是转帖任务，加载转帖结果
-      if (data.task?.taskType === 10 && data.results) {
-        repostResultList.value = data.results as any[]
-      } else {
-        repostResultList.value = []
+      repostResultList.value = data.task?.taskType === 10 ? data.repostResults || [] : []
+      if (data.task?.taskType === 10) {
+        activeTab.value = 'repostResults'
       }
     } finally {
       formLoading.value = false
@@ -622,18 +702,16 @@ const resetForm = () => {
 
 /** 计算总进度 */
 const getTotalProgress = () => {
-  if (!taskDetail.value?.task || !taskDetail.value.task.expectedCount) return 0
-  return Math.min(
-    100,
-    Math.round(
-      ((taskDetail.value.task.actualCount || 0) / taskDetail.value.task.expectedCount) * 100
-    )
-  )
+  const task = taskDetail.value?.task
+  if (!task?.expectedCount) return 0
+  if (task.status === 2) return 100
+  return Math.min(100, Math.round(((task.actualCount || 0) / task.expectedCount) * 100))
 }
 
 /** 计算明细进度 */
 const getDetailProgress = (detail: any) => {
   if (!detail.expectedCount) return 0
+  if (detail.status === 2) return 100
   return Math.min(100, Math.round(((detail.actualCount || 0) / detail.expectedCount) * 100))
 }
 

@@ -75,9 +75,9 @@
       
       <el-form-item label="隐私设置" prop="privacySetting">
         <el-radio-group v-model="formData.privacySetting">
-          <el-radio :label="1">公开</el-radio>
-          <el-radio :label="2">好友可见</el-radio>
-          <el-radio :label="3">仅自己</el-radio>
+          <el-radio :label="1" @mousedown.prevent>公开</el-radio>
+          <el-radio :label="2" @mousedown.prevent>好友可见</el-radio>
+          <el-radio :label="3" @mousedown.prevent>仅自己</el-radio>
         </el-radio-group>
       </el-form-item>
       

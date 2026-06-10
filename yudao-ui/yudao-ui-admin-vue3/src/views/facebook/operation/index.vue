@@ -175,7 +175,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { Tools, List } from '@element-plus/icons-vue'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import OperationCard from './components/OperationCard.vue'
@@ -246,7 +246,6 @@ const queryParams = reactive({
 })
 const queryFormRef = ref()
 const handledAddGroupDetailIds = new Set<string>()
-const handledDmDetailIds = new Set<string>()
 const accountCache = ref<any[]>([])
 
 /** 查询列表 */
@@ -303,6 +302,9 @@ const getTaskTypeByTool = (toolType: string): number => {
 const getProgress = (task: FbOperationTask) => {
   if (!task.expectedCount || task.expectedCount === 0) {
     return 0
+  }
+  if (task.status === 2) {
+    return 100
   }
   return Math.min(100, Math.round(((task.actualCount || 0) / task.expectedCount) * 100))
 }
@@ -363,24 +365,6 @@ const loadAccountCache = async () => {
   }
 }
 
-/** 保存群发私信发送结果 */
-const saveDmResult = async (data: any) => {
-  if (data.taskType !== 14) return
-  const result = data.results
-  if (!result || typeof result !== 'object') return
-
-  const detailId = String(result.detailId || data.detailId || '')
-  if (!detailId || handledDmDetailIds.has(detailId)) return
-  handledDmDetailIds.add(detailId)
-
-  await DmTaskApi.reportDetail({
-    detailId: Number(detailId),
-    status: result.success ? 1 : 2,
-    errorMsg: result.message || ''
-  })
-  await getList()
-}
-
 /** 保存链接加组结果 */
 const saveAddGroupResults = async (data: any) => {
   if (data.taskType !== 9) return
@@ -415,17 +399,22 @@ const saveAddGroupResults = async (data: any) => {
 onMounted(() => {
   getList()
   loadAccountCache()
+  window.addEventListener('fb:dm:result:saved', getList as EventListener)
+  window.addEventListener('fb:repost:result:saved', getList as EventListener)
   onCollectionComplete(async (data) => {
     try {
-      await saveDmResult(data)
       await saveAddGroupResults(data)
     } catch (error) {
-      console.error('保存运营任务结果失败:', error)
-      message.error('保存运营任务结果失败')
+      console.error('保存加组结果失败:', error)
+      message.error('保存加组结果失败')
       handledAddGroupDetailIds.delete(String(data.detailId || ''))
-      handledDmDetailIds.delete(String(data.detailId || ''))
     }
   })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('fb:dm:result:saved', getList as EventListener)
+  window.removeEventListener('fb:repost:result:saved', getList as EventListener)
 })
 </script>
 

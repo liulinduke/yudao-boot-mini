@@ -48,26 +48,27 @@
       <!-- 执行项配置 -->
       <el-form-item label="执行项" prop="actionConfig">
         <div class="w-full">
-          <!-- 第一行：点赞、转发到动态 -->
+          <!-- 第一行：点赞、转发到动态消息 -->
           <div class="mb-10px flex items-center">
             <el-checkbox v-model="selectedActions" :label="1" class="mr-20px">点赞</el-checkbox>
-            <el-checkbox v-model="selectedActions" :label="2">转发到动态</el-checkbox>
+            <el-checkbox v-model="selectedActions" :label="2">转发到动态消息</el-checkbox>
           </div>
 
-          <!-- 第二行：转帖到个人中心 + 数量 -->
-          <div class="mb-10px">
-            <el-checkbox v-model="selectedActions" :label="3"> 转帖到个人中心 </el-checkbox>
-            <el-input-number
-              v-if="selectedActions.includes(3)"
-              v-model="actionConfig.shareToProfileCount"
-              :min="1"
-              :max="10"
-              size="small"
-              class="ml-10px"
+          <el-form-item
+            v-if="selectedActions.includes(2)"
+            label="动态附言"
+            class="!mb-10px"
+            label-width="140px"
+          >
+            <el-input
+              v-model="actionConfig.feedMessage"
+              type="textarea"
+              :rows="2"
+              placeholder="Share now 时附带的文字（可选）"
             />
-          </div>
+          </el-form-item>
 
-          <!-- 第三行：转贴到好友 + 数量 -->
+          <!-- 第二行：转贴到好友 + 数量 -->
           <div class="mb-10px">
             <el-checkbox v-model="selectedActions" :label="4"> 转贴到好友 </el-checkbox>
             <el-input-number
@@ -80,7 +81,21 @@
             />
           </div>
 
-          <!-- 第四行：转发到群组 + 数量 + 选择按钮 -->
+          <el-form-item
+            v-if="selectedActions.includes(4)"
+            label="好友附言"
+            class="!mb-10px"
+            label-width="140px"
+          >
+            <el-input
+              v-model="actionConfig.friendMessage"
+              type="textarea"
+              :rows="2"
+              placeholder="Messenger 发送给好友时的附言（可选）"
+            />
+          </el-form-item>
+
+          <!-- 转发到群组 + 数量 + 选择按钮 -->
           <div class="mb-10px">
             <el-checkbox v-model="selectedActions" :label="5"> 转发到群组 </el-checkbox>
             <el-input-number
@@ -121,51 +136,20 @@
               等{{ selectedGroups.length }}个群组
             </span>
           </div>
-        </div>
-      </el-form-item>
 
-      <!-- 评论话术配置 -->
-      <el-form-item label="评论话术" prop="commentScript">
-        <div class="w-full">
-          <!-- 选择方式 -->
-          <el-radio-group v-model="commentScriptType" class="mb-10px">
-            <el-radio label="manual">手动输入</el-radio>
-            <el-radio label="library">从话术库选择</el-radio>
-          </el-radio-group>
-
-          <!-- 手动输入模式 -->
-          <el-input
-            v-if="commentScriptType === 'manual'"
-            v-model="formData.commentScript"
-            type="textarea"
-            :rows="3"
-            placeholder="请输入评论话术内容"
-          />
-
-          <!-- 话术库选择模式 -->
-          <div v-else>
-            <el-button type="primary" @click="openScriptSelector">
-              <Icon icon="ep:search" class="mr-5px" /> 选择话术
-            </el-button>
-
-            <!-- 已选话术展示 -->
-            <div v-if="selectedScriptInfo" class="mt-10px p-10px bg-gray-50 rounded">
-              <div class="flex justify-between items-start">
-                <div class="flex-1">
-                  <div class="text-sm font-medium mb-5px">{{
-                    selectedScriptInfo.scriptTitle || '无标题'
-                  }}</div>
-                  <div class="text-xs text-gray-600 line-clamp-2">{{
-                    selectedScriptInfo.scriptContent
-                  }}</div>
-                </div>
-                <el-tag size="small" class="ml-10px">
-                  {{ getContentTypeText(selectedScriptInfo.contentType) }}
-                </el-tag>
-              </div>
-            </div>
-            <div v-else class="mt-10px text-sm text-gray-400"> 未选择话术 </div>
-          </div>
+          <el-form-item
+            v-if="selectedActions.includes(5)"
+            label="群组附言"
+            class="!mb-10px"
+            label-width="140px"
+          >
+            <el-input
+              v-model="actionConfig.groupMessage"
+              type="textarea"
+              :rows="2"
+              placeholder="转发到群组时的附言（可选）"
+            />
+          </el-form-item>
         </div>
       </el-form-item>
 
@@ -189,19 +173,19 @@
     @confirm="handleGroupConfirm"
   />
 
-  <!-- 话术选择器 -->
-  <ScriptSelector v-model="scriptSelectorVisible" @confirm="handleScriptConfirm" />
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
-import { ScriptApi } from '@/api/facebook/script'
-import { FbOperationAddGroupResultApi } from '@/api/facebook/operation/addgroupresult'
-import { createFbOperationTask, FbOperationTaskSaveReqVO } from '@/api/facebook/operation'
+import {
+  createFbOperationTask,
+  getFbOperationTask,
+  FbOperationTaskSaveReqVO
+} from '@/api/facebook/operation'
+import { startBrowserCollect } from '@/utils/wpfBridge'
 import GroupSelectorForRepost from './GroupSelectorForRepost.vue'
-import ScriptSelector from './ScriptSelector.vue'
 
 const message = useMessage()
 const { t } = useI18n()
@@ -215,18 +199,15 @@ const formRef = ref()
 const formData = ref({
   postUrl: '',
   accountIds: [] as string[],
-  commentScript: '',
-  scriptLibraryId: undefined as number | undefined,
   remark: ''
 })
-
-// 评论话术类型：manual-手动输入，library-话术库
-const commentScriptType = ref<'manual' | 'library'>('manual')
 
 // 执行项配置
 const selectedActions = ref<number[]>([])
 const actionConfig = ref({
-  shareToProfileCount: 1,
+  feedMessage: '',
+  friendMessage: '',
+  groupMessage: '',
   shareToFriendCount: 10,
   shareToGroupCount: 1
 })
@@ -234,10 +215,6 @@ const actionConfig = ref({
 // 群组选择
 const selectedGroups = ref<any[]>([])
 const groupSelectorVisible = ref(false)
-
-// 话术选择
-const scriptSelectorVisible = ref(false)
-const selectedScriptInfo = ref<any>(null)
 
 // 账号列表
 const accounts = ref<any[]>([])
@@ -278,29 +255,6 @@ const loadAccounts = async () => {
     console.error('加载账号列表失败:', error)
     accounts.value = []
   }
-}
-
-/** 打开话术选择器 */
-const openScriptSelector = () => {
-  scriptSelectorVisible.value = true
-}
-
-/** 确认话术选择 */
-const handleScriptConfirm = (script: any) => {
-  formData.value.scriptLibraryId = script.id
-  selectedScriptInfo.value = script
-  message.success(`已选择话术：${script.scriptTitle || '无标题'}`)
-}
-
-/** 获取内容类型文本 */
-const getContentTypeText = (type: number) => {
-  const typeMap: Record<number, string> = {
-    1: '文本',
-    2: '图文',
-    3: '视频',
-    4: '音频'
-  }
-  return typeMap[type] || '未知'
 }
 
 /** 打开群组选择器 */
@@ -357,8 +311,11 @@ const submitForm = async () => {
 
     // 构建执行项配置JSON
     const configData = {
-      actions: selectedActions.value,
-      shareToProfileCount: actionConfig.value.shareToProfileCount,
+      actions: selectedActions.value.filter((a) => a !== 3),
+      feedMessage: actionConfig.value.feedMessage,
+      friendMessage: actionConfig.value.friendMessage,
+      groupMessage: actionConfig.value.groupMessage,
+      shareToFriendCount: actionConfig.value.shareToFriendCount,
       shareToGroupCount: actionConfig.value.shareToGroupCount,
       selectedGroups: selectedGroups.value
     }
@@ -366,9 +323,7 @@ const submitForm = async () => {
     // 计算期望数量
     let expectedCount = 0
     if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length // 点赞：每个账号1次
-    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length // 转发到动态：每个账号1次
-    if (selectedActions.value.includes(3))
-      expectedCount += actionConfig.value.shareToProfileCount * formData.value.accountIds.length // 转帖到个人中心：可配置次数
+    if (selectedActions.value.includes(2)) expectedCount += formData.value.accountIds.length // 转发到动态消息
     if (selectedActions.value.includes(4))
       expectedCount += actionConfig.value.shareToFriendCount * formData.value.accountIds.length // 转贴到好友：可配置次数
     if (selectedActions.value.includes(5))
@@ -381,9 +336,6 @@ const submitForm = async () => {
       accountIds: formData.value.accountIds,
       postUrl: formData.value.postUrl,
       actionConfig: JSON.stringify(configData),
-      commentScript: commentScriptType.value === 'manual' ? formData.value.commentScript : '',
-      scriptLibraryId:
-        commentScriptType.value === 'library' ? formData.value.scriptLibraryId : undefined,
       expectedCount: expectedCount,
       remark: formData.value.remark
     } as unknown as FbOperationTaskSaveReqVO
@@ -396,41 +348,46 @@ const submitForm = async () => {
     
     // 转帖任务创建成功后启动浏览器执行
     if (taskId) {
+      const createdTaskDetail = await getFbOperationTask(String(taskId))
+      const createdDetails = createdTaskDetail?.details || []
+      const repostConfig = JSON.stringify({
+        taskId: String(taskId),
+        postUrl: formData.value.postUrl,
+        actionConfig: configData
+      })
+
       const startedAccounts = new Set<string>()
-      
       for (const accountId of formData.value.accountIds) {
         if (startedAccounts.has(accountId)) continue
-        
-        const accountInfo = accounts.value.find(acc => String(acc.id) === String(accountId))
+
+        const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
         if (!accountInfo) continue
-        
+
+        const detail = createdDetails.find((d) => String(d.accountId) === String(accountId))
         const cookie = accountInfo.cookie || null
-        
+
         try {
-          // @ts-ignore
-          if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-            window.chrome.webview.hostObjects.sync.wpfBridge.StartBrowser(
-              `${taskId}_${accountId}`,
-              String(accountInfo.fbAccount),
-              cookie,
-              formData.value.postUrl,
-              expectedCount,
-              10, // 转帖任务类型
-              null, // config
-              true // isOperation: 运营任务
-            )
-            startedAccounts.add(accountId)
-            console.log(`🚀 启动转帖任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}`)
-          } else {
-            console.warn('⚠️ WPF桥接未就绪，任务已创建但未启动浏览器')
-          }
+          startBrowserCollect(
+            String(detail?.id || `${taskId}_${accountId}`),
+            String(accountId),
+            cookie,
+            formData.value.postUrl,
+            expectedCount,
+            10,
+            repostConfig,
+            true
+          )
+          startedAccounts.add(accountId)
+          console.log(`🚀 启动转帖: 任务=${taskId}, 明细=${detail?.id}, 账号=${accountId}`)
         } catch (error) {
-          console.error(`启动账号 ${accountInfo.fbAccount} 的转帖任务失败:`, error)
+          console.error(`启动账号 ${accountId} 的转帖任务失败:`, error)
         }
       }
-      
+
       if (startedAccounts.size > 0) {
         message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行转帖任务`)
+      } else {
+        message.warning('任务已创建，但 WPF 未连接或账号无效')
       }
     }
     
@@ -446,19 +403,17 @@ const resetForm = () => {
   formData.value = {
     postUrl: '',
     accountIds: [],
-    commentScript: '',
-    scriptLibraryId: undefined,
     remark: ''
   }
   selectedActions.value = []
   actionConfig.value = {
-    shareToProfileCount: 1,
+    feedMessage: '',
+    friendMessage: '',
+    groupMessage: '',
     shareToFriendCount: 10,
     shareToGroupCount: 1
   }
   selectedGroups.value = []
-  selectedScriptInfo.value = null
-  commentScriptType.value = 'manual'
   formRef.value?.resetFields()
 }
 </script>

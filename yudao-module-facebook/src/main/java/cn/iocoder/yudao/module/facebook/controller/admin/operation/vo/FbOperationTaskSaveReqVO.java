@@ -38,4 +38,16 @@ public class FbOperationTaskSaveReqVO {
     @Schema(description = "备注", example = "测试任务")
     private String remark;
 
+    @Schema(description = "帖子链接（转帖任务）")
+    private String postUrl;
+
+    @Schema(description = "执行项配置（JSON）")
+    private String actionConfig;
+
+    @Schema(description = "评论话术")
+    private String commentScript;
+
+    @Schema(description = "话术库ID")
+    private Long scriptLibraryId;
+
 }

@@ -1,165 +1,679 @@
 using System;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Services;
 
 namespace SocialMatrix.WpfHost.Services
 {
     /// <summary>
-    /// 转帖脚本生成器
+    /// 转帖脚本：点赞 / 转发到动态消息 / 好友 / 群组（各带附言）
     /// </summary>
     public class RepostScriptBuilder : FacebookScriptBuilder
     {
         private readonly string _postUrl;
         private readonly string _actionConfigJson;
-        private readonly string _commentScript;
-        
-        public RepostScriptBuilder(string postUrl, string actionConfigJson, string commentScript = "")
+
+        public RepostScriptBuilder(string postUrl, string actionConfigJson)
         {
-            _postUrl = postUrl;
-            _actionConfigJson = actionConfigJson;
-            _commentScript = commentScript;
+            _postUrl = postUrl ?? "";
+            _actionConfigJson = actionConfigJson ?? "{}";
         }
-        
-        /// <summary>
-        /// 生成完整的转帖脚本
-        /// </summary>
+
         public override string Build()
         {
             var config = JObject.Parse(_actionConfigJson);
-            var actions = config["actions"]?.ToObject<int[]>() ?? new int[0];
-            var shareToProfileCount = config["shareToProfileCount"]?.Value<int>() ?? 1;
+            var actions = config["actions"]?.ToObject<int[]>() ?? Array.Empty<int>();
+            var shareToFriendCount = config["shareToFriendCount"]?.Value<int>() ?? 10;
             var selectedGroups = config["selectedGroups"]?.ToObject<JArray>() ?? new JArray();
-            
+            var feedMessage = config["feedMessage"]?.ToString() ?? "";
+            var friendMessage = config["friendMessage"]?.ToString() ?? "";
+            var groupMessage = config["groupMessage"]?.ToString() ?? "";
+
             BeginScript();
-            
-            // 1. 导航到帖子页面
-            NavigateToPost();
-            
-            // 2-7. 执行各种操作
-            ExecuteActions(actions, shareToProfileCount, selectedGroups);
-            
-            return EndScript();
+            AddRepostHelpers();
+            _js.AppendLine($"            const feedMessage = {JsonConvert.SerializeObject(feedMessage)};");
+            _js.AppendLine($"            const friendMessage = {JsonConvert.SerializeObject(friendMessage)};");
+            _js.AppendLine($"            const groupMessage = {JsonConvert.SerializeObject(groupMessage)};");
+            _js.AppendLine($"            const TARGET_POST_URL = {JsonConvert.SerializeObject(_postUrl)};");
+            _js.AppendLine("            const results = [];");
+            _js.AppendLine("            console.log('[转帖] 开始执行, 帖子:', TARGET_POST_URL);");
+            _js.AppendLine("            if (!(await waitForPostDialog(25000))) {");
+            _js.AppendLine("                console.error('[转帖] 目标帖子未加载完成');");
+            _js.AppendLine("                reject(JSON.stringify({ success: false, message: '目标帖子未加载完成，请确认链接有效或稍后重试', results }));");
+            _js.AppendLine("                return;");
+            _js.AppendLine("            }");
+            _js.AppendLine("            await randomDelay(1500, 2500);");
+            _js.AppendLine("");
+
+            ExecuteActions(actions, shareToFriendCount, selectedGroups);
+
+            _js.AppendLine("                console.log('[转帖] 所有操作完成, 结果数:', results.length);");
+            _js.AppendLine("                resolve(JSON.stringify(results));");
+            _js.AppendLine("");
+            _js.AppendLine("            } catch (e) {");
+            _js.AppendLine("                console.error('[转帖] 错误:', e);");
+            _js.AppendLine("                reject(JSON.stringify({ success: false, message: e.message, results }));");
+            _js.AppendLine("            }");
+            _js.AppendLine("        })();");
+            _js.AppendLine("    });");
+
+            return _js.ToString();
         }
-        
-        private void NavigateToPost()
+
+        private void AddRepostHelpers()
         {
-            _js.AppendLine($"        // 1. 导航到帖子页面");
-            _js.AppendLine($"        window.location.href = '{_postUrl}';");
-            _js.AppendLine("        await randomDelay(3000, 4000);");
-            _js.AppendLine("        console.log('[转帖] 页面加载完成');");
+            _js.AppendLine("            let postRoot = null;");
+            _js.AppendLine("            const normalizeText = (text) => (text || '').replace(/\\s+/g, ' ').trim().toLowerCase();");
+            _js.AppendLine("            const isVisibleElement = (el) => {");
+            _js.AppendLine("                if (!el) return false;");
+            _js.AppendLine("                const rect = el.getBoundingClientRect();");
+            _js.AppendLine("                const style = window.getComputedStyle(el);");
+            _js.AppendLine("                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const normalizeGroupSearchKey = (raw) => {");
+            _js.AppendLine("                let key = normalizeText(String(raw || ''));");
+            _js.AppendLine("                key = key.replace(/^profile photo of\\s+/, '');");
+            _js.AppendLine("                return key;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const SKIP_URL_SEGMENTS = new Set(['facebook', 'com', 'share', 'posts', 'groups', 'photo', 'videos', 'watch', 'permalink', 'permalink.php']);");
+            _js.AppendLine("            const SKIP_QUERY_PARAMS = new Set(['id', 'rdid', 'ref', 'mibextid']);");
+            _js.AppendLine("            const addPostKey = (keys, p) => {");
+            _js.AppendLine("                const k = (p || '').toLowerCase().trim();");
+            _js.AppendLine("                if (!k) return;");
+            _js.AppendLine("                if (k.startsWith('pfbid') && k.length > 12) { keys.add(k); return; }");
+            _js.AppendLine("                if (k.length >= 6 && !SKIP_URL_SEGMENTS.has(k)) keys.add(k);");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const extractPostKeysFromUrl = (url) => {");
+            _js.AppendLine("                const keys = new Set();");
+            _js.AppendLine("                const raw = String(url || '').trim();");
+            _js.AppendLine("                if (!raw) return [];");
+            _js.AppendLine("                try {");
+            _js.AppendLine("                    const u = new URL(raw, location.href);");
+            _js.AppendLine("                    u.pathname.split('/').filter(Boolean).forEach(p => addPostKey(keys, p));");
+            _js.AppendLine("                    const storyFbid = u.searchParams.get('story_fbid');");
+            _js.AppendLine("                    if (storyFbid) addPostKey(keys, storyFbid);");
+            _js.AppendLine("                    const shareUrl = u.searchParams.get('share_url');");
+            _js.AppendLine("                    if (shareUrl) extractPostKeysFromUrl(shareUrl).forEach(k => keys.add(k));");
+            _js.AppendLine("                    u.searchParams.forEach((v, name) => {");
+            _js.AppendLine("                        if (!SKIP_QUERY_PARAMS.has(name.toLowerCase())) addPostKey(keys, v);");
+            _js.AppendLine("                    });");
+            _js.AppendLine("                } catch (e) {");
+            _js.AppendLine("                    raw.split(/[/?#&=]/).filter(Boolean).forEach(p => addPostKey(keys, p));");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return [...keys];");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const collectPostKeys = () => {");
+            _js.AppendLine("                const keys = new Set();");
+            _js.AppendLine("                extractPostKeysFromUrl(TARGET_POST_URL).forEach(k => keys.add(k));");
+            _js.AppendLine("                extractPostKeysFromUrl(location.href).forEach(k => keys.add(k));");
+            _js.AppendLine("                return [...keys];");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const isDedicatedPostPage = () => {");
+            _js.AppendLine("                const pageUrl = normalizeText(location.href);");
+            _js.AppendLine("                if (pageUrl.includes('/share/p/') || pageUrl.includes('permalink.php') || pageUrl.includes('/posts/') || pageUrl.includes('story_fbid=') || pageUrl.includes('pfbid')) return true;");
+            _js.AppendLine("                const keys = collectPostKeys();");
+            _js.AppendLine("                return keys.some(k => pageUrl.includes(k));");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const hasPostUrlRedirected = () => {");
+            _js.AppendLine("                const pageUrl = normalizeText(location.href);");
+            _js.AppendLine("                if (pageUrl.includes('permalink.php') && pageUrl.includes('story_fbid=')) return true;");
+            _js.AppendLine("                const originKeys = extractPostKeysFromUrl(TARGET_POST_URL);");
+            _js.AppendLine("                return originKeys.some(k => pageUrl.includes(k));");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getMainArticles = () => {");
+            _js.AppendLine("                const main = document.querySelector('[role=\"main\"]') || document.body;");
+            _js.AppendLine("                return [...main.querySelectorAll('div[role=\"article\"]')].filter(isVisibleElement);");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const articleMatchesPost = (article, keys) => {");
+            _js.AppendLine("                if (!article || keys.length === 0) return false;");
+            _js.AppendLine("                const blob = normalizeText((article.innerText || '') + ' ' + [...article.querySelectorAll('a[href]')].map(a => a.href || '').join(' '));");
+            _js.AppendLine("                return keys.some(k => blob.includes(k));");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findTargetPostArticle = () => {");
+            _js.AppendLine("                const keys = collectPostKeys();");
+            _js.AppendLine("                const dedicated = isDedicatedPostPage();");
+            _js.AppendLine("                const articles = [...document.querySelectorAll('div[role=\"article\"]')].filter(isVisibleElement);");
+            _js.AppendLine("                const mainArticles = getMainArticles();");
+            _js.AppendLine("                if (keys.length > 0) {");
+            _js.AppendLine("                    const matched = articles.filter(a => articleMatchesPost(a, keys));");
+            _js.AppendLine("                    if (matched.length > 0) {");
+            _js.AppendLine("                        matched.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);");
+            _js.AppendLine("                        return matched[0];");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                if (dedicated) {");
+            _js.AppendLine("                    for (const a of mainArticles) {");
+            _js.AppendLine("                        if (findShareButtonInRoot(a)) return a;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (mainArticles.length > 0) return mainArticles[0];");
+            _js.AppendLine("                }");
+            _js.AppendLine("                if (articles.length === 1) return articles[0];");
+            _js.AppendLine("                if (dedicated && articles.length > 0) {");
+            _js.AppendLine("                    for (const a of articles) {");
+            _js.AppendLine("                        if (findShareButtonInRoot(a)) return a;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findShareButtonInRoot = (root) => {");
+            _js.AppendLine("                if (!root) return null;");
+            _js.AppendLine("                const labels = ['send this to friends or post it on your profile', '发送给好友或发布到你的个人主页', '分享给好友或发布到你的主页'];");
+            _js.AppendLine("                for (const btn of root.querySelectorAll('[role=\"button\"]')) {");
+            _js.AppendLine("                    if (!isVisibleElement(btn)) continue;");
+            _js.AppendLine("                    const aria = normalizeText(btn.getAttribute('aria-label'));");
+            _js.AppendLine("                    if (labels.some(l => aria.includes(l))) return btn;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getVisibleDialogs = () => [...document.querySelectorAll('[role=\"dialog\"]')].filter(isVisibleElement);");
+            _js.AppendLine("            const isMessengerOrGroupPickerOnly = (dialog) => {");
+            _js.AppendLine("                if (!dialog) return false;");
+            _js.AppendLine("                const t = normalizeText(dialog.textContent);");
+            _js.AppendLine("                const hasGroupSearch = t.includes('search for groups') || t.includes('搜索群组');");
+            _js.AppendLine("                const hasPostShareBtn = !!findShareButtonInRoot(dialog);");
+            _js.AppendLine("                return hasGroupSearch && !hasPostShareBtn;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getPostPreviewDialog = () => {");
+            _js.AppendLine("                const dialogs = getVisibleDialogs();");
+            _js.AppendLine("                for (let i = dialogs.length - 1; i >= 0; i--) {");
+            _js.AppendLine("                    const dlg = dialogs[i];");
+            _js.AppendLine("                    if (isMessengerOrGroupPickerOnly(dlg)) continue;");
+            _js.AppendLine("                    if (findShareButtonInRoot(dlg)) return dlg;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const waitForPostDialog = async (timeoutMs = 25000) => {");
+            _js.AppendLine("                const start = Date.now();");
+            _js.AppendLine("                let attempt = 0;");
+            _js.AppendLine("                while (Date.now() - start < timeoutMs) {");
+            _js.AppendLine("                    attempt++;");
+            _js.AppendLine("                    const previewDialog = getPostPreviewDialog();");
+            _js.AppendLine("                    const shareBtn = previewDialog ? findShareButtonInRoot(previewDialog) : null;");
+            _js.AppendLine("                    if (attempt === 1 || attempt % 4 === 0) {");
+            _js.AppendLine("                        console.log('[转帖] 等待帖子预览弹窗', attempt, 'url=', (location.href || '').slice(0, 120),");
+            _js.AppendLine("                            'keys=', collectPostKeys().slice(0, 3).join(','), 'redirected=', hasPostUrlRedirected(),");
+            _js.AppendLine("                            'dialogs=', getVisibleDialogs().length, 'preview=', !!previewDialog, 'shareBtn=', !!shareBtn);");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (previewDialog && shareBtn) {");
+            _js.AppendLine("                        previewDialog.scrollIntoView({ block: 'center', inline: 'nearest' });");
+            _js.AppendLine("                        await randomDelay(800, 1200);");
+            _js.AppendLine("                        postRoot = previewDialog;");
+            _js.AppendLine("                        console.log('[转帖] 帖子预览弹窗已就绪');");
+            _js.AppendLine("                        return true;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (isDedicatedPostPage()) {");
+            _js.AppendLine("                        const article = findTargetPostArticle();");
+            _js.AppendLine("                        const articleShareBtn = article ? findShareButtonInRoot(article) : null;");
+            _js.AppendLine("                        if (article && articleShareBtn) {");
+            _js.AppendLine("                            article.scrollIntoView({ block: 'center', inline: 'nearest' });");
+            _js.AppendLine("                            await randomDelay(800, 1200);");
+            _js.AppendLine("                            postRoot = article;");
+            _js.AppendLine("                            console.log('[转帖] 专用帖子页已就绪(无预览弹窗)');");
+            _js.AppendLine("                            return true;");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    await randomDelay(600, 1000);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                console.warn('[转帖] 等待帖子预览弹窗超时');");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const detectRetryTooEarly = () => {");
+            _js.AppendLine("                const keywords = ['Retried Too Early', 'try again later', '请稍后再试', '操作过快', 'slow down'];");
+            _js.AppendLine("                const text = normalizeText(document.body?.innerText || '');");
+            _js.AppendLine("                if (keywords.some(k => text.includes(k))) return true;");
+            _js.AppendLine("                for (const dlg of getVisibleDialogs()) {");
+            _js.AppendLine("                    const dt = normalizeText(dlg.textContent || '');");
+            _js.AppendLine("                    if (keywords.some(k => dt.includes(k))) return true;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const waitThroughRetryTooEarly = async (maxWaitMs = 45000) => {");
+            _js.AppendLine("                if (!detectRetryTooEarly()) return true;");
+            _js.AppendLine("                console.warn('[转帖] 检测到 Retried Too Early，等待冷却...');");
+            _js.AppendLine("                const cooldownStart = Date.now();");
+            _js.AppendLine("                while (Date.now() - cooldownStart < maxWaitMs) {");
+            _js.AppendLine("                    await randomDelay(4000, 6000);");
+            _js.AppendLine("                    if (!detectRetryTooEarly()) {");
+            _js.AppendLine("                        console.log('[转帖] 限流提示已消失');");
+            _js.AppendLine("                        await randomDelay(2000, 3500);");
+            _js.AppendLine("                        return true;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const matchesShareNow = (aria, text) => {");
+            _js.AppendLine("                const a = normalizeText(aria);");
+            _js.AppendLine("                const t = normalizeText(text);");
+            _js.AppendLine("                return a === 'share now' || t === 'share now' || a.includes('share now') || t.includes('share now') || a === '立即分享' || t === '立即分享';");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const matchesMessengerSend = (aria, text) => {");
+            _js.AppendLine("                const a = normalizeText(aria);");
+            _js.AppendLine("                const t = normalizeText(text);");
+            _js.AppendLine("                return a === 'send' || t === 'send' || a === '发送' || t === '发送';");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const isShareComposerDialog = (dialog) => {");
+            _js.AppendLine("                if (!dialog || !isVisibleElement(dialog)) return false;");
+            _js.AppendLine("                if (postRoot && dialog === postRoot) return false;");
+            _js.AppendLine("                const t = normalizeText(dialog.textContent);");
+            _js.AppendLine("                if (t.includes('share now') || t.includes('share to a group')) return true;");
+            _js.AppendLine("                if (t.includes('send to') && t.includes('messenger')) return true;");
+            _js.AppendLine("                if (t.includes('search for groups')) return true;");
+            _js.AppendLine("                for (const btn of dialog.querySelectorAll('[role=\"button\"]')) {");
+            _js.AppendLine("                    if (!isVisibleElement(btn)) continue;");
+            _js.AppendLine("                    const aria = btn.getAttribute('aria-label') || '';");
+            _js.AppendLine("                    const text = (btn.textContent || '').trim();");
+            _js.AppendLine("                    if (matchesShareNow(aria, text)) return true;");
+            _js.AppendLine("                    const a = normalizeText(aria);");
+            _js.AppendLine("                    if (a === 'share to a group' || normalizeText(text) === 'group') return true;");
+            _js.AppendLine("                    if (a.includes('send to') && a.includes('via messenger')) return true;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getShareComposerDialog = () => {");
+            _js.AppendLine("                const dialogs = getVisibleDialogs();");
+            _js.AppendLine("                for (let i = dialogs.length - 1; i >= 0; i--) {");
+            _js.AppendLine("                    const dlg = dialogs[i];");
+            _js.AppendLine("                    if (postRoot && dlg === postRoot) continue;");
+            _js.AppendLine("                    if (isShareComposerDialog(dlg)) return dlg;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const closeShareComposer = async () => {");
+            _js.AppendLine("                for (let i = 0; i < 3; i++) {");
+            _js.AppendLine("                    const composer = getShareComposerDialog();");
+            _js.AppendLine("                    if (!composer) return;");
+            _js.AppendLine("                    const closeBtn = composer.querySelector('[aria-label=\"Close\"], [aria-label=\"关闭\"]');");
+            _js.AppendLine("                    if (closeBtn && isVisibleElement(closeBtn)) {");
+            _js.AppendLine("                        await humanClick(closeBtn);");
+            _js.AppendLine("                        await randomDelay(500, 800);");
+            _js.AppendLine("                    } else break;");
+            _js.AppendLine("                }");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const isClickableButton = (btn) => {");
+            _js.AppendLine("                if (!isVisibleElement(btn)) return false;");
+            _js.AppendLine("                if (btn.getAttribute('aria-disabled') === 'true') return false;");
+            _js.AppendLine("                if (btn.hasAttribute('disabled')) return false;");
+            _js.AppendLine("                return true;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findMainLikeButton = () => {");
+            _js.AppendLine("                if (!postRoot) return null;");
+            _js.AppendLine("                for (const btn of postRoot.querySelectorAll('[role=\"button\"][aria-label=\"Like\" i], [role=\"button\"][aria-label=\"赞\" i]')) {");
+            _js.AppendLine("                    if (isVisibleElement(btn)) return btn;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickButtonInRoot = async (root, matcher) => {");
+            _js.AppendLine("                if (!root) return false;");
+            _js.AppendLine("                for (const btn of root.querySelectorAll('[role=\"button\"]')) {");
+            _js.AppendLine("                    if (!isClickableButton(btn)) continue;");
+            _js.AppendLine("                    const aria = btn.getAttribute('aria-label') || '';");
+            _js.AppendLine("                    const text = (btn.textContent || '').trim();");
+            _js.AppendLine("                    if (matcher(aria, text, btn)) {");
+            _js.AppendLine("                        await humanClick(btn);");
+            _js.AppendLine("                        await randomDelay(1200, 2000);");
+            _js.AppendLine("                        return true;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickButtonInComposer = async (matcher) => {");
+            _js.AppendLine("                const composer = getShareComposerDialog();");
+            _js.AppendLine("                if (composer && await clickButtonInRoot(composer, matcher)) return true;");
+            _js.AppendLine("                return clickButtonInRoot(getShareComposerDialog(), matcher);");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickDialogButton = async (matcher) => clickButtonInComposer(matcher);");
+            _js.AppendLine("            const openShareDialog = async () => {");
+            _js.AppendLine("                await closeShareComposer();");
+            _js.AppendLine("                if (!postRoot) {");
+            _js.AppendLine("                    console.warn('[转帖] postRoot 未就绪');");
+            _js.AppendLine("                    return false;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                postRoot.scrollIntoView({ block: 'center', inline: 'nearest' });");
+            _js.AppendLine("                await randomDelay(800, 1500);");
+            _js.AppendLine("                const btn = findShareButtonInRoot(postRoot);");
+            _js.AppendLine("                if (!btn) {");
+            _js.AppendLine("                    console.warn('[转帖] postRoot 内未找到分享按钮');");
+            _js.AppendLine("                    return false;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                await humanClick(btn);");
+            _js.AppendLine("                await randomDelay(1500, 2500);");
+            _js.AppendLine("                const waitStart = Date.now();");
+            _js.AppendLine("                while (Date.now() - waitStart < 6000) {");
+            _js.AppendLine("                    if (getShareComposerDialog()) {");
+            _js.AppendLine("                        console.log('[转帖] 分享面板已打开');");
+            _js.AppendLine("                        return true;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    await randomDelay(400, 700);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                console.warn('[转帖] 分享面板未出现');");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getEditorText = (editor) => (editor?.innerText || editor?.textContent || '').trim();");
+            _js.AppendLine("            const findVisibleShareEditor = (root) => {");
+            _js.AppendLine("                if (!root) return null;");
+            _js.AppendLine("                const editors = [...root.querySelectorAll('div[role=\"textbox\"][contenteditable=\"true\"]')].filter(isVisibleElement);");
+            _js.AppendLine("                return editors.length > 0 ? editors[editors.length - 1] : null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const blurActiveEditor = async () => {");
+            _js.AppendLine("                const active = document.activeElement;");
+            _js.AppendLine("                if (active && active !== document.body) active.blur();");
+            _js.AppendLine("                await randomDelay(300, 600);");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const matchesGroupPost = (aria, text) => {");
+            _js.AppendLine("                const a = normalizeText(aria);");
+            _js.AppendLine("                const t = normalizeText(text);");
+            _js.AppendLine("                if (matchesShareNow(aria, text)) return false;");
+            _js.AppendLine("                return a === 'post' || t === 'post' || a === '发帖' || t === '发帖' || a === '发布' || t === '发布';");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findGroupPostButton = () => {");
+            _js.AppendLine("                const dialogs = getVisibleDialogs();");
+            _js.AppendLine("                for (let i = dialogs.length - 1; i >= 0; i--) {");
+            _js.AppendLine("                    if (postRoot && dialogs[i] === postRoot) continue;");
+            _js.AppendLine("                    for (const btn of dialogs[i].querySelectorAll('[role=\"button\"]')) {");
+            _js.AppendLine("                        if (!isClickableButton(btn)) continue;");
+            _js.AppendLine("                        const aria = btn.getAttribute('aria-label') || '';");
+            _js.AppendLine("                        const text = (btn.textContent || '').trim();");
+            _js.AppendLine("                        if (matchesGroupPost(aria, text)) return btn;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickShareNow = async () => {");
+            _js.AppendLine("                await blurActiveEditor();");
+            _js.AppendLine("                const clicked = await clickButtonInComposer((aria, text) => matchesShareNow(aria, text));");
+            _js.AppendLine("                if (!clicked) console.warn('[转帖] 未找到 Share now 按钮');");
+            _js.AppendLine("                return clicked;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickGroupPost = async () => {");
+            _js.AppendLine("                await blurActiveEditor();");
+            _js.AppendLine("                const btn = findGroupPostButton();");
+            _js.AppendLine("                if (!btn) {");
+            _js.AppendLine("                    console.warn('[转帖] 未找到 Post 按钮');");
+            _js.AppendLine("                    return false;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                await humanClick(btn);");
+            _js.AppendLine("                await randomDelay(1500, 2500);");
+            _js.AppendLine("                return true;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const waitForGroupPostButton = async (timeoutMs = 8000) => {");
+            _js.AppendLine("                const start = Date.now();");
+            _js.AppendLine("                while (Date.now() - start < timeoutMs) {");
+            _js.AppendLine("                    if (findGroupPostButton()) return true;");
+            _js.AppendLine("                    await randomDelay(400, 700);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickMessengerSend = async () => {");
+            _js.AppendLine("                await blurActiveEditor();");
+            _js.AppendLine("                const clicked = await clickButtonInComposer((aria, text) => matchesMessengerSend(aria, text));");
+            _js.AppendLine("                if (!clicked) console.warn('[转帖] 未找到 Messenger Send 按钮');");
+            _js.AppendLine("                return clicked;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const inputShareText = async (editor, messageText) => {");
+            _js.AppendLine("                if (!messageText || !String(messageText).trim()) return true;");
+            _js.AppendLine("                if (!editor) return false;");
+            _js.AppendLine("                editor.focus();");
+            _js.AppendLine("                await randomDelay(300, 600);");
+            _js.AppendLine("                try {");
+            _js.AppendLine("                    const sel = window.getSelection();");
+            _js.AppendLine("                    const range = document.createRange();");
+            _js.AppendLine("                    range.selectNodeContents(editor);");
+            _js.AppendLine("                    range.collapse(false);");
+            _js.AppendLine("                    sel.removeAllRanges();");
+            _js.AppendLine("                    sel.addRange(range);");
+            _js.AppendLine("                } catch (e) { /* ignore */ }");
+            _js.AppendLine("                let typed = '';");
+            _js.AppendLine("                try {");
+            _js.AppendLine("                    document.execCommand('insertText', false, messageText);");
+            _js.AppendLine("                    editor.dispatchEvent(new InputEvent('input', { data: messageText, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                    typed = getEditorText(editor);");
+            _js.AppendLine("                } catch (e) { console.warn('[转帖] insertText 整段失败', e); }");
+            _js.AppendLine("                if (!typed) {");
+            _js.AppendLine("                    for (const ch of messageText) {");
+            _js.AppendLine("                        document.execCommand('insertText', false, ch);");
+            _js.AppendLine("                        editor.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                        await randomDelay(30, 80);");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    typed = getEditorText(editor);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                await randomDelay(400, 700);");
+            _js.AppendLine("                console.log('[转帖] 附言输入结果, 长度:', typed.length);");
+            _js.AppendLine("                return typed.length > 0;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const shareFail = (reason) => ({ ok: false, reason: reason || '' });");
+            _js.AppendLine("            const shareOk = (status = 1, remark = '') => ({ ok: true, status, remark });");
+            _js.AppendLine("            const detectGroupPostPendingApproval = async () => {");
+            _js.AppendLine("                await randomDelay(1000, 2000);");
+            _js.AppendLine("                const keywords = [");
+            _js.AppendLine("                    'submitted to group admins for approval',");
+            _js.AppendLine("                    'submitted to group admin',");
+            _js.AppendLine("                    'waiting for admin approval',");
+            _js.AppendLine("                    'pending admin approval',");
+            _js.AppendLine("                    '待群组管理员审核',");
+            _js.AppendLine("                    '等待管理员审核',");
+            _js.AppendLine("                    '已提交给群组管理员'");
+            _js.AppendLine("                ];");
+            _js.AppendLine("                const hit = (text) => {");
+            _js.AppendLine("                    const t = normalizeText(text);");
+            _js.AppendLine("                    return keywords.some(k => t.includes(normalizeText(k)));");
+            _js.AppendLine("                };");
+            _js.AppendLine("                if (hit(document.body?.innerText || '')) return true;");
+            _js.AppendLine("                for (const el of document.querySelectorAll('[role=\"alert\"], [role=\"status\"], [aria-live=\"polite\"], [aria-live=\"assertive\"]')) {");
+            _js.AppendLine("                    if (hit(el.textContent || '')) return true;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const fillShareMessage = async (messageText) => {");
+            _js.AppendLine("                if (!messageText || !String(messageText).trim()) return true;");
+            _js.AppendLine("                const composer = getShareComposerDialog();");
+            _js.AppendLine("                if (composer) {");
+            _js.AppendLine("                    const editor = findVisibleShareEditor(composer);");
+            _js.AppendLine("                    if (editor && await inputShareText(editor, messageText)) return true;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                const dialogs = getVisibleDialogs();");
+            _js.AppendLine("                for (let i = dialogs.length - 1; i >= 0; i--) {");
+            _js.AppendLine("                    if (postRoot && dialogs[i] === postRoot) continue;");
+            _js.AppendLine("                    const editor = findVisibleShareEditor(dialogs[i]);");
+            _js.AppendLine("                    if (editor && await inputShareText(editor, messageText)) return true;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                console.warn('[转帖] 未找到可见附言输入框');");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const submitGroupPost = async () => {");
+            _js.AppendLine("                await randomDelay(1500, 2500);");
+            _js.AppendLine("                if (detectRetryTooEarly() && !(await waitThroughRetryTooEarly())) {");
+            _js.AppendLine("                    return shareFail('群组发帖限流(Retried Too Early)');");
+            _js.AppendLine("                }");
+            _js.AppendLine("                if (!(await clickGroupPost())) return shareFail('未找到 Post');");
+            _js.AppendLine("                await randomDelay(2000, 3000);");
+            _js.AppendLine("                if (detectRetryTooEarly()) {");
+            _js.AppendLine("                    console.warn('[转帖] 群组 Post 触发限流，冷却后重试一次');");
+            _js.AppendLine("                    if (!(await waitThroughRetryTooEarly())) return shareFail('群组发帖限流(Retried Too Early)');");
+            _js.AppendLine("                    await randomDelay(1500, 2500);");
+            _js.AppendLine("                    if (!(await clickGroupPost())) return shareFail('群组 Post 重试失败');");
+            _js.AppendLine("                    await randomDelay(2000, 3000);");
+            _js.AppendLine("                    if (detectRetryTooEarly()) return shareFail('群组发帖限流(Retried Too Early)');");
+            _js.AppendLine("                }");
+            _js.AppendLine("                if (await detectGroupPostPendingApproval()) {");
+            _js.AppendLine("                    console.log('[转帖] 群组发帖已提交，待管理员审核');");
+            _js.AppendLine("                    return shareOk(3, '已提交，待群管理员审核');");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return shareOk(1);");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const performShare = async (target, arg) => {");
+            _js.AppendLine("                try {");
+            _js.AppendLine("                    if (!await openShareDialog()) return shareFail('打开分享面板失败');");
+            _js.AppendLine("                    const composer = getShareComposerDialog();");
+            _js.AppendLine("                    if (!composer) return shareFail('分享面板未就绪');");
+            _js.AppendLine("                    if (target === 'feed') {");
+            _js.AppendLine("                        if (feedMessage && !(await fillShareMessage(feedMessage))) return shareFail('动态附言输入失败');");
+            _js.AppendLine("                        return (await clickShareNow()) ? shareOk(1) : shareFail('未找到 Share now');");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (target === 'friend') {");
+            _js.AppendLine("                        if (friendMessage && !(await fillShareMessage(friendMessage))) return shareFail('好友附言输入失败');");
+            _js.AppendLine("                        const idx = typeof arg === 'number' ? arg : 0;");
+            _js.AppendLine("                        const findFriendBtns = (root) => [...(root?.querySelectorAll('[role=\"button\"]') || [])].filter(btn => {");
+            _js.AppendLine("                            if (!isClickableButton(btn)) return false;");
+            _js.AppendLine("                            const aria = btn.getAttribute('aria-label') || '';");
+            _js.AppendLine("                            return aria.includes('Send to') && aria.includes('via Messenger');");
+            _js.AppendLine("                        });");
+            _js.AppendLine("                        let pick = findFriendBtns(composer)[idx];");
+            _js.AppendLine("                        if (!pick) {");
+            _js.AppendLine("                            await clickDialogButton((aria, text) => aria.includes('More Messenger contacts') || text === 'More');");
+            _js.AppendLine("                            await randomDelay(1500, 2500);");
+            _js.AppendLine("                            const composer2 = getShareComposerDialog();");
+            _js.AppendLine("                            const moreFriends = findFriendBtns(composer2);");
+            _js.AppendLine("                            pick = moreFriends[idx] || moreFriends[0];");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                        if (!pick) return shareFail('未找到好友 Send');");
+            _js.AppendLine("                        await humanClick(pick);");
+            _js.AppendLine("                        await randomDelay(1800, 2800);");
+            _js.AppendLine("                        if (friendMessage && !(await fillShareMessage(friendMessage))) return shareFail('好友附言输入失败');");
+            _js.AppendLine("                        return (await clickMessengerSend()) ? shareOk(1) : shareFail('未找到好友 Send 确认按钮');");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (target === 'group') {");
+            _js.AppendLine("                        if (!await clickDialogButton((aria, text) => aria === 'Share to a group' || text === 'Group')) return shareFail('未找到 Share to a group');");
+            _js.AppendLine("                        await randomDelay(2000, 3000);");
+            _js.AppendLine("                        const rawKey = String(arg || '');");
+            _js.AppendLine("                        const key = normalizeGroupSearchKey(rawKey);");
+            _js.AppendLine("                        const searchKey = key.includes('community') ? key.split('community')[0].trim() : (key.split(',')[0] || key);");
+            _js.AppendLine("                        const groupDialog = getShareComposerDialog();");
+            _js.AppendLine("                        if (!groupDialog) return shareFail('群组选择面板未就绪');");
+            _js.AppendLine("                        const search = groupDialog.querySelector('input[aria-label=\"Search for groups\"], input[placeholder*=\"Search for groups\" i], input[type=\"search\"]');");
+            _js.AppendLine("                        if (search && searchKey) {");
+            _js.AppendLine("                            search.focus();");
+            _js.AppendLine("                            search.value = searchKey;");
+            _js.AppendLine("                            search.dispatchEvent(new Event('input', { bubbles: true }));");
+            _js.AppendLine("                            await randomDelay(3500, 5000);");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                        const pickerDialog = getShareComposerDialog();");
+            _js.AppendLine("                        if (!pickerDialog) return shareFail('群组选择面板未就绪');");
+            _js.AppendLine("                        const isGroupPickButton = (btn, text) => {");
+            _js.AppendLine("                            if (!isClickableButton(btn)) return false;");
+            _js.AppendLine("                            const aria = normalizeText(btn.getAttribute('aria-label'));");
+            _js.AppendLine("                            if (aria === 'share to a group' || aria === 'group') return false;");
+            _js.AppendLine("                            if (aria.startsWith('profile photo of') && !text.includes('group')) return false;");
+            _js.AppendLine("                            return text.includes('group') || text.includes('private') || text.includes('public') || text.length >= 12;");
+            _js.AppendLine("                        };");
+            _js.AppendLine("                        let groupSelected = false;");
+            _js.AppendLine("                        const candidates = [...pickerDialog.querySelectorAll('[role=\"button\"], [role=\"row\"], [role=\"listitem\"]')];");
+            _js.AppendLine("                        for (const el of candidates) {");
+            _js.AppendLine("                            const text = normalizeText(el.textContent);");
+            _js.AppendLine("                            if (!text) continue;");
+            _js.AppendLine("                            const btn = el.matches('[role=\"button\"]') ? el : el.querySelector('[role=\"button\"]') || el;");
+            _js.AppendLine("                            if (!isGroupPickButton(btn, text)) continue;");
+            _js.AppendLine("                            if (key && text.includes(key)) {");
+            _js.AppendLine("                                await humanClick(btn);");
+            _js.AppendLine("                                groupSelected = true;");
+            _js.AppendLine("                                break;");
+            _js.AppendLine("                            }");
+            _js.AppendLine("                            if (searchKey && text.includes(normalizeText(searchKey))) {");
+            _js.AppendLine("                                await humanClick(btn);");
+            _js.AppendLine("                                groupSelected = true;");
+            _js.AppendLine("                                break;");
+            _js.AppendLine("                            }");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                        if (!groupSelected) return shareFail('未找到群组');");
+            _js.AppendLine("                        await randomDelay(4000, 6000);");
+            _js.AppendLine("                        if (!(await waitForGroupPostButton())) return shareFail('群组发帖面板未就绪');");
+            _js.AppendLine("                        if (groupMessage) {");
+            _js.AppendLine("                            if (!(await fillShareMessage(groupMessage))) {");
+            _js.AppendLine("                                console.warn('[转帖] 群组附言输入失败，仍尝试 Post');");
+            _js.AppendLine("                            }");
+            _js.AppendLine("                            await randomDelay(1000, 2000);");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                        return await submitGroupPost();");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    return shareFail('未知分享类型');");
+            _js.AppendLine("                } catch (e) {");
+            _js.AppendLine("                    console.warn('[转帖] performShare失败:', target, e);");
+            _js.AppendLine("                    return shareFail('执行异常: ' + (e?.message || e));");
+            _js.AppendLine("                }");
+            _js.AppendLine("            };");
             _js.AppendLine("");
         }
-        
-        private void ExecuteActions(int[] actions, int shareToProfileCount, JArray selectedGroups)
+
+        private void ExecuteActions(int[] actions, int shareToFriendCount, JArray selectedGroups)
         {
-            // 点赞 (actionType=1)
             if (Array.Exists(actions, a => a == 1))
             {
-                _js.AppendLine("        // 2. 执行点赞操作");
-                _js.AppendLine("        const likeButton = document.querySelector('div[role=button][aria-label=\"Like\"], div[role=button][aria-label=\"赞\"]');");
-                _js.AppendLine("        if (likeButton) {");
-                _js.AppendLine("            await humanClick(likeButton);");
-                _js.AppendLine("            results.push({ actionType: 1, status: 1 });");
-                _js.AppendLine("        } else {");
-                _js.AppendLine("            results.push({ actionType: 1, status: 2, failReason: '未找到点赞按钮' });");
-                _js.AppendLine("        }");
-                _js.AppendLine("        await randomDelay(1000, 2000);");
+                _js.AppendLine("            // 点赞");
+                _js.AppendLine("            const likeButton = findMainLikeButton();");
+                _js.AppendLine("            const alreadyLiked = document.querySelector('[aria-label=\"Remove Like\" i], [aria-label=\"Unlike\" i]');");
+                _js.AppendLine("            if (alreadyLiked && isVisibleElement(alreadyLiked)) {");
+                _js.AppendLine("                results.push({ actionType: 1, status: 1, remark: '已点赞' });");
+                _js.AppendLine("            } else if (likeButton) {");
+                _js.AppendLine("                await humanClick(likeButton);");
+                _js.AppendLine("                results.push({ actionType: 1, status: 1 });");
+                _js.AppendLine("            } else {");
+                _js.AppendLine("                results.push({ actionType: 1, status: 2, failReason: '未找到点赞按钮' });");
+                _js.AppendLine("            }");
+                _js.AppendLine("            await randomDelay(1500, 2500);");
                 _js.AppendLine("");
             }
-            
-            // 转发到动态 (actionType=2)
+
             if (Array.Exists(actions, a => a == 2))
             {
-                _js.AppendLine("        // 3. 执行转发到动态");
-                _js.AppendLine("        if (await performShare('timeline')) {");
-                _js.AppendLine("            results.push({ actionType: 2, status: 1 });");
-                _js.AppendLine("        } else {");
-                _js.AppendLine("            results.push({ actionType: 2, status: 2, failReason: '转发到动态失败' });");
-                _js.AppendLine("        }");
-                _js.AppendLine("        await randomDelay(1000, 2000);");
-                _js.AppendLine("");
-            }
-            
-            // 转帖到个人中心 (actionType=3)
-            if (Array.Exists(actions, a => a == 3))
-            {
-                _js.AppendLine($"        // 4. 转帖到个人中心 (重复{shareToProfileCount}次)");
-                _js.AppendLine($"        for (let i = 0; i < {shareToProfileCount}; i++) {{");
-                _js.AppendLine("            if (await performShare('profile')) {");
-                _js.AppendLine("                results.push({ actionType: 3, status: 1, targetName: '个人中心' });");
-                _js.AppendLine("            } else {");
-                _js.AppendLine("                results.push({ actionType: 3, status: 2, failReason: '转帖到个人中心失败' });");
+                _js.AppendLine("            // 转发到动态消息");
+                _js.AppendLine("            {");
+                _js.AppendLine("                const feedResult = await performShare('feed');");
+                _js.AppendLine("                if (feedResult?.ok) {");
+                _js.AppendLine("                    results.push({ actionType: 2, status: feedResult.status || 1, targetName: '转发到动态消息', remark: feedResult.remark || '' });");
+                _js.AppendLine("                } else {");
+                _js.AppendLine("                    const failReason = detectRetryTooEarly() ? '操作过快(Retried Too Early)，请稍后重试' : (feedResult?.reason || '转发到动态消息失败');");
+                _js.AppendLine("                    results.push({ actionType: 2, status: 2, failReason });");
+                _js.AppendLine("                }");
                 _js.AppendLine("            }");
-                _js.AppendLine("            await randomDelay(2000, 3000);");
-                _js.AppendLine("        }");
+                _js.AppendLine("            await closeShareComposer();");
+                _js.AppendLine("            await randomDelay(2500, 4000);");
                 _js.AppendLine("");
             }
-            
-            // 转贴到好友 (actionType=4)
+
             if (Array.Exists(actions, a => a == 4))
             {
-                _js.AppendLine("        // 5. 转贴到好友（最多10个）");
-                _js.AppendLine("        const friendCount = Math.min(await getFriendsCount(), 10);");
-                _js.AppendLine("        for (let i = 0; i < friendCount; i++) {");
-                _js.AppendLine("            if (await performShare('friend', i)) {");
-                _js.AppendLine("                results.push({ actionType: 4, status: 1, targetType: 'friend' });");
-                _js.AppendLine("            } else {");
-                _js.AppendLine("                results.push({ actionType: 4, status: 2, failReason: '转贴到好友失败' });");
+                _js.AppendLine($"            // 转贴到好友 x{shareToFriendCount}");
+                _js.AppendLine($"            for (let i = 0; i < {shareToFriendCount}; i++) {{");
+                _js.AppendLine("                const friendResult = await performShare('friend', i);");
+                _js.AppendLine("                if (friendResult?.ok) {");
+                _js.AppendLine("                    results.push({ actionType: 4, status: friendResult.status || 1, targetType: 'friend', remark: friendResult.remark || '' });");
+                _js.AppendLine("                } else {");
+                _js.AppendLine("                    const failReason = detectRetryTooEarly() ? '操作过快(Retried Too Early)，请稍后重试' : (friendResult?.reason || '转贴到好友失败');");
+                _js.AppendLine("                    results.push({ actionType: 4, status: 2, failReason });");
+                _js.AppendLine("                }");
+                _js.AppendLine("                await closeShareComposer();");
+                _js.AppendLine("                await randomDelay(2500, 4000);");
                 _js.AppendLine("            }");
-                _js.AppendLine("            await randomDelay(2000, 4000);");
-                _js.AppendLine("        }");
                 _js.AppendLine("");
             }
-            
-            // 转发到群组 (actionType=5)
+
             if (Array.Exists(actions, a => a == 5) && selectedGroups.Count > 0)
             {
-                _js.AppendLine($"        // 6. 转发到群组 ({selectedGroups.Count}个)");
-                
+                _js.AppendLine($"            // 转发到群组 ({selectedGroups.Count}个)");
                 foreach (var group in selectedGroups)
                 {
-                    var groupId = group["groupId"]?.ToString();
-                    var groupName = group["groupName"]?.ToString();
-                    
+                    var groupId = group["groupId"]?.ToString() ?? "";
+                    var groupName = group["groupName"]?.ToString() ?? "";
+                    if (groupName.StartsWith("Profile photo of ", StringComparison.OrdinalIgnoreCase))
+                        groupName = groupName.Substring("Profile photo of ".Length).Trim();
+                    var searchKey = !string.IsNullOrEmpty(groupName) ? groupName : groupId;
+
                     if (!string.IsNullOrEmpty(groupId))
                     {
-                        _js.AppendLine($"        if (await performShare('group', '{groupId}')) {{");
-                        _js.AppendLine($"            results.push({{ actionType: 5, status: 1, targetType: 'group', targetId: '{groupId}', targetName: '{groupName}' }});");
-                        _js.AppendLine($"        }} else {{");
-                        _js.AppendLine($"            results.push({{ actionType: 5, status: 2, targetType: 'group', targetId: '{groupId}', targetName: '{groupName}', failReason: '转发失败' }});");
-                        _js.AppendLine($"        }}");
-                        _js.AppendLine("        await randomDelay(2000, 4000);");
+                        _js.AppendLine($"            {{");
+                        _js.AppendLine($"                const groupResult = await performShare('group', {JsonConvert.SerializeObject(searchKey)});");
+                        _js.AppendLine($"                if (groupResult?.ok) {{");
+                        _js.AppendLine($"                    results.push({{ actionType: 5, status: groupResult.status || 1, targetType: 'group', targetId: '{groupId}', targetName: {JsonConvert.SerializeObject(groupName)}, remark: groupResult.remark || '' }});");
+                        _js.AppendLine("                } else {");
+                        _js.AppendLine($"                    const failReason = detectRetryTooEarly() ? '操作过快(Retried Too Early)，请稍后重试' : (groupResult?.reason || '转发到群组失败');");
+                        _js.AppendLine($"                    results.push({{ actionType: 5, status: 2, targetType: 'group', targetId: '{groupId}', targetName: {JsonConvert.SerializeObject(groupName)}, failReason }});");
+                        _js.AppendLine("                }");
+                        _js.AppendLine("            }");
+                        _js.AppendLine("            await closeShareComposer();");
+                        _js.AppendLine("            await randomDelay(2500, 4000);");
                         _js.AppendLine("");
                     }
                 }
             }
-            
-            // 评论
-            if (!string.IsNullOrEmpty(_commentScript))
-            {
-                _js.AppendLine("        // 7. 执行评论");
-                _js.AppendLine($"        const commentText = `{EscapeForJsTemplate(_commentScript)}`;");
-                _js.AppendLine("        const commentBox = document.querySelector('div[role=textbox]');");
-                _js.AppendLine("        if (commentBox) {");
-                _js.AppendLine("            await humanTypeText(commentBox, commentText);");
-                _js.AppendLine("            await randomDelay(500, 1000);");
-                _js.AppendLine("            ");
-                _js.AppendLine("            const submitButton = document.querySelector('div[role=button][aria-label*=\"Comment\"], div[role=button][aria-label*=\"评论\"]');");
-                _js.AppendLine("            if (submitButton) {");
-                _js.AppendLine("                await humanClick(submitButton);");
-                _js.AppendLine("                results.push({ actionType: 6, status: 1 });");
-                _js.AppendLine("            } else {");
-                _js.AppendLine("                results.push({ actionType: 6, status: 2, failReason: '未找到提交按钮' });");
-                _js.AppendLine("            }");
-                _js.AppendLine("        } else {");
-                _js.AppendLine("            results.push({ actionType: 6, status: 2, failReason: '未找到评论框' });");
-                _js.AppendLine("        }");
-                _js.AppendLine("");
-            }
-            
-            // 返回结果
-            _js.AppendLine("        console.log('[转帖] 所有操作完成');");
-            _js.AppendLine("        return JSON.stringify(results);");
         }
     }
 }
