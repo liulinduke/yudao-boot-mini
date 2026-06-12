@@ -23,7 +23,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 执行发群帖（C# 分步控制）
         /// </summary>
-        public async Task ExecuteGroupPublish(string accountId, string actionConfigJson)
+        public async Task ExecuteGroupPublish(string accountId, string actionConfigJson, string detailIdOverride = "")
         {
             try
             {
@@ -53,11 +53,20 @@ namespace SocialMatrix.WpfHost.Windows
 
                 System.Diagnostics.Debug.WriteLine($"[发群帖] 共 {targetGroups.Count} 个目标群组");
 
+                var publishResults = new List<object>();
+                var detailId = !string.IsNullOrWhiteSpace(detailIdOverride)
+                    ? detailIdOverride
+                    : _accountDetailIds.TryGetValue(accountId, out var mappedDetailId)
+                    ? mappedDetailId
+                    : CurrentDetailId ?? "";
+
                 for (int i = 0; i < targetGroups.Count; i++)
                 {
                     var group = targetGroups[i];
                     System.Diagnostics.Debug.WriteLine($"[发群帖] 正在发布到群组 {i + 1}/{targetGroups.Count}: {group.Name} ({group.Url})");
 
+                    var success = false;
+                    var failReason = "";
                     try
                     {
                         await NavigateToGroupPage(browser, group.Url);
@@ -77,12 +86,28 @@ namespace SocialMatrix.WpfHost.Windows
                         await ClickGroupPublishButton(browser);
                         await WaitForGroupPublishComplete(browser);
 
+                        success = true;
                         System.Diagnostics.Debug.WriteLine($"[发群帖] ✅ 发布成功: {group.Name}");
                     }
                     catch (Exception ex)
                     {
+                        failReason = ex.Message;
                         System.Diagnostics.Debug.WriteLine($"[发群帖] ❌ 发布到 {group.Name} 失败: {ex.Message}");
                     }
+
+                    publishResults.Add(new
+                    {
+                        accountId,
+                        targetUrl = group.Url,
+                        groupId = group.Id,
+                        groupName = group.Name,
+                        groupUrl = group.Url,
+                        joinStatus = success ? 1 : 2,
+                        failReason = success ? "" : failReason,
+                        joinTime = DateTime.Now.ToString("O"),
+                        syncTime = DateTime.Now.ToString("O"),
+                        postContent
+                    });
 
                     if (i < targetGroups.Count - 1)
                     {
@@ -94,6 +119,10 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 System.Diagnostics.Debug.WriteLine("[发群帖] 所有操作完成");
+                if (!string.IsNullOrWhiteSpace(detailId))
+                {
+                    OnCollectionComplete?.Invoke(detailId, accountId, JsonConvert.SerializeObject(publishResults), 13);
+                }
             }
             catch (Exception ex)
             {
@@ -137,13 +166,73 @@ namespace SocialMatrix.WpfHost.Windows
         private async Task NavigateToGroupPage(ChromiumWebBrowser browser, string groupUrl)
         {
             System.Diagnostics.Debug.WriteLine($"[发群帖] 导航到群组: {groupUrl}");
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            var currentUrl = await GetBrowserUrl(browser);
+            var groupParts = groupUrl.TrimEnd('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var groupKey = groupParts.Length > 0 ? groupParts[groupParts.Length - 1] : "";
+            var needsNavigate = string.IsNullOrEmpty(currentUrl)
+                || !currentUrl.Contains("/groups/", StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(groupKey) && !currentUrl.Contains(groupKey, StringComparison.OrdinalIgnoreCase));
+            if (needsNavigate)
             {
-                browser.Load(groupUrl);
-            });
-            await WaitForPageLoad(browser, 30000);
-            await WaitForPageReady(browser, 10000);
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    browser.Load(groupUrl);
+                });
+                await WaitForPageLoad(browser, 45000);
+            }
+
+            await WaitForPageReady(browser, 15000);
+            await WaitForGroupFeedReady(browser);
             System.Diagnostics.Debug.WriteLine("[发群帖] 群组页面已就绪");
+        }
+
+        private async Task<string> GetBrowserUrl(ChromiumWebBrowser browser)
+        {
+            var result = await browser.EvaluateScriptAsync("(function(){ return location.href || ''; })();");
+            return result.Success && result.Result != null ? result.Result.ToString() ?? "" : "";
+        }
+
+        private async Task WaitForGroupFeedReady(ChromiumWebBrowser browser)
+        {
+            const string script = @"
+                (async function() {
+                    const normalize = (t) => (t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    const hasPostBox = () => {
+                        const main = document.querySelector('[role=""main""]') || document.body;
+                        for (const btn of main.querySelectorAll('[role=""button""]')) {
+                            const text = normalize(btn.textContent);
+                            const aria = normalize(btn.getAttribute('aria-label'));
+                            if (text.includes('write something') || text.includes('写点什么') || text.includes('在想什么')) return true;
+                            if (aria.includes('write something') || aria.includes('写点什么')) return true;
+                        }
+                        return false;
+                    };
+                    const ensureDiscussion = () => {
+                        for (const tab of document.querySelectorAll('[role=""tab""], a[role=""tab""]')) {
+                            const label = normalize(tab.textContent);
+                            if (label === 'discussion' || label === '讨论' || label === '动态') {
+                                if (tab.getAttribute('aria-selected') !== 'true') tab.click();
+                                return;
+                            }
+                        }
+                    };
+                    const start = Date.now();
+                    while (Date.now() - start < 30000) {
+                        if (!location.href.includes('/groups/')) {
+                            await new Promise(r => setTimeout(r, 500));
+                            continue;
+                        }
+                        ensureDiscussion();
+                        const main = document.querySelector('[role=""main""]');
+                        if (main) main.scrollIntoView({ block: 'start' });
+                        window.scrollTo(0, 0);
+                        if (hasPostBox()) return true;
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                    throw new Error('群组发帖区未加载(未出现 Write something / 写点什么)');
+                })();
+            ";
+            await RunGroupScript(browser, script, "等待群组发帖区");
         }
 
         private async Task RunGroupScript(ChromiumWebBrowser browser, string script, string stepName)
@@ -151,7 +240,9 @@ namespace SocialMatrix.WpfHost.Windows
             var result = await browser.EvaluateScriptAsync(script);
             if (!result.Success)
             {
-                throw new Exception($"{stepName}失败: {result.Message}");
+                var detail = result.Message ?? "";
+                if (result.Result != null) detail += " | " + result.Result;
+                throw new Exception($"{stepName}失败: {detail}");
             }
         }
 
@@ -166,36 +257,82 @@ namespace SocialMatrix.WpfHost.Windows
                         return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
                     };
                     const normalize = (t) => (t || '').replace(/\s+/g, ' ').trim();
-                    const clickEl = (el) => {
+                    const normalizeLower = (t) => normalize(t).toLowerCase();
+                    const humanClick = async (el) => {
                         if (!el) return false;
                         el.scrollIntoView({ block: 'center', inline: 'nearest' });
-                        el.click();
+                        await new Promise(r => setTimeout(r, 400));
+                        const rect = el.getBoundingClientRect();
+                        const opts = { bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, view: window };
+                        el.dispatchEvent(new MouseEvent('mouseover', opts));
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        await new Promise(r => setTimeout(r, 100));
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.dispatchEvent(new MouseEvent('click', opts));
+                        if (typeof el.click === 'function') el.click();
                         return true;
                     };
-
-                    let opened = false;
-                    const cssBox = document.querySelector('span:has(>span a[href])+div[role=button]:has(>div+div[role=none][data-visualcompletion])');
-                    if (isVisible(cssBox)) opened = clickEl(cssBox);
-
-                    if (!opened) {
-                        for (const btn of document.querySelectorAll('[role=""button""]')) {
-                            if (!isVisible(btn)) continue;
-                            const text = normalize(btn.textContent);
-                            const aria = normalize(btn.getAttribute('aria-label'));
-                            if (/write something|写点什么|在想什么|匿名发帖|anonymous post/i.test(text + ' ' + aria)) {
-                                opened = clickEl(btn);
-                                if (opened) break;
+                    const isPostBoxButton = (btn) => {
+                        const text = normalizeLower(btn.textContent);
+                        const aria = normalizeLower(btn.getAttribute('aria-label'));
+                        if (/anonymous|匿名/.test(text + ' ' + aria)) return false;
+                        if (text.includes('write something') || text.includes('写点什么') || text.includes('在想什么')) return true;
+                        if (text.includes('create a post') || text.includes('创建帖子')) return true;
+                        if (aria.includes('write something') || aria.includes('写点什么')) return true;
+                        return false;
+                    };
+                    const findPostBoxButton = () => {
+                        const roots = [document.querySelector('[role=""main""]'), document.body].filter(Boolean);
+                        for (const root of roots) {
+                            for (const btn of root.querySelectorAll('[role=""button""]')) {
+                                if (!isVisible(btn) || !isPostBoxButton(btn)) continue;
+                                return btn;
                             }
                         }
+                        try {
+                            const cssBox = document.querySelector('span:has(>span a[href])+div[role=button]:has(>div+div[role=none][data-visualcompletion])');
+                            if (isVisible(cssBox)) return cssBox;
+                        } catch (e) { /* :has may be unsupported */ }
+                        return null;
+                    };
+                    const collectCandidates = () => {
+                        const samples = [];
+                        const main = document.querySelector('[role=""main""]') || document.body;
+                        for (const btn of main.querySelectorAll('[role=""button""]')) {
+                            if (!isVisible(btn)) continue;
+                            const text = normalize(btn.textContent);
+                            if (!text || text.length > 60) continue;
+                            samples.push(text);
+                            if (samples.length >= 12) break;
+                        }
+                        return samples;
+                    };
+
+                    let postBox = null;
+                    const start = Date.now();
+                    while (Date.now() - start < 25000) {
+                        postBox = findPostBoxButton();
+                        if (postBox) break;
+                        const main = document.querySelector('[role=""main""]');
+                        if (main) main.scrollIntoView({ block: 'start' });
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                    if (!postBox) {
+                        const samples = collectCandidates();
+                        throw new Error('未找到群组发帖框, url=' + (location.href || '').slice(0, 100) + ', candidates=' + samples.join(' | '));
                     }
 
-                    if (!opened) throw new Error('未找到群组发帖框');
-                    await new Promise(r => setTimeout(r, 2000));
+                    await humanClick(postBox);
+                    await new Promise(r => setTimeout(r, 2500));
 
-                    const composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
-                        .find(d => isVisible(d) && d.querySelector('[role=""textbox""]'));
-                    if (!composer) throw new Error('群组发帖 composer 未打开');
-                    return true;
+                    const composerStart = Date.now();
+                    while (Date.now() - composerStart < 15000) {
+                        const composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
+                            .find(d => isVisible(d) && d.querySelector('[role=""textbox""]'));
+                        if (composer) return true;
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                    throw new Error('群组发帖 composer 未打开');
                 })();
             ";
             await RunGroupScript(browser, script, "打开群组发帖框");
@@ -312,16 +449,73 @@ namespace SocialMatrix.WpfHost.Windows
             const string script = @"
                 (function() {
                     return new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => reject(new Error('发布超时')), 45000);
-                        const hasComposer = () => [...document.querySelectorAll('[role=""dialog""]')]
-                            .some(d => d.querySelector('[role=""textbox""]'));
+                        const timeout = setTimeout(() => {
+                            console.log('[发群帖检测] 发布超时，进行最终检查...');
+                            const dialogs = [...document.querySelectorAll('[role=""dialog""]')];
+                            console.log('[发群帖检测] 当前 dialog 数量:', dialogs.length);
+                            dialogs.forEach((d, i) => {
+                                const hasTextbox = !!d.querySelector('[role=""textbox""]');
+                                const hasPostBtn = !!d.querySelector('[role=""button""][aria-label=""Post""], [role=""button""][aria-label=""发布""]');
+                                const isVisible = d.offsetWidth > 0 && d.offsetHeight > 0;
+                                console.log(`[发群帖检测] dialog ${i}: hasTextbox=${hasTextbox}, hasPostBtn=${hasPostBtn}, isVisible=${isVisible}`);
+                            });
+                            reject(new Error('发布超时'));
+                        }, 45000);
+
+                        const isVisible = (el) => {
+                            if (!el) return false;
+                            const rect = el.getBoundingClientRect();
+                            const style = window.getComputedStyle(el);
+                            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                        };
+                        const normalize = (text) => (text || '').replace(/\s+/g, ' ').trim();
+                        const isEnabled = (btn) => btn && btn.getAttribute('aria-disabled') !== 'true' && !btn.hasAttribute('disabled');
+                        const isPublishButton = (btn) => {
+                            const label = normalize(btn.getAttribute('aria-label'));
+                            const text = normalize(btn.textContent);
+                            if (/comment|评论/i.test(label + ' ' + text)) return false;
+                            return /^(Post|发帖|发布|Submit|提交)$/i.test(label) || /^(Post|发帖|发布|Submit|提交)$/i.test(text);
+                        };
+                        const isComposerDialog = (dialog) => {
+                            if (!dialog || dialog.offsetWidth === 0 || dialog.offsetHeight === 0) return false;
+                            const textbox = [...dialog.querySelectorAll('[role=""textbox""]')].find(isVisible);
+                            const postBtn = [...dialog.querySelectorAll('[role=""button""]')].find(btn => isVisible(btn) && isPublishButton(btn));
+                            if (!textbox || !postBtn) return false;
+
+                            const text = normalize(textbox.textContent);
+                            const hasFileInput = !!dialog.querySelector('input[type=""file""]');
+                            const hasMediaPreview = !!dialog.querySelector('img[src^=""blob:""], video, [aria-label*=""Remove""], [aria-label*=""移除""]');
+
+                            // After Facebook accepts the post, it may leave/reopen an empty composer.
+                            // Treat that as complete instead of waiting for every dialog to disappear.
+                            return isEnabled(postBtn) || text.length > 0 || hasFileInput && hasMediaPreview;
+                        };
+
+                        let stableCompleteChecks = 0;
                         const checkInterval = setInterval(() => {
-                            if (!hasComposer()) {
-                                clearTimeout(timeout);
-                                clearInterval(checkInterval);
-                                resolve(true);
+                            const dialogs = [...document.querySelectorAll('[role=""dialog""]')];
+                            const activeComposers = dialogs.filter(isComposerDialog);
+
+                            console.log('[发群帖检测] 检测中 - dialog总数:', dialogs.length, ', 活跃composer:', activeComposers.length);
+
+                            if (activeComposers.length === 0) {
+                                stableCompleteChecks += 1;
+                                if (stableCompleteChecks >= 2) {
+                                    console.log('[发群帖检测] ✅ 未找到活跃的发帖composer，判定发布完成');
+                                    clearTimeout(timeout);
+                                    clearInterval(checkInterval);
+                                    resolve(true);
+                                    return;
+                                }
+                            } else {
+                                stableCompleteChecks = 0;
                             }
-                        }, 500);
+
+                            activeComposers.forEach((c, i) => {
+                                const ariaLabel = c.querySelector('[role=""button""][aria-label]')?.getAttribute('aria-label');
+                                console.log(`[发群帖检测] 活跃composer ${i}: aria-label=${ariaLabel || '无'}`);
+                            });
+                        }, 800);
                     });
                 })();
             ";

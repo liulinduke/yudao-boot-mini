@@ -21,6 +21,9 @@ public class FbOperationTaskDetailRespVO {
     @Schema(description = "转帖结果列表")
     private List<FbRepostResultRespVO> repostResults;
 
+    @Schema(description = "发群帖结果列表")
+    private List<FbGroupPublishResultRespVO> groupPublishResults;
+
     @Data
     public static class FbOperationTaskDetailItemVO {
         @Schema(description = "明细ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")

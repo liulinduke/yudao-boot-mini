@@ -397,7 +397,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson)
+        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "")
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -433,7 +433,7 @@ namespace SocialMatrix.WpfHost.Services
                         
                         // 创建浏览器（不指定URL，稍后脚本会导航）
                         mainWindow.CreateBrowserForAccount(
-                            detailId: $"group_publish_{taskId}_{accountId}",
+                            detailId: string.IsNullOrEmpty(detailId) ? $"group_publish_{taskId}_{accountId}" : detailId,
                             accountId: accountId,
                             cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
                             searchUrl: null,
@@ -453,7 +453,7 @@ namespace SocialMatrix.WpfHost.Services
 
                         // 执行发群帖
                         System.Diagnostics.Debug.WriteLine($"👥 开始执行发群帖...");
-                        await browserMatrixWindow.ExecuteGroupPublish(accountId, actionConfigJson);
+                        await browserMatrixWindow.ExecuteGroupPublish(accountId, actionConfigJson, detailId);
                         
                         System.Diagnostics.Debug.WriteLine($"✅ 发群帖任务完成: TaskId={taskId}");
                     }

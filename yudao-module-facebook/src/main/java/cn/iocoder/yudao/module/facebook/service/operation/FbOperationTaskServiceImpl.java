@@ -190,6 +190,12 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             enrichRepostResultFbAccount(repostResultItems);
             respVO.setRepostResults(repostResultItems);
         }
+        if (task.getTaskType() != null && task.getTaskType() == 13) {
+            List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(task.getId());
+            List<FbGroupPublishResultRespVO> groupPublishResultItems = BeanUtils.toBean(results, FbGroupPublishResultRespVO.class);
+            enrichGroupPublishResultFbAccount(groupPublishResultItems);
+            respVO.setGroupPublishResults(groupPublishResultItems);
+        }
         return respVO;
     }
 
@@ -516,6 +522,18 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         }
     }
 
+    private void enrichGroupPublishResultFbAccount(List<FbGroupPublishResultRespVO> groupPublishResults) {
+        if (CollUtil.isEmpty(groupPublishResults)) {
+            return;
+        }
+        for (FbGroupPublishResultRespVO result : groupPublishResults) {
+            if (StrUtil.isNotBlank(result.getFbAccount()) || StrUtil.isBlank(result.getAccountId())) {
+                continue;
+            }
+            result.setFbAccount(resolveFbAccount(result.getAccountId()));
+        }
+    }
+
     private void enrichDetailFbAccount(List<FbOperationTaskDetailRespVO.FbOperationTaskDetailItemVO> detailItems) {
         if (CollUtil.isEmpty(detailItems)) {
             return;
@@ -604,11 +622,10 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         int status;
         long completedCount = details.stream().filter(d -> d.getStatus() != null && d.getStatus() == 2).count();
         long failedCount = details.stream().filter(d -> d.getStatus() != null && d.getStatus() == 3).count();
+        long finishedCount = completedCount + failedCount;
 
-        if (completedCount == details.size()) {
-            status = 2; // 已完成
-        } else if (failedCount > 0) {
-            status = 4; // 失败
+        if (finishedCount == details.size()) {
+            status = 2; // 已完成（所有明细均已执行，允许部分失败）
         } else {
             status = 1; // 执行中
         }

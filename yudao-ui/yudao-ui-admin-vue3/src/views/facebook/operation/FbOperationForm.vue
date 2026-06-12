@@ -17,6 +17,7 @@
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
+            <el-tag v-else-if="taskDetail.task?.taskType === 13" type="info">发群帖</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 14" type="warning">群发私信</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
@@ -120,6 +121,62 @@
         <el-empty v-if="repostResultList.length === 0" description="暂无转帖执行记录" />
       </el-card>
 
+      <!-- 发群帖结果（发群帖任务直接展示，不显示任务明细 Tab） -->
+      <el-card v-if="formType === 'view' && taskDetail?.task?.taskType === 13" class="mb-4">
+        <template #header>
+          <div class="card-header flex items-center justify-between">
+            <span>📝 发群帖结果</span>
+            <span class="text-sm text-gray-500 font-normal">
+              共 {{ groupPublishResultList.length }} 条 · 成功 {{ groupPublishSuccessCount }} · 失败
+              {{ groupPublishFailCount }}
+            </span>
+          </div>
+        </template>
+        <el-table :data="groupPublishResultList" stripe border max-height="520">
+          <el-table-column label="执行账号" min-width="160" show-overflow-tooltip>
+            <template #default="scope">
+              <div class="font-medium">{{ scope.row.fbAccount || scope.row.accountId || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="群名/群链接" min-width="200" show-overflow-tooltip>
+            <template #default="scope">
+              <div v-if="scope.row.groupName" class="font-medium">{{ scope.row.groupName }}</div>
+              <div v-if="scope.row.groupUrl" class="text-sm text-gray-500">
+                <el-link :href="scope.row.groupUrl" target="_blank" type="primary">
+                  {{ scope.row.groupUrl }}
+                </el-link>
+              </div>
+              <span v-if="!scope.row.groupName && !scope.row.groupUrl">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="帖子内容" min-width="250" show-overflow-tooltip>
+            <template #default="scope">
+              {{ scope.row.postContent || scope.row.targetUrl || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="发布状态" width="100" align="center">
+            <template #default="scope">
+              <el-tag v-if="scope.row.status === 0 || scope.row.joinStatus === 0" type="info" size="small">待执行</el-tag>
+              <el-tag v-else-if="scope.row.status === 1 || scope.row.joinStatus === 1" type="success" size="small">成功</el-tag>
+              <el-tag v-else-if="scope.row.status === 2 || scope.row.joinStatus === 2" type="danger" size="small">失败</el-tag>
+              <el-tag v-else-if="scope.row.joinStatus === 3" type="warning" size="small">已加入</el-tag>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="失败原因" min-width="180" show-overflow-tooltip>
+            <template #default="scope">
+              {{ scope.row.failReason || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="发布时间" width="165">
+            <template #default="scope">
+              {{ formatDate(scope.row.executeTime || scope.row.joinTime) }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="groupPublishResultList.length === 0" description="暂无发群帖执行记录" />
+      </el-card>
+
       <!-- 新建/编辑表单 -->
       <el-form
         ref="formRef"
@@ -184,9 +241,9 @@
         </el-form-item>
       </el-form>
 
-      <!-- 编辑模式下的Tab（转帖任务不显示任务明细，仅上方展示转帖结果） -->
+      <!-- 编辑模式下的Tab（转帖和发群帖任务不显示任务明细，仅上方展示结果） -->
       <el-tabs
-        v-if="formType === 'view' && taskDetail?.task?.taskType !== 10"
+        v-if="formType === 'view' && taskDetail?.task?.taskType !== 10 && taskDetail?.task?.taskType !== 13"
         v-model="activeTab"
         type="border-card"
       >
@@ -363,6 +420,7 @@ const taskDetail = ref<FbOperationTaskDetailRespVO | null>(null)
 const detailList = ref<any[]>([])
 const resultList = ref<any[]>([])
 const repostResultList = ref<any[]>([]) // 转帖结果列表
+const groupPublishResultList = ref<any[]>([]) // 发群帖结果列表
 
 const REPOST_ACTION_LABELS: Record<number, string> = {
   1: '点赞',
@@ -415,6 +473,13 @@ const repostPendingCount = computed(
   () => repostResultList.value.filter((r) => r.status === 3).length
 )
 const repostFailCount = computed(() => repostResultList.value.filter((r) => r.status === 2).length)
+
+const groupPublishSuccessCount = computed(
+  () => groupPublishResultList.value.filter((r) => r.status === 1).length
+)
+const groupPublishFailCount = computed(
+  () => groupPublishResultList.value.filter((r) => r.status === 2).length
+)
 
 const getRepostActionLabel = (actionType?: number) =>
   (actionType && REPOST_ACTION_LABELS[actionType]) || '未知操作'
@@ -491,9 +556,7 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
       detailList.value = data.details || []
       resultList.value = data.results || []
       repostResultList.value = data.task?.taskType === 10 ? data.repostResults || [] : []
-      if (data.task?.taskType === 10) {
-        activeTab.value = 'repostResults'
-      }
+      groupPublishResultList.value = data.task?.taskType === 13 ? data.groupPublishResults || [] : []
     } finally {
       formLoading.value = false
     }

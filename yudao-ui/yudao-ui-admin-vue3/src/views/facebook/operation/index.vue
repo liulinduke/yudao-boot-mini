@@ -401,6 +401,7 @@ onMounted(() => {
   loadAccountCache()
   window.addEventListener('fb:dm:result:saved', getList as EventListener)
   window.addEventListener('fb:repost:result:saved', getList as EventListener)
+  window.addEventListener('fb:group-publish:result:saved', getList as EventListener)
   onCollectionComplete(async (data) => {
     try {
       await saveAddGroupResults(data)
@@ -415,6 +416,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('fb:dm:result:saved', getList as EventListener)
   window.removeEventListener('fb:repost:result:saved', getList as EventListener)
+  window.removeEventListener('fb:group-publish:result:saved', getList as EventListener)
 })
 </script>
 

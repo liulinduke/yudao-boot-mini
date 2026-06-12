@@ -1,8 +1,9 @@
 import { DmTaskApi } from '@/api/facebook/dmtask'
-import { batchSaveRepostResult } from '@/api/facebook/operation'
+import { batchSaveAddGroupResult, batchSaveRepostResult } from '@/api/facebook/operation'
 import { onCollectionComplete } from '@/utils/wpfBridge'
 
 const handledDmDetailIds = new Set<string>()
+const handledGroupPublishDetailIds = new Set<string>()
 const handledRepostDetailIds = new Set<string>()
 let initialized = false
 
@@ -35,6 +36,10 @@ export function setupWpfOperationSync() {
       await saveRepostResult(data)
       return
     }
+    if (data.taskType === 13) {
+      await saveGroupPublishResult(data)
+      return
+    }
     if (data.taskType !== 14) {
       return
     }
@@ -63,6 +68,38 @@ export function setupWpfOperationSync() {
       console.error('[私信结果] 上报失败:', error)
     }
   })
+}
+
+async function saveGroupPublishResult(data: any) {
+  const detailId = String(data.detailId || '')
+  if (!detailId || handledGroupPublishDetailIds.has(detailId)) {
+    return
+  }
+
+  const results = parseResultList(data.results)
+  if (results.length === 0) {
+    console.warn('[发群帖结果] 结果为空，跳过保存', data)
+    return
+  }
+
+  handledGroupPublishDetailIds.add(detailId)
+  try {
+    console.log('[发群帖结果] 上报后端:', { detailId, count: results.length })
+    await batchSaveAddGroupResult({
+      detailId,
+      results: results.map((item: any) => ({
+        ...item,
+        accountId: String(item.accountId || data.accountId || ''),
+        joinStatus: item.joinStatus ?? (item.success ? 1 : 2)
+      }))
+    })
+    window.dispatchEvent(
+      new CustomEvent('fb:group-publish:result:saved', { detail: { detailId } })
+    )
+  } catch (error) {
+    handledGroupPublishDetailIds.delete(detailId)
+    console.error('[发群帖结果] 上报失败:', error)
+  }
 }
 
 async function saveRepostResult(data: any) {

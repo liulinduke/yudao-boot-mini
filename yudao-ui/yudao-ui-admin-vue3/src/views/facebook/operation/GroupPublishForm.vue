@@ -429,6 +429,8 @@ const submitForm = async () => {
     // 1. 创建任务
     const taskId = await OperationApi.createFbOperationTask(data)
     console.log('✅ 发群帖任务创建成功, TaskId:', taskId)
+    const createdTaskDetail = taskId ? await OperationApi.getFbOperationTask(String(taskId)) : null
+    const createdDetails = createdTaskDetail?.details || []
 
     // 2. 调用 WPF 执行任务（为每个账号启动）
     // @ts-ignore
@@ -442,6 +444,9 @@ const submitForm = async () => {
           // 暂时使用空字符串，实际使用时需要从 FbAccountApi 获取
           const accountInfo = await FbAccountApi.getFbAccount(accountId)
           const cookie = accountInfo.cookie || ''
+          const operationDetail = createdDetails.find(
+            (detail) => String(detail.accountId) === String(accountId)
+          )
 
           console.log(`👥 启动账号 ${accountId} 的发群帖任务`)
 
@@ -450,7 +455,8 @@ const submitForm = async () => {
             String(taskId),
             String(accountId),
             cookie,
-            data.actionConfig
+            data.actionConfig,
+            String(operationDetail?.id || '')
           )
 
           // 等待间隔时间（防风控）
