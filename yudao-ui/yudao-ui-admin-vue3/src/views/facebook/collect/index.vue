@@ -356,7 +356,7 @@ const functions = [
   },
   {
     type: 'user-relations',
-    title: '用户关系采集',
+    title: '同行采集',
     icon: 'ep:user-group',
     description: '采集粉丝/关注/好友',
     disabled: false
@@ -605,7 +605,7 @@ onMounted(() => {
 
         message.success(`明细 ${detailId} 群成员采集完成，共采集 ${parsedResults.length} 条数据`)
       } else if (taskType === 8) {
-        // 用户关系采集 - 复用用户采集的保存接口
+        // 同行采集 - 复用用户采集的保存接口
         const parsedResults = results.map((item: any) => {
           // 解析粉丝数（如果有）
           if (item.followers && typeof item.followers === 'string') {
@@ -619,7 +619,7 @@ onMounted(() => {
           results: parsedResults
         })
 
-        message.success(`明细 ${detailId} 用户关系采集完成，共采集 ${parsedResults.length} 条数据`)
+        message.success(`明细 ${detailId} 同行采集完成，共采集 ${parsedResults.length} 条数据`)
       } else if (taskType === 9) {
         // 链接加组属于运营任务，在 operation/FbOperationForm.vue 中保存，避免采集页重复保存
         return
@@ -699,7 +699,7 @@ const checkAndStartNextTask = async (accountId: string, collectedCount: number =
       if (collectedCount === 0) {
         console.log(`⚠️ 采集到0条数据，关闭浏览器`)
         closeBrowser(accountId)
-        message.warning(`账号 ${accountId} 未采集到数据，已关闭浏览器`)
+        message.info(`账号 ${accountId} 本轮任务已结束，未采集到数据`)
       } else {
         closeBrowser(accountId)
         message.success(`账号 ${accountId} 所有任务已完成`)

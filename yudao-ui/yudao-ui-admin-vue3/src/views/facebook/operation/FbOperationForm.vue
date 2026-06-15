@@ -156,10 +156,27 @@
           </el-table-column>
           <el-table-column label="发布状态" width="100" align="center">
             <template #default="scope">
-              <el-tag v-if="scope.row.status === 0 || scope.row.joinStatus === 0" type="info" size="small">待执行</el-tag>
-              <el-tag v-else-if="scope.row.status === 1 || scope.row.joinStatus === 1" type="success" size="small">成功</el-tag>
-              <el-tag v-else-if="scope.row.status === 2 || scope.row.joinStatus === 2" type="danger" size="small">失败</el-tag>
-              <el-tag v-else-if="scope.row.joinStatus === 3" type="warning" size="small">已加入</el-tag>
+              <el-tag
+                v-if="scope.row.status === 0 || scope.row.joinStatus === 0"
+                type="info"
+                size="small"
+                >待执行</el-tag
+              >
+              <el-tag
+                v-else-if="scope.row.status === 1 || scope.row.joinStatus === 1"
+                type="success"
+                size="small"
+                >成功</el-tag
+              >
+              <el-tag
+                v-else-if="scope.row.status === 2 || scope.row.joinStatus === 2"
+                type="danger"
+                size="small"
+                >失败</el-tag
+              >
+              <el-tag v-else-if="scope.row.joinStatus === 3" type="warning" size="small"
+                >已加入</el-tag
+              >
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -243,7 +260,11 @@
 
       <!-- 编辑模式下的Tab（转帖和发群帖任务不显示任务明细，仅上方展示结果） -->
       <el-tabs
-        v-if="formType === 'view' && taskDetail?.task?.taskType !== 10 && taskDetail?.task?.taskType !== 13"
+        v-if="
+          formType === 'view' &&
+          taskDetail?.task?.taskType !== 10 &&
+          taskDetail?.task?.taskType !== 13
+        "
         v-model="activeTab"
         type="border-card"
       >
@@ -556,7 +577,8 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
       detailList.value = data.details || []
       resultList.value = data.results || []
       repostResultList.value = data.task?.taskType === 10 ? data.repostResults || [] : []
-      groupPublishResultList.value = data.task?.taskType === 13 ? data.groupPublishResults || [] : []
+      groupPublishResultList.value =
+        data.task?.taskType === 13 ? data.groupPublishResults || [] : []
     } finally {
       formLoading.value = false
     }

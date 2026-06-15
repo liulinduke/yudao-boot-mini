@@ -108,11 +108,17 @@ async function saveRepostResult(data: any) {
     return
   }
 
-  const results = parseResultList(data.results)
-  if (results.length === 0) {
-    console.warn('[转帖结果] 结果为空，跳过保存:', data)
-    return
-  }
+  const rawResults = parseResultList(data.results)
+  const results =
+    rawResults.length > 0
+      ? rawResults
+      : [
+          {
+            accountId: String(data.accountId || ''),
+            status: 2,
+            failReason: '转帖任务已结束，但未返回任何结果'
+          }
+        ]
 
   handledRepostDetailIds.add(detailId)
   try {

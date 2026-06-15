@@ -160,13 +160,9 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         
         detail.setCollectedCount(redisCount.intValue());
         
-        // 判断状态
-        if (redisCount >= detail.getExpectedCount()) {
-            detail.setStatus(2); // 已完成
-            detail.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
-        } else {
-            detail.setStatus(1); // 采集中
-        }
+        // 采集脚本一旦返回结果（即使数量不足或为 0），本轮明细也视为结束
+        detail.setStatus(2); // 已完成
+        detail.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
         
         fbCollectDetailMapper.updateById(detail);
         
@@ -198,6 +194,10 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         }
         
         Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
+        List<FbCollectDetailDO> details = fbCollectDetailMapper.selectListByTaskId(taskId);
+        long unfinishedCount = details.stream()
+                .filter(d -> d.getStatus() != null && (d.getStatus() == 0 || d.getStatus() == 1))
+                .count();
         Long failedCount = stats.get("failed_count") != null ? ((Number) stats.get("failed_count")).longValue() : 0L;
         
         // 更新主表
@@ -206,7 +206,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         task.setTotalExpectedCount(totalExpected); // 设置总期望数
         task.setTotalCollectedCount(totalCollected.intValue()); // 设置总采集数
         
-        if (totalCollected >= totalExpected) {
+        if (unfinishedCount == 0) {
             task.setStatus(2); // 已完成
             task.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
         } else if (failedCount > 0) {

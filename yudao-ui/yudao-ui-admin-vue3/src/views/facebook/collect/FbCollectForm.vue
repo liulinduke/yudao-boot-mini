@@ -82,9 +82,150 @@
           </div>
         </el-form-item>
 
-        <!-- 搜索方式和关键词（群成员采集、用户关系采集、帖子评论点赞采集不显示） -->
+        <!-- 帖子采集：同一入口下按来源切换 -->
+        <template v-if="formData.taskType === 2">
+          <el-form-item label="采集来源">
+            <el-radio-group v-model="postSourceMode" @change="handlePostSourceModeChange">
+              <el-radio-button label="search">搜索结果</el-radio-button>
+              <el-radio-button label="page">Page 帖子</el-radio-button>
+              <el-radio-button label="group">群组帖子</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <template v-if="postSourceMode === 'search'">
+            <el-form-item label="搜索方式" prop="searchType">
+              <el-select
+                v-model="formData.searchType"
+                placeholder="请选择搜索方式"
+                style="width: 100%"
+                @change="handleSearchTypeChange"
+              >
+                <el-option
+                  v-for="dict in getIntDictOptions(DICT_TYPE.FB_SEARCH_TYPE)"
+                  :key="dict.value"
+                  :label="dict.label"
+                  :value="dict.value"
+                />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item v-if="formData.searchType === 1" label="关键词" prop="keyword">
+              <el-input
+                v-model="formData.keyword"
+                type="textarea"
+                :rows="4"
+                placeholder="请输入搜索关键词，多个关键词请换行分隔"
+                clearable
+              />
+            </el-form-item>
+
+            <el-form-item v-if="formData.searchType === 0" label="搜索链接" prop="searchUrl">
+              <el-input
+                v-model="formData.searchUrl"
+                type="textarea"
+                :rows="4"
+                placeholder="请输入 Facebook 搜索结果链接，多个链接请换行分隔。示例：https://www.facebook.com/search/top?q=关键词"
+              />
+            </el-form-item>
+          </template>
+
+          <template v-if="postSourceMode === 'page'">
+            <el-form-item label="采集方式">
+              <el-radio-group v-model="postPageInputMode" @change="handlePostPageInputModeChange">
+                <el-radio label="manual">手动输入 Page 链接</el-radio>
+                <el-radio label="select">从潜客选择</el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item
+              v-if="postPageInputMode === 'manual'"
+              label="Page 链接"
+              prop="searchUrl"
+            >
+              <el-input
+                v-model="formData.searchUrl"
+                type="textarea"
+                :rows="4"
+                placeholder="请输入 Page 主页链接，多个链接请换行分隔。示例：https://www.facebook.com/profile.php?id=xxx 或 https://www.facebook.com/pageName"
+              />
+            </el-form-item>
+
+            <el-form-item v-if="postPageInputMode === 'select'" label="选择潜客">
+              <div class="w-full">
+                <el-button type="primary" @click="openPostPageSelector" class="mb-2">
+                  <Icon icon="ep:plus" class="mr-5px" /> 选择潜客
+                </el-button>
+                <div v-if="selectedPostPages.length > 0" class="mt-2">
+                  <el-tag
+                    v-for="user in selectedPostPages"
+                    :key="user.id"
+                    closable
+                    @close="removeSelectedPostPage(user.id)"
+                    class="mr-2 mb-2"
+                  >
+                    {{ user.userName }}
+                  </el-tag>
+                </div>
+                <div v-else class="text-gray-400 text-sm mt-2">
+                  暂未选择潜客，请点击上方按钮选择
+                </div>
+              </div>
+            </el-form-item>
+          </template>
+
+          <template v-if="postSourceMode === 'group'">
+            <el-form-item label="采集方式">
+              <el-radio-group v-model="postGroupInputMode" @change="handlePostGroupInputModeChange">
+                <el-radio label="manual">手动输入群组链接</el-radio>
+                <el-radio label="select">从群组选择</el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item
+              v-if="postGroupInputMode === 'manual'"
+              label="群组链接"
+              prop="searchUrl"
+            >
+              <el-input
+                v-model="formData.searchUrl"
+                type="textarea"
+                :rows="4"
+                placeholder="请输入群组主页链接，多个链接请换行分隔。示例：https://www.facebook.com/groups/xxx"
+              />
+            </el-form-item>
+
+            <el-form-item v-if="postGroupInputMode === 'select'" label="选择群组">
+              <div class="w-full">
+                <el-button type="primary" @click="openPostGroupSelector" class="mb-2">
+                  <Icon icon="ep:plus" class="mr-5px" /> 选择群组
+                </el-button>
+                <div v-if="selectedPostGroups.length > 0" class="mt-2">
+                  <el-tag
+                    v-for="group in selectedPostGroups"
+                    :key="group.id"
+                    closable
+                    @close="removeSelectedPostGroup(group.id)"
+                    class="mr-2 mb-2"
+                  >
+                    {{ group.groupName }}
+                  </el-tag>
+                </div>
+                <div v-else class="text-gray-400 text-sm mt-2">
+                  暂未选择群组，请点击上方按钮选择
+                </div>
+              </div>
+            </el-form-item>
+          </template>
+        </template>
+
+        <!-- 搜索方式和关键词（帖子采集、群成员采集、同行采集、帖子评论点赞采集不显示） -->
         <el-form-item
-          v-if="formData.taskType !== 7 && formData.taskType !== 8 && formData.taskType !== 11"
+          v-if="
+            formData.taskType !== 2 &&
+            formData.taskType !== 7 &&
+            formData.taskType !== 8 &&
+            formData.taskType !== 11
+          "
           label="搜索方式"
           prop="searchType"
         >
@@ -107,6 +248,7 @@
         <el-form-item
           v-if="
             formData.searchType === 1 &&
+            formData.taskType !== 2 &&
             formData.taskType !== 7 &&
             formData.taskType !== 8 &&
             formData.taskType !== 11
@@ -127,6 +269,7 @@
         <el-form-item
           v-if="
             formData.searchType === 0 &&
+            formData.taskType !== 2 &&
             formData.taskType !== 7 &&
             formData.taskType !== 8 &&
             formData.taskType !== 11
@@ -233,7 +376,7 @@
           </div>
         </el-form-item>
 
-        <!-- 用户关系采集特殊UI：关系类型选择 -->
+        <!-- 同行采集特殊UI：关系类型选择 -->
         <el-form-item v-if="formData.taskType === 8" label="关系类型">
           <el-checkbox-group v-model="relationTypes">
             <el-checkbox label="followers">粉丝</el-checkbox>
@@ -242,11 +385,11 @@
           </el-checkbox-group>
         </el-form-item>
 
-        <!-- 用户关系采集：链接输入和用户选择二选一 -->
+        <!-- 同行采集：链接输入和用户选择二选一 -->
         <el-form-item v-if="formData.taskType === 8" label="采集方式">
           <el-radio-group v-model="userInputMode" @change="handleUserInputModeChange">
             <el-radio label="manual">手动输入链接</el-radio>
-            <el-radio label="select">从用户选择</el-radio>
+            <el-radio label="select">从潜客选择</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -264,7 +407,7 @@
           />
         </el-form-item>
 
-        <!-- 从用户选择模式 -->
+        <!-- 从潜客选择模式 -->
         <el-form-item v-if="formData.taskType === 8 && userInputMode === 'select'" label="选择用户">
           <div class="w-full">
             <el-button type="primary" @click="openUserSelector" class="mb-2">
@@ -525,8 +668,9 @@ const formRules = reactive({
       message: '请选择搜索方式',
       trigger: 'change',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证搜索方式
+        // 群成员采集、同行采集、帖子评论点赞采集不需要验证搜索方式
         if (
+          (formData.value.taskType === 2 && postSourceMode.value !== 'search') ||
           formData.value.taskType === 7 ||
           formData.value.taskType === 8 ||
           formData.value.taskType === 11
@@ -546,8 +690,9 @@ const formRules = reactive({
       message: '请输入搜索关键词',
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集、用户关系采集、帖子评论点赞采集不需要验证关键词
+        // 群成员采集、同行采集、帖子评论点赞采集不需要验证关键词
         if (
+          (formData.value.taskType === 2 && postSourceMode.value !== 'search') ||
           formData.value.taskType === 7 ||
           formData.value.taskType === 8 ||
           formData.value.taskType === 11
@@ -567,8 +712,11 @@ const formRules = reactive({
       message: '请输入采集链接',
       trigger: 'blur',
       validator: (rule: any, value: any, callback: any) => {
-        // 群成员采集、用户关系采集、帖子评论点赞采集有自己的链接输入方式，不在此验证
+        // 群成员采集、同行采集、帖子评论点赞采集有自己的链接输入方式，不在此验证
         if (
+          (formData.value.taskType === 2 &&
+            postSourceMode.value === 'search' &&
+            formData.value.searchType === 1) ||
           formData.value.taskType === 7 ||
           formData.value.taskType === 8 ||
           formData.value.taskType === 11
@@ -595,11 +743,18 @@ const groupSelectorVisible = ref(false) // 群组选择弹框显示状态
 const selectedGroups = ref<FbCollectGroup[]>([]) // 已选择的群组
 const groupInputMode = ref<'manual' | 'select'>('select') // 群组成员采集输入模式：manual-手动输入, select-从群组选择
 
-// 用户关系采集相关
+// 同行采集相关
 const relationTypes = ref<string[]>(['followers']) // 默认选中粉丝
-const userInputMode = ref<'manual' | 'select'>('select') // 用户关系采集输入模式
+const userInputMode = ref<'manual' | 'select'>('select') // 同行采集输入模式
 const userSelectorVisible = ref(false) // 用户选择弹框显示状态
 const selectedUsers = ref<FbCollectUser[]>([]) // 已选择的用户
+
+// 帖子采集相关
+const postSourceMode = ref<'search' | 'page' | 'group'>('search')
+const postPageInputMode = ref<'manual' | 'select'>('select')
+const postGroupInputMode = ref<'manual' | 'select'>('select')
+const selectedPostPages = ref<FbCollectUser[]>([])
+const selectedPostGroups = ref<FbCollectGroup[]>([])
 
 // 帖子评论点赞采集相关
 const commentLikeOptions = ref<string[]>(['comment', 'like']) // 默认同时采集评论和点赞
@@ -770,6 +925,9 @@ const submitForm = async () => {
     const data = formData.value as unknown as FbCollect
 
     // 解析URL列表(支持换行分隔)
+    if (data.taskType === 2) {
+      data.searchUrl = normalizePostCollectUrls(data.searchUrl || '')
+    }
     let urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
 
     // ✅ 群组成员采集(taskType=7):自动为群组链接添加/members后缀
@@ -928,6 +1086,15 @@ const resetForm = () => {
   activeTab.value = 'details'
   commentLikeOptions.value = ['comment', 'like'] // 重置评论点赞选项
   likeExpectedCount.value = 100 // 重置点赞期望数量
+  postSourceMode.value = 'search'
+  postPageInputMode.value = 'select'
+  postGroupInputMode.value = 'select'
+  selectedPostPages.value = []
+  selectedPostGroups.value = []
+  selectedGroups.value = []
+  selectedUsers.value = []
+  groupInputMode.value = 'select'
+  userInputMode.value = 'select'
   formRef.value?.resetFields()
 }
 
@@ -975,7 +1142,7 @@ const handleUserSizeChange = (size: number) => {
 const getUrlPlaceholder = (taskType?: number) => {
   const placeholders: Record<number, string> = {
     1: '请输入主页采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/pages?q=关键词',
-    2: '请输入帖子采集链接，多个链接请换行分隔。\n示例：https://facebook.com/groups/xxx/permalink/xxx',
+    2: '请输入帖子采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/top?q=关键词',
     3: '请输入用户采集链接，多个链接请换行分隔。\n在 Facebook 搜索目标用户后，复制浏览器地址栏的完整链接。\n示例：https://facebook.com/search/people?q=关键词',
     4: '请输入群组采集链接，多个链接请换行分隔。\n示例：https://facebook.com/groups/xxx',
     5: '请输入活动采集链接，多个链接请换行分隔。\n示例：https://facebook.com/events/xxx',
@@ -993,15 +1160,67 @@ const generateSearchUrl = (taskType: number, keyword: string): string => {
   // 根据不同的taskType生成不同的搜索URL
   const urlMap: Record<number, string> = {
     1: `https://www.facebook.com/search/pages?q=${encodeURIComponent(keyword)}`, // 主页采集
-    2: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}`, // 帖子采集
+    2: `https://www.facebook.com/search/top?q=${encodeURIComponent(keyword)}`, // 帖子采集
     3: `https://www.facebook.com/search/people?q=${encodeURIComponent(keyword)}`, // 用户采集
     4: `https://www.facebook.com/search/groups?q=${encodeURIComponent(keyword)}`, // 群组采集
     5: `https://www.facebook.com/search/events?q=${encodeURIComponent(keyword)}`, // 活动采集
-    6: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}`, // 评论采集(先搜索帖子)
-    11: `https://www.facebook.com/search/posts?q=${encodeURIComponent(keyword)}` // 帖子评论点赞采集(先搜索帖子)
+    6: `https://www.facebook.com/search/top?q=${encodeURIComponent(keyword)}`, // 评论采集(先搜索帖子)
+    11: `https://www.facebook.com/search/top?q=${encodeURIComponent(keyword)}` // 帖子评论点赞采集(先搜索帖子)
   }
 
   return urlMap[taskType] || urlMap[1]
+}
+
+const splitInputUrls = (value: string) =>
+  (value || '')
+    .split('\n')
+    .map((url) => url.trim())
+    .filter(Boolean)
+
+const cleanFacebookUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url.trim())
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return url.trim()
+  }
+}
+
+const toPagePostsUrl = (url: string): string => {
+  try {
+    const parsed = new URL(cleanFacebookUrl(url))
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return url.trim()
+  }
+}
+
+const toGroupPostsUrl = (url: string): string => {
+  try {
+    const parsed = new URL(cleanFacebookUrl(url))
+    const match = parsed.pathname.match(/\/groups\/([^/]+)/)
+    if (match?.[1]) {
+      return `${parsed.origin}/groups/${match[1]}`
+    }
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString().replace(/\/+$/, '')
+  } catch {
+    return url.trim()
+  }
+}
+
+const normalizePostCollectUrls = (value: string): string => {
+  const urls = splitInputUrls(value)
+  if (postSourceMode.value === 'page') {
+    return urls.map(toPagePostsUrl).join('\n')
+  }
+  if (postSourceMode.value === 'group') {
+    return urls.map(toGroupPostsUrl).join('\n')
+  }
+  return urls.map(cleanFacebookUrl).join('\n')
 }
 
 /** 根据多个关键词生成多个URL(换行分隔) */
@@ -1026,6 +1245,60 @@ const handleSearchTypeChange = (value: number) => {
   } else {
     // 切换到链接模式,清空keyword
     formData.value.keyword = ''
+  }
+}
+
+const handlePostSourceModeChange = () => {
+  formData.value.keyword = ''
+  formData.value.searchUrl = ''
+  formData.value.searchType = postSourceMode.value === 'search' ? 1 : 0
+  selectedPostPages.value = []
+  selectedPostGroups.value = []
+}
+
+const handlePostPageInputModeChange = (mode: 'manual' | 'select') => {
+  formData.value.searchUrl = ''
+  if (mode === 'manual') {
+    selectedPostPages.value = []
+  }
+}
+
+const handlePostGroupInputModeChange = (mode: 'manual' | 'select') => {
+  formData.value.searchUrl = ''
+  if (mode === 'manual') {
+    selectedPostGroups.value = []
+  }
+}
+
+const openPostPageSelector = () => {
+  userSelectorVisible.value = true
+}
+
+const openPostGroupSelector = () => {
+  groupSelectorVisible.value = true
+}
+
+const refreshPostPageUrls = () => {
+  formData.value.searchUrl = selectedPostPages.value.map((user) => toPagePostsUrl(user.url)).join('\n')
+}
+
+const refreshPostGroupUrls = () => {
+  formData.value.searchUrl = selectedPostGroups.value.map((group) => toGroupPostsUrl(group.url)).join('\n')
+}
+
+const removeSelectedPostPage = (userId: number) => {
+  const index = selectedPostPages.value.findIndex((user) => user.id === userId)
+  if (index > -1) {
+    selectedPostPages.value.splice(index, 1)
+    refreshPostPageUrls()
+  }
+}
+
+const removeSelectedPostGroup = (groupId: number) => {
+  const index = selectedPostGroups.value.findIndex((group) => group.id === groupId)
+  if (index > -1) {
+    selectedPostGroups.value.splice(index, 1)
+    refreshPostGroupUrls()
   }
 }
 
@@ -1066,6 +1339,13 @@ const removeSelectedGroup = (groupId: number) => {
 
 /** 确认群组选择（组件回调） */
 const handleGroupConfirm = (groups: FbCollectGroup[]) => {
+  if (formData.value.taskType === 2 && postSourceMode.value === 'group') {
+    selectedPostGroups.value = groups
+    refreshPostGroupUrls()
+    message.success(`已选择 ${groups.length} 个群组，生成了 ${groups.length} 个群组帖子采集链接`)
+    return
+  }
+
   selectedGroups.value = groups
 
   // 生成带/members后缀的采集链接
@@ -1085,14 +1365,14 @@ const openUserSelector = () => {
   userSelectorVisible.value = true
 }
 
-/** 处理用户关系采集输入模式切换 */
+/** 处理同行采集输入模式切换 */
 const handleUserInputModeChange = (mode: 'manual' | 'select') => {
   if (mode === 'manual') {
     // 切换到手动输入，清空已选用户
     selectedUsers.value = []
     formData.value.searchUrl = ''
   } else {
-    // 切换到从用户选择，清空手动输入的链接
+    // 切换到从潜客选择，清空手动输入的链接
     formData.value.searchUrl = ''
   }
 }
@@ -1111,7 +1391,7 @@ const removeSelectedUser = (userId: number) => {
   }
 }
 
-/** 生成用户关系采集链接 */
+/** 生成同行采集链接 */
 const generateUserRelationUrls = () => {
   const urls: string[] = []
 
@@ -1145,6 +1425,13 @@ const generateUserRelationUrls = () => {
 
 /** 确认用户选择（组件回调） */
 const handleUserConfirm = (users: FbCollectUser[]) => {
+  if (formData.value.taskType === 2 && postSourceMode.value === 'page') {
+    selectedPostPages.value = users
+    refreshPostPageUrls()
+    message.success(`已选择 ${users.length} 个潜客，生成了 ${users.length} 个 Page 帖子采集链接`)
+    return
+  }
+
   selectedUsers.value = users
 
   if (relationTypes.value.length === 0) {
@@ -1180,11 +1467,11 @@ watch(
   }
 )
 
-// 监听用户关系采集的关系类型变化,重新生成链接
+// 监听同行采集的关系类型变化,重新生成链接
 watch(
   () => relationTypes.value,
   () => {
-    // 只有在用户关系采集模式且从用户选择模式下才生效
+    // 只有在同行采集模式且从潜客选择模式下才生效
     if (
       formData.value.taskType === 8 &&
       userInputMode.value === 'select' &&

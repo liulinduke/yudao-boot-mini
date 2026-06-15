@@ -162,13 +162,9 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         
         detail.setCollectedCount(redisCount.intValue());
         
-        // 判断状态
-        if (redisCount >= detail.getExpectedCount()) {
-            detail.setStatus(2); // 已完成
-            detail.setEndTime(LocalDateTime.now());
-        } else {
-            detail.setStatus(1); // 采集中
-        }
+        // 采集脚本一旦返回结果（即使数量不足或为 0），本轮明细也视为结束
+        detail.setStatus(2); // 已完成
+        detail.setEndTime(LocalDateTime.now());
         
         fbCollectDetailMapper.updateById(detail);
         
@@ -195,6 +191,10 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         }
         
         Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
+        List<FbCollectDetailDO> details = fbCollectDetailMapper.selectListByTaskId(taskId);
+        long unfinishedCount = details.stream()
+                .filter(d -> d.getStatus() != null && (d.getStatus() == 0 || d.getStatus() == 1))
+                .count();
         Long failedCount = stats.get("failed_count") != null ? ((Number) stats.get("failed_count")).longValue() : 0L;
         
         // 更新主表
@@ -203,7 +203,7 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         task.setTotalExpectedCount(totalExpected);
         task.setTotalCollectedCount(totalCollected.intValue());
         
-        if (totalCollected >= totalExpected) {
+        if (unfinishedCount == 0) {
             task.setStatus(2); // 已完成
             task.setEndTime(LocalDateTime.now());
         } else if (failedCount > 0) {

@@ -57,21 +57,11 @@
         </el-form-item>
 
         <el-form-item label="采集链接">
-          <el-input
-            v-model="taskForm.urls"
-            type="textarea"
-            :rows="4"
-            placeholder="每行一个链接"
-          />
+          <el-input v-model="taskForm.urls" type="textarea" :rows="4" placeholder="每行一个链接" />
         </el-form-item>
 
         <el-form-item label="采集间隔(秒)">
-          <el-input-number
-            v-model="taskForm.interval"
-            :min="1"
-            :max="300"
-            style="width: 100%"
-          />
+          <el-input-number v-model="taskForm.interval" :min="1" :max="300" style="width: 100%" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -205,9 +195,7 @@ const submitTask = async () => {
     }
 
     // 获取选中的账号信息
-    const selectedAccounts = accounts.value.filter((acc) =>
-      taskForm.accountIds.includes(acc.id)
-    )
+    const selectedAccounts = accounts.value.filter((acc) => taskForm.accountIds.includes(acc.id))
 
     // 为每个账号创建采集任务
     let createdCount = 0
@@ -262,17 +250,13 @@ const getTaskTypeByFunction = (funcType: string): number => {
     users: 3,
     groups: 4,
     events: 5,
-    comments: 11  // 帖子评论点赞采集
+    comments: 11 // 帖子评论点赞采集
   }
   return typeMap[funcType] || 1
 }
 
 /** 启动浏览器采集 */
-const startBrowserCollection = async (
-  account: FbAccount,
-  url: string,
-  taskId: number
-) => {
+const startBrowserCollection = async (account: FbAccount, url: string, taskId: number) => {
   try {
     message.info(`正在启动指纹浏览器...`)
 

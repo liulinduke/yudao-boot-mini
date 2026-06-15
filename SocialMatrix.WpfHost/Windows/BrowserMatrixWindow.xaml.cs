@@ -1693,6 +1693,136 @@ namespace SocialMatrix.WpfHost.Windows
 
             // 提取帖子数据的函数
             js.AppendLine(@"
+        const cleanText = (text) => (text || '').replace(/\s+/g, ' ').trim();
+
+        const canonicalPostUrl = (href) => {
+            try {
+                const u = new URL(href);
+                if (!/(\.|^)facebook\.com$/i.test(u.hostname)) return null;
+                const path = u.pathname;
+                const q = u.searchParams;
+                if ((path.includes('/permalink.php') || path.includes('/story.php')) && q.get('story_fbid')) {
+                    const idPart = q.get('id') ? '&id=' + encodeURIComponent(q.get('id')) : '';
+                    return 'https://www.facebook.com/permalink.php?story_fbid=' + encodeURIComponent(q.get('story_fbid')) + idPart;
+                }
+                if (path.includes('/groups/') && q.get('multi_permalinks')) {
+                    const groupMatch = path.match(/\/groups\/([^/]+)/);
+                    if (!groupMatch) return null;
+                    return 'https://www.facebook.com/groups/' + groupMatch[1] + '/permalink/' + q.get('multi_permalinks') + '/';
+                }
+                const groupPermalink = path.match(/\/groups\/([^/]+)\/permalink\/([^/]+)/);
+                if (groupPermalink) {
+                    return 'https://www.facebook.com/groups/' + groupPermalink[1] + '/permalink/' + groupPermalink[2] + '/';
+                }
+                if (/\/posts\//i.test(path)) return 'https://www.facebook.com' + path.replace(/\/+$/, '');
+                if (path.includes('/photo/') && q.get('fbid')) {
+                    const setPart = q.get('set') ? '&set=' + encodeURIComponent(q.get('set')) : '';
+                    return 'https://www.facebook.com/photo/?fbid=' + encodeURIComponent(q.get('fbid')) + setPart;
+                }
+                if (path.includes('/videos/') || path.includes('/watch/')) return 'https://www.facebook.com' + path.replace(/\/+$/, '');
+                return null;
+            } catch {
+                return null;
+            }
+        };
+
+        const getPostItemId = (url) => {
+            if (!url) return '';
+            try {
+                const u = new URL(url);
+                if (u.searchParams.get('story_fbid')) return u.searchParams.get('story_fbid');
+                if (u.searchParams.get('fbid')) return u.searchParams.get('fbid');
+                const permalink = u.pathname.match(/\/permalink\/([^/]+)/);
+                if (permalink) return permalink[1];
+                const post = u.pathname.match(/\/posts\/([^/]+)/);
+                if (post) return post[1];
+                const video = u.pathname.match(/\/videos\/([^/]+)/);
+                if (video) return video[1];
+            } catch {}
+            return '';
+        };
+
+        const isTimeLikeText = (text) => {
+            const t = cleanText(text);
+            if (!t || t.length > 40) return false;
+            return /^(\d+\s*(m|h|d|w|mo|y|min|hr|hrs|分钟|小时|天|周|月|年)|Yesterday|Today|Just now|刚刚|昨天|[A-Za-z]{3,9}\s+\d{1,2}|\d{4})/i.test(t) ||
+                /\bat\s+\d{1,2}:\d{2}/i.test(t);
+        };
+
+        const findPostTimeLink = (card) => {
+            const links = Array.from(card.querySelectorAll('a[href]'));
+            const candidates = links.filter(link => {
+                const text = cleanText(link.textContent || link.getAttribute('aria-label'));
+                return isTimeLikeText(text) && canonicalPostUrl(link.href);
+            });
+            return candidates.find(link => {
+                try {
+                    const u = new URL(link.href);
+                    return !u.searchParams.has('comment_id') && !u.searchParams.has('reply_comment_id');
+                } catch {
+                    return false;
+                }
+            }) || null;
+        };
+
+        const getHeaderLinks = (card) => Array.from(card.querySelectorAll('a[href]'))
+            .filter(link => cleanText(link.textContent || link.getAttribute('aria-label')))
+            .slice(0, 12);
+
+        const getAuthorName = (card, timeLink) => {
+            const groupUserLink = Array.from(card.querySelectorAll('a[href*=""/groups/""][href*=""/user/""]'))
+                .find(link => cleanText(link.textContent || link.getAttribute('aria-label')));
+            if (groupUserLink) return cleanText(groupUserLink.textContent || groupUserLink.getAttribute('aria-label'));
+            const profileName = card.querySelector('[data-ad-rendering-role=""profile_name""] a:not([href*=""/groups/""])');
+            if (profileName && cleanText(profileName.textContent)) return cleanText(profileName.textContent);
+            const timeText = cleanText(timeLink?.textContent || timeLink?.getAttribute('aria-label'));
+            for (const link of getHeaderLinks(card)) {
+                const href = link.href || '';
+                const text = cleanText(link.textContent || link.getAttribute('aria-label'));
+                if (!text || text === timeText) continue;
+                if (href.includes('/groups/') || href.includes('/hashtag/') || href.includes('/photo/')) continue;
+                if (/^profile photo of /i.test(text)) continue;
+                return text;
+            }
+            const bodyText = cleanText(card.innerText || card.textContent);
+            const timeIndex = bodyText.indexOf(timeText);
+            if (timeText && timeIndex > 0 && timeIndex < 80) {
+                return bodyText.slice(0, timeIndex).replace(/\s*·?\s*$/, '').trim();
+            }
+            return '';
+        };
+
+        const getGroupName = (card) => {
+            if (location.pathname.includes('/groups/')) {
+                const title = cleanText(document.querySelector('h1')?.textContent || document.title);
+                const groupTitle = title.replace(/\s*\|\s*Facebook\s*$/i, '');
+                if (groupTitle && !/^Facebook$/i.test(groupTitle)) return groupTitle;
+            }
+            for (const link of getHeaderLinks(card)) {
+                const href = link.href || '';
+                const text = cleanText(link.textContent || link.getAttribute('aria-label'));
+                if (
+                    href.includes('/groups/') &&
+                    !href.includes('/user/') &&
+                    !href.includes('/posts/') &&
+                    !href.includes('/permalink/') &&
+                    text &&
+                    !isTimeLikeText(text) &&
+                    !/^profile photo of /i.test(text)
+                ) return text;
+            }
+            return '';
+        };
+
+        const getPostContent = (card) => {
+            const contentEl = card.querySelector('[data-ad-comet-preview=""message""]') || card.querySelector('[data-testid=""post_message""]');
+            if (contentEl && cleanText(contentEl.textContent)) return cleanText(contentEl.textContent);
+            return cleanText(card.innerText || card.textContent)
+                .replace(/^Groups\b.*?See all/i, '')
+                .replace(/^Pages\b.*?See all/i, '')
+                .slice(0, 1000);
+        };
+
         const extractPostData = (card) => {
             try {
                 const hasContent = card.querySelector('[data-ad-comet-preview=""message""]') ||
@@ -1705,51 +1835,17 @@ namespace SocialMatrix.WpfHost.Windows
                 const linkCount = card.querySelectorAll('a').length;
                 if (svgCount > 0 && imgCount > 0 && linkCount < 3) return null;
 
-                let postLinkEl = card.querySelector('a[href*=""/posts/""]') ||
-                                card.querySelector('a[href*=""/permalink/""]') ||
-                                card.querySelector('a[href*=""/photos/""]') ||
-                                card.querySelector('a[href*=""/videos/""]') ||
-                                card.querySelector('a[href*=""story.php""]') ||
-                                card.querySelector('a[href*=""/search/posts/""]');
-
-                if (!postLinkEl) {
-                    const timeLinks = card.querySelectorAll('a[href*=""facebook.com""]');
-                    for (const link of timeLinks) {
-                        const href = link.href;
-                        if (href.includes('/stories/') || href.includes('/profile.php') ||
-                            href.includes('/groups/') || !href.includes('?')) continue;
-                        if (href.includes('fbid=') || href.includes('story_fbid=') ||
-                            href.includes('id=') && href.match(/\d{15,}/)) {
-                            postLinkEl = link;
-                            break;
-                        }
-                    }
-                }
-
-                if (!postLinkEl) {
-                    postLinkEl = card.querySelector('a[data-ft]');
-                }
+                const postLinkEl = findPostTimeLink(card);
 
                 if (!postLinkEl) return null;
 
-                const url = postLinkEl.href.split('?')[0];
+                const url = canonicalPostUrl(postLinkEl.href);
                 if (!url || seenUrls.has(url)) return null;
 
-                const authorEl = card.querySelector('[data-ad-rendering-role=""profile_name""] a') ||
-                               card.querySelector('h3 a[href*=""facebook.com""]:not([href*=""/groups/""])') ||
-                               card.querySelector('strong a[href*=""facebook.com""]:not([href*=""/groups/""])') ||
-                               card.querySelector('a[aria-label]:not([href*=""/groups/""]):not([href*=""/hashtag/""])') ||
-                               card.querySelector('span[dir=""auto""] strong');
-                const postUser = authorEl ? authorEl.textContent.trim() : '';
-
-                const groupLinkEl = card.querySelector('h3 a[href*=""/groups/""]') ||
-                               card.querySelector('[data-ad-rendering-role=""profile_name""] a[href*=""/groups/""]:not([href*=""/user/""])');
-                const groupName = groupLinkEl ? groupLinkEl.textContent.trim() : '';
-
-                const contentEl = card.querySelector('[data-ad-comet-preview=""message""]') ||
-                                card.querySelector('[data-testid=""post_message""]') ||
-                                card.querySelector('span[dir=""auto""]');
-                const postContent = contentEl ? contentEl.textContent.trim() : '';
+                const postUser = getAuthorName(card, postLinkEl);
+                const groupName = getGroupName(card);
+                const isGroupPost = !!groupName || url.includes('/groups/') || location.pathname.includes('/groups/');
+                const postContent = getPostContent(card);
 
                 let reactionCount = '', commentCount = '', reshareCount = '';
                 const numberSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
@@ -1771,13 +1867,11 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                 }
 
-                let itemIdMatch = url.match(/(?:posts|permalink|photos|videos)\/([^\?]+)/);
-                if (!itemIdMatch) itemIdMatch = url.match(/pcb\.([0-9]+)/);
-                const itemId = itemIdMatch ? itemIdMatch[1] : '';
+                const itemId = getPostItemId(url);
 
                 seenUrls.add(url);
                 return {
-                    itemId, postUser, url, fromResource: groupName ? 'group' : 'page',
+                    itemId, postUser, url, fromResource: isGroupPost ? 'group' : 'page',
                     groupName, reshareCount, commentCount, reactionCount,
                     usedCount: 0, postContent, fbAccount: '', postCreateTime: new Date().toISOString()
                 };
