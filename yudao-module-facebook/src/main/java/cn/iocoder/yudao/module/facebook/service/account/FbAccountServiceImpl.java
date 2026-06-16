@@ -1,11 +1,13 @@
 package cn.iocoder.yudao.module.facebook.service.account;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
@@ -34,37 +36,28 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Override
     public Long createFbAccount(FbAccountSaveReqVO createReqVO) {
-        // 插入
         FbAccountDO fbAccount = BeanUtils.toBean(createReqVO, FbAccountDO.class);
         fbAccountMapper.insert(fbAccount);
-
-        // 返回
         return fbAccount.getId();
     }
 
     @Override
     public void updateFbAccount(FbAccountSaveReqVO updateReqVO) {
-        // 校验存在
         validateFbAccountExists(updateReqVO.getId());
-        // 更新
         FbAccountDO updateObj = BeanUtils.toBean(updateReqVO, FbAccountDO.class);
         fbAccountMapper.updateById(updateObj);
     }
 
     @Override
     public void deleteFbAccount(Long id) {
-        // 校验存在
         validateFbAccountExists(id);
-        // 删除
         fbAccountMapper.deleteById(id);
     }
 
     @Override
-        public void deleteFbAccountListByIds(List<Long> ids) {
-        // 删除
+    public void deleteFbAccountListByIds(List<Long> ids) {
         fbAccountMapper.deleteByIds(ids);
-        }
-
+    }
 
     private void validateFbAccountExists(Long id) {
         if (fbAccountMapper.selectById(id) == null) {
@@ -84,17 +77,117 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Override
     public void updateFbAccountLanguage(Long id, Integer language) {
-        // 校验存在
         validateFbAccountExists(id);
-        // 校验语言值
         if (language != 1 && language != 2) {
             throw new IllegalArgumentException("语言设置只能是1(英文)或2(中文)");
         }
-        // 更新语言字段
         FbAccountDO updateObj = new FbAccountDO();
         updateObj.setId(id);
         updateObj.setLanguage(language);
         fbAccountMapper.updateById(updateObj);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateFbAccountProxy(List<Long> ids, Long proxyId) {
+        for (Long id : ids) {
+            FbAccountDO updateObj = new FbAccountDO();
+            updateObj.setId(id);
+            updateObj.setProxyId(proxyId);
+            fbAccountMapper.updateById(updateObj);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void importFbAccount(FbAccountImportReqVO importReqVO) {
+        String data = importReqVO.getData();
+        String[] lines = data.split("\n");
+        LocalDateTime now = LocalDateTime.now();
+
+        for (String line : lines) {
+            line = line.trim();
+            if (StrUtil.isEmpty(line)) {
+                continue;
+            }
+
+            String[] parts = line.split("----");
+            if (parts.length < 2) {
+                continue;
+            }
+
+            String userName = parts[0].trim();
+            String password = parts[1].trim();
+            String securityKey = parts.length > 2 ? parts[2].trim() : null;
+
+            if (StrUtil.isEmpty(userName) || StrUtil.isEmpty(password)) {
+                continue;
+            }
+
+            FbAccountDO account = new FbAccountDO();
+            account.setFbAccount(userName);
+            account.setPassword(password);
+            account.setTfa(securityKey);
+            account.setGroupId(importReqVO.getGroupId());
+            account.setProxyId(importReqVO.getProxyId());
+            account.setStatus(true);
+            account.setCreateTime(now);
+            account.setUpdateTime(now);
+
+            fbAccountMapper.insert(account);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void importFbAccountCookie(FbAccountCookieImportReqVO importReqVO) {
+        String data = importReqVO.getData();
+        String[] lines = data.split("\n");
+        LocalDateTime now = LocalDateTime.now();
+
+        for (String line : lines) {
+            line = line.trim();
+            if (StrUtil.isEmpty(line)) {
+                continue;
+            }
+
+            String userId = extractUserIdFromCookie(line);
+            if (StrUtil.isEmpty(userId)) {
+                continue;
+            }
+
+            FbAccountDO account = new FbAccountDO();
+            account.setFbAccount(userId);
+            account.setCookie(line);
+            account.setGroupId(importReqVO.getGroupId());
+            account.setProxyId(importReqVO.getProxyId());
+            account.setStatus(true);
+            account.setCreateTime(now);
+            account.setUpdateTime(now);
+
+            fbAccountMapper.insert(account);
+        }
+    }
+
+    private String extractUserIdFromCookie(String cookie) {
+        if (StrUtil.isEmpty(cookie)) {
+            return null;
+        }
+
+        try {
+            int start = cookie.indexOf("c_user=");
+            if (start != -1) {
+                int end = cookie.indexOf(";", start);
+                if (end == -1) {
+                    end = cookie.length();
+                }
+                return cookie.substring(start + 7, end);
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+
+        return null;
     }
 
 }

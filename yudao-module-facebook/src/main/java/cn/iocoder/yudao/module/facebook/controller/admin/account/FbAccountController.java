@@ -65,7 +65,7 @@ public class FbAccountController {
     @DeleteMapping("/delete-list")
     @Parameter(name = "ids", description = "编号", required = true)
     @Operation(summary = "批量删除FB账号")
-                @PreAuthorize("@ss.hasPermission('facebook:fb-account:delete')")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:delete')")
     public CommonResult<Boolean> deleteFbAccountList(@RequestParam("ids") List<Long> ids) {
         fbAccountService.deleteFbAccountListByIds(ids);
         return success(true);
@@ -96,7 +96,6 @@ public class FbAccountController {
               HttpServletResponse response) throws IOException {
         pageReqVO.setPageSize(PageParam.PAGE_SIZE_NONE);
         List<FbAccountDO> list = fbAccountService.getFbAccountPage(pageReqVO).getList();
-        // 导出 Excel
         ExcelUtils.write(response, "FB账号.xls", "数据", FbAccountRespVO.class,
                         BeanUtils.toBean(list, FbAccountRespVO.class));
     }
@@ -108,6 +107,31 @@ public class FbAccountController {
             @RequestParam("id") Long id,
             @RequestParam("language") Integer language) {
         fbAccountService.updateFbAccountLanguage(id, language);
+        return success(true);
+    }
+
+    @PutMapping("/update-proxy")
+    @Operation(summary = "批量更新FB账号代理")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> updateFbAccountProxy(
+            @Valid @RequestBody FbAccountUpdateProxyReqVO reqVO) {
+        fbAccountService.updateFbAccountProxy(reqVO.getIds(), reqVO.getProxyId());
+        return success(true);
+    }
+
+    @PostMapping("/import")
+    @Operation(summary = "导入FB账号")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:create')")
+    public CommonResult<Boolean> importFbAccount(@Valid @RequestBody FbAccountImportReqVO reqVO) {
+        fbAccountService.importFbAccount(reqVO);
+        return success(true);
+    }
+
+    @PostMapping("/import-cookie")
+    @Operation(summary = "导入FB账号Cookie")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:create')")
+    public CommonResult<Boolean> importFbAccountCookie(@Valid @RequestBody FbAccountCookieImportReqVO reqVO) {
+        fbAccountService.importFbAccountCookie(reqVO);
         return success(true);
     }
 

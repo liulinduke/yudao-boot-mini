@@ -79,6 +79,22 @@
               class="!w-240px"
             />
           </el-form-item>
+          <el-form-item label="代理" prop="proxyId">
+            <el-select
+              v-model="queryParams.proxyId"
+              placeholder="请选择代理"
+              clearable
+              class="!w-200px"
+            >
+              <el-option :value="null" label="全部代理" />
+              <el-option
+                v-for="proxy in proxyList"
+                :key="proxy.id"
+                :value="proxy.id"
+                :label="proxy.proxyName"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
             <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
@@ -95,6 +111,24 @@
           >
             <Icon icon="ep:plus" class="mr-5px" /> 新增
           </el-button>
+          
+          <el-dropdown trigger="click" @command="handleImportCommand">
+            <el-button type="primary" plain>
+              <Icon icon="ep:download" class="mr-5px" /> 导入
+              <Icon icon="ep:arrow-down" />
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="import">
+                  <Icon icon="ep:user" class="mr-5px" /> 导入账号
+                </el-dropdown-item>
+                <el-dropdown-item command="cookie">
+                  <Icon icon="ep:key" class="mr-5px" /> 导入Cookie
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          
           <el-button
             type="success"
             plain
@@ -117,9 +151,9 @@
             type="warning"
             plain
             :disabled="isEmpty(checkedIds)"
-            @click="openLanguageDialog"
+            @click="openBatchUpdateProxyDialog"
           >
-            <Icon icon="ep:setting" class="mr-5px" /> 设置语言
+            <Icon icon="ep:setting" class="mr-5px" /> 批量修改代理
           </el-button>
         </div>
 
@@ -132,62 +166,50 @@
             :stripe="true"
             :show-overflow-tooltip="true"
             @selection-change="handleRowCheckboxChange"
-            style="width: 100%; min-width: 1200px;"
+            style="width: 100%; min-width: 1000px;"
           >
-    <el-table-column type="selection" width="55" />
-      <el-table-column label="FB账号" align="center" prop="fbAccount" />
-      <el-table-column label="密码" align="center" prop="password" />
-      <el-table-column label="地区" align="center" prop="area" />
-      <el-table-column label="好友数" align="center" prop="friends" />
-          <el-table-column label="账户分组" align="center" prop="groupName" />
-          <el-table-column label="账户状态" align="center" prop="status" />
-      <el-table-column label="备注" align="center" prop="remark" />
-      <el-table-column label="cookie" align="center" prop="cookie" />
-      <el-table-column label="用户代理" align="center" prop="userAgent" />
-      <el-table-column label="2FA" align="center" prop="tfa" />
-      <el-table-column label="邮件信息" align="center" prop="email" />
-      <el-table-column label="代理" align="center" prop="proxy" />
-      <el-table-column label="语言" align="center" prop="language" width="100">
-        <template #default="scope">
-          <el-tag :type="scope.row.language === 1 ? 'success' : 'primary'" size="small">
-            {{ scope.row.language === 1 ? '英文' : scope.row.language === 2 ? '中文' : '未设置' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="注册日期"
-        align="center"
-        prop="creationDate"
-        :formatter="dateFormatter"
-        width="180px"
-      />
-      <el-table-column
-        label="创建时间"
-        align="center"
-        prop="createTime"
-        :formatter="dateFormatter"
-        width="180px"
-      />
-      <el-table-column label="操作" align="center" min-width="120px">
-        <template #default="scope">
-          <el-button
-            link
-            type="primary"
-            @click="openForm('update', scope.row.id)"
-            v-hasPermi="['facebook:fb-account:update']"
-          >
-            编辑
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            @click="handleDelete(scope.row.id)"
-            v-hasPermi="['facebook:fb-account:delete']"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
+            <el-table-column type="selection" width="55" />
+            <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
+            <el-table-column label="密码" align="center" prop="password" width="150" />
+            <el-table-column label="地区" align="center" prop="area" width="100" />
+            <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
+            <el-table-column label="代理" align="center" prop="proxyName" width="150">
+              <template #default="scope">
+                <el-tag v-if="scope.row.proxyName" type="info" size="small">
+                  {{ scope.row.proxyName }}
+                </el-tag>
+                <span v-else class="text-gray-400">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="账户状态" align="center" prop="status" width="100" />
+            <el-table-column label="备注" align="center" prop="remark" />
+            <el-table-column
+              label="创建时间"
+              align="center"
+              prop="createTime"
+              :formatter="dateFormatter"
+              width="180px"
+            />
+            <el-table-column label="操作" align="center" width="120">
+              <template #default="scope">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openForm('update', scope.row.id)"
+                  v-hasPermi="['facebook:fb-account:update']"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  link
+                  type="danger"
+                  @click="handleDelete(scope.row.id)"
+                  v-hasPermi="['facebook:fb-account:delete']"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <!-- 分页 -->
           <Pagination
@@ -207,8 +229,14 @@
   <!-- 分组表单弹窗 -->
   <AccountGroupForm ref="groupFormRef" @success="loadGroups" />
   
-  <!-- 设置语言弹窗 -->
-  <SetLanguageDialog ref="languageDialogRef" @success="getList" />
+  <!-- 导入账号弹窗 -->
+  <FbAccountImportDialog ref="importDialogRef" @success="getList" />
+  
+  <!-- 导入Cookie弹窗 -->
+  <FbAccountCookieImportDialog ref="cookieImportDialogRef" @success="getList" />
+  
+  <!-- 批量修改代理弹窗 -->
+  <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
 </template>
 
 <script setup lang="ts">
@@ -217,9 +245,12 @@ import { dateFormatter } from '@/utils/formatTime'
 import download from '@/utils/download'
 import { FbAccountApi, FbAccount } from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
+import { SysProxyApi, SysProxyRespVO } from '@/api/system/proxy'
 import FbAccountForm from './FbAccountForm.vue'
 import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
-import SetLanguageDialog from './SetLanguageDialog.vue'
+import FbAccountImportDialog from './FbAccountImportDialog.vue'
+import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
+import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 
@@ -236,24 +267,7 @@ const queryParams = reactive({
   pageNo: 1,
   pageSize: 10,
   fbAccount: undefined,
-  password: undefined,
-  area: undefined,
-  friends: undefined,
-  groupId: undefined as number | null | undefined,
-  status: undefined,
-  remark: undefined,
-  cookie: undefined,
-  userAgent: undefined,
-  tfa: undefined,
-  email: undefined,
-  emailPassword: undefined,
-  deviceId: undefined,
-  deviceName: undefined,
-  reason: undefined,
-  proxy: undefined,
-  proxyId: undefined,
-  creationDate: [],
-  createTime: [],
+  proxyId: undefined as number | null | undefined,
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
@@ -263,14 +277,25 @@ const groupList = ref<any[]>([])
 const selectedGroupId = ref<number | null>(null)
 const groupFormRef = ref()
 
-// 语言设置相关
-const languageDialogRef = ref()
+// 代理列表
+const proxyList = ref<SysProxyRespVO[]>([])
+
+// 导入相关
+const importDialogRef = ref()
+const cookieImportDialogRef = ref()
+
+// 批量修改代理相关
+const batchUpdateProxyDialogRef = ref()
 
 /** 查询列表 */
 const getList = async () => {
   loading.value = true
   try {
-    const data = await FbAccountApi.getFbAccountPage(queryParams)
+    const params = {
+      ...queryParams,
+      groupId: selectedGroupId.value,
+    }
+    const data = await FbAccountApi.getFbAccountPage(params)
     list.value = data.list
     total.value = data.total
   } finally {
@@ -288,10 +313,19 @@ const loadGroups = async () => {
   }
 }
 
+/** 加载代理列表 */
+const loadProxies = async () => {
+  try {
+    const data = await SysProxyApi.getAllEnabledProxyList()
+    proxyList.value = data || []
+  } catch (error) {
+    console.error('加载代理失败:', error)
+  }
+}
+
 /** 选择分组 */
 const handleSelectGroup = (groupId: number | null) => {
   selectedGroupId.value = groupId
-  queryParams.groupId = groupId
   handleQuery()
 }
 
@@ -303,7 +337,8 @@ const handleQuery = () => {
 
 /** 重置按钮操作 */
 const resetQuery = () => {
-  queryFormRef.value.resetFields()
+  queryFormRef.value?.resetFields()
+  queryParams.proxyId = undefined
   handleQuery()
 }
 
@@ -316,12 +351,9 @@ const openForm = (type: string, id?: number) => {
 /** 删除按钮操作 */
 const handleDelete = async (id: number) => {
   try {
-    // 删除的二次确认
     await message.delConfirm()
-    // 发起删除
     await FbAccountApi.deleteFbAccount(id)
     message.success(t('common.delSuccess'))
-    // 刷新列表
     await getList()
   } catch {}
 }
@@ -329,28 +361,29 @@ const handleDelete = async (id: number) => {
 /** 批量删除FB账号 */
 const handleDeleteBatch = async () => {
   try {
-    // 删除的二次确认
     await message.delConfirm()
-    await FbAccountApi.deleteFbAccountList(checkedIds.value);
-    checkedIds.value = [];
+    await FbAccountApi.deleteFbAccountList(checkedIds.value)
+    checkedIds.value = []
     message.success(t('common.delSuccess'))
-    await getList();
+    await getList()
   } catch {}
 }
 
 const checkedIds = ref<number[]>([])
 const handleRowCheckboxChange = (records: FbAccount[]) => {
-  checkedIds.value = records.map((item) => item.id!);
+  checkedIds.value = records.map((item) => item.id!)
 }
 
 /** 导出按钮操作 */
 const handleExport = async () => {
   try {
-    // 导出的二次确认
     await message.exportConfirm()
-    // 发起导出
     exportLoading.value = true
-    const data = await FbAccountApi.exportFbAccount(queryParams)
+    const params = {
+      ...queryParams,
+      groupId: selectedGroupId.value,
+    }
+    const data = await FbAccountApi.exportFbAccount(params)
     download.excel(data, 'FB账号.xls')
   } catch {
   } finally {
@@ -370,24 +403,41 @@ const handleDeleteGroup = async (id: number) => {
     await AccountGroupApi.deleteAccountGroup(id)
     message.success('删除成功')
     await loadGroups()
-    // 如果删除的是当前选中的分组，切换到全部
     if (selectedGroupId.value === id) {
       selectedGroupId.value = null
-      queryParams.groupId = null
       await getList()
     }
   } catch {}
 }
 
-/** 打开语言设置对话框 */
-const openLanguageDialog = () => {
-  const selectedAccounts = list.value.filter(account => checkedIds.value.includes(account.id!))
-  languageDialogRef.value.open(selectedAccounts)
+/** 处理导入命令 */
+const handleImportCommand = (command: string) => {
+  if (command === 'import') {
+    openImportDialog()
+  } else if (command === 'cookie') {
+    openCookieImportDialog()
+  }
+}
+
+/** 打开导入账号对话框 */
+const openImportDialog = () => {
+  importDialogRef.value.open()
+}
+
+/** 打开导入Cookie对话框 */
+const openCookieImportDialog = () => {
+  cookieImportDialogRef.value.open()
+}
+
+/** 打开批量修改代理对话框 */
+const openBatchUpdateProxyDialog = () => {
+  batchUpdateProxyDialogRef.value.open(checkedIds.value)
 }
 
 /** 初始化 **/
 onMounted(() => {
   loadGroups()
+  loadProxies()
   getList()
 })
 </script>

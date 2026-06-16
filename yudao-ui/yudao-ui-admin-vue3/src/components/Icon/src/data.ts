@@ -1,4 +1,7 @@
 export const IconJson = {
+  'icon:': [
+    'svgs-tiktok'
+  ],
   'ep:': [
     'add-location',
     'aim',

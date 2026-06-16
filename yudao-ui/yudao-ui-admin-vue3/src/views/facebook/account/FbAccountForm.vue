@@ -17,14 +17,34 @@
         <el-input v-model="formData.area" placeholder="请输入地区" />
       </el-form-item>
       <el-form-item label="好友数" prop="friends">
-        <el-input v-model="formData.friends" placeholder="请输入好友数" />
+        <el-input-number v-model="formData.friends" :min="0" placeholder="请输入好友数" />
       </el-form-item>
       <el-form-item label="账户分组" prop="groupId">
-        <el-input v-model="formData.groupId" placeholder="请输入账户分组" />
+        <el-select v-model="formData.groupId" placeholder="请选择账户分组">
+          <el-option :value="null" label="不分组" />
+          <el-option
+            v-for="group in groupList"
+            :key="group.id"
+            :value="group.id"
+            :label="group.groupName"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="代理" prop="proxyId">
+        <el-select v-model="formData.proxyId" placeholder="请选择代理">
+          <el-option :value="null" label="不设置代理" />
+          <el-option
+            v-for="proxy in proxyList"
+            :key="proxy.id"
+            :value="proxy.id"
+            :label="proxy.proxyName"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item label="账户状态" prop="status">
         <el-radio-group v-model="formData.status">
-          <el-radio value="1">请选择字典生成</el-radio>
+          <el-radio value="1">启用</el-radio>
+          <el-radio value="0">禁用</el-radio>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="备注" prop="remark">
@@ -54,12 +74,6 @@
       <el-form-item label="异常原因" prop="reason">
         <el-input v-model="formData.reason" placeholder="请输入异常原因" />
       </el-form-item>
-      <el-form-item label="代理" prop="proxy">
-        <el-input v-model="formData.proxy" placeholder="请输入代理" />
-      </el-form-item>
-      <el-form-item label="代理ID" prop="proxyId">
-        <el-input v-model="formData.proxyId" placeholder="请输入代理ID" />
-      </el-form-item>
       <el-form-item label="注册日期" prop="creationDate">
         <el-date-picker
           v-model="formData.creationDate"
@@ -76,7 +90,13 @@
   </Dialog>
 </template>
 <script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { Dialog } from '@/components/Dialog'
 import { FbAccountApi, FbAccount } from '@/api/facebook/account'
+import { AccountGroupApi } from '@/api/facebook/accountgroup'
+import { SysProxyApi, SysProxyRespVO } from '@/api/system/proxy'
+import { useMessage } from '@/hooks/web/useMessage'
+import { useI18n } from '@/hooks/web/useI18n'
 
 /** FB账号 表单 */
 defineOptions({ name: 'FbAccountForm' })
@@ -88,14 +108,14 @@ const dialogVisible = ref(false) // 弹窗的是否展示
 const dialogTitle = ref('') // 弹窗的标题
 const formLoading = ref(false) // 表单的加载中：1）修改时的数据加载；2）提交的按钮禁用
 const formType = ref('') // 表单的类型：create - 新增；update - 修改
-const formData = ref({
+const formData = reactive({
   id: undefined,
   fbAccount: undefined,
   password: undefined,
   area: undefined,
   friends: undefined,
-  groupId: undefined,
-  status: undefined,
+  groupId: null as number | null | undefined,
+  status: '1',
   remark: undefined,
   cookie: undefined,
   userAgent: undefined,
@@ -105,14 +125,16 @@ const formData = ref({
   deviceId: undefined,
   deviceName: undefined,
   reason: undefined,
-  proxy: undefined,
-  proxyId: undefined,
+  proxyId: null as number | null | undefined,
   creationDate: undefined,
 })
 const formRules = reactive({
   fbAccount: [{ required: true, message: 'FB账号不能为空', trigger: 'blur' }],
 })
 const formRef = ref() // 表单 Ref
+
+const groupList = ref<any[]>([])
+const proxyList = ref<SysProxyRespVO[]>([])
 
 /** 打开弹窗 */
 const open = async (type: string, id?: number) => {
@@ -124,7 +146,25 @@ const open = async (type: string, id?: number) => {
   if (id) {
     formLoading.value = true
     try {
-      formData.value = await FbAccountApi.getFbAccount(id)
+      const data = await FbAccountApi.getFbAccount(id)
+      formData.id = data.id
+      formData.fbAccount = data.fbAccount
+      formData.password = data.password
+      formData.area = data.area
+      formData.friends = data.friends
+      formData.groupId = data.groupId || null
+      formData.status = data.status || '1'
+      formData.remark = data.remark
+      formData.cookie = data.cookie
+      formData.userAgent = data.userAgent
+      formData.tfa = data.tfa
+      formData.email = data.email
+      formData.emailPassword = data.emailPassword
+      formData.deviceId = data.deviceId
+      formData.deviceName = data.deviceName
+      formData.reason = data.reason
+      formData.proxyId = data.proxyId || null
+      formData.creationDate = data.creationDate
     } finally {
       formLoading.value = false
     }
@@ -140,7 +180,7 @@ const submitForm = async () => {
   // 提交请求
   formLoading.value = true
   try {
-    const data = formData.value as unknown as FbAccount
+    const data = formData as unknown as FbAccount
     if (formType.value === 'create') {
       await FbAccountApi.createFbAccount(data)
       message.success(t('common.createSuccess'))
@@ -158,27 +198,47 @@ const submitForm = async () => {
 
 /** 重置表单 */
 const resetForm = () => {
-  formData.value = {
-    id: undefined,
-    fbAccount: undefined,
-    password: undefined,
-    area: undefined,
-    friends: undefined,
-    groupId: undefined,
-    status: undefined,
-    remark: undefined,
-    cookie: undefined,
-    userAgent: undefined,
-    tfa: undefined,
-    email: undefined,
-    emailPassword: undefined,
-    deviceId: undefined,
-    deviceName: undefined,
-    reason: undefined,
-    proxy: undefined,
-    proxyId: undefined,
-    creationDate: undefined,
-  }
+  formData.id = undefined
+  formData.fbAccount = undefined
+  formData.password = undefined
+  formData.area = undefined
+  formData.friends = undefined
+  formData.groupId = null
+  formData.status = '1'
+  formData.remark = undefined
+  formData.cookie = undefined
+  formData.userAgent = undefined
+  formData.tfa = undefined
+  formData.email = undefined
+  formData.emailPassword = undefined
+  formData.deviceId = undefined
+  formData.deviceName = undefined
+  formData.reason = undefined
+  formData.proxyId = null
+  formData.creationDate = undefined
   formRef.value?.resetFields()
 }
+
+const loadGroups = async () => {
+  try {
+    const data = await AccountGroupApi.getAllEnabledGroups()
+    groupList.value = data || []
+  } catch (error) {
+    console.error('加载分组失败:', error)
+  }
+}
+
+const loadProxies = async () => {
+  try {
+    const data = await SysProxyApi.getAllEnabledProxyList()
+    proxyList.value = data || []
+  } catch (error) {
+    console.error('加载代理失败:', error)
+  }
+}
+
+onMounted(() => {
+  loadGroups()
+  loadProxies()
+})
 </script>

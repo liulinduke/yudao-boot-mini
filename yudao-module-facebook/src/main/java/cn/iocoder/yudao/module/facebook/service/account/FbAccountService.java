@@ -67,4 +67,26 @@ public interface FbAccountService {
      */
     void updateFbAccountLanguage(Long id, Integer language);
 
+    /**
+     * 批量更新FB账号代理
+     *
+     * @param ids 账号ID列表
+     * @param proxyId 代理ID
+     */
+    void updateFbAccountProxy(List<Long> ids, Long proxyId);
+
+    /**
+     * 导入FB账号
+     *
+     * @param importReqVO 导入信息
+     */
+    void importFbAccount(FbAccountImportReqVO importReqVO);
+
+    /**
+     * 导入FB账号Cookie
+     *
+     * @param importReqVO 导入信息
+     */
+    void importFbAccountCookie(FbAccountCookieImportReqVO importReqVO);
+
 }
