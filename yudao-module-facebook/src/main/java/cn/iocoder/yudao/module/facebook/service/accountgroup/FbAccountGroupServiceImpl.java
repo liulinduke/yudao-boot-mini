@@ -8,7 +8,7 @@ import cn.iocoder.yudao.module.facebook.controller.admin.accountgroup.vo.FbAccou
 import cn.iocoder.yudao.module.facebook.dal.dataobject.accountgroup.FbAccountGroupDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.accountgroup.FbAccountGroupMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 

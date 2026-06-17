@@ -3,7 +3,7 @@ package cn.iocoder.yudao.module.facebook.controller.admin.fbcollectgroup.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import java.util.*;
-import javax.validation.constraints.*;
+import jakarta.validation.constraints.*;
 
 @Schema(description = "管理后台 - FB群组采集结果新增/修改 Request VO")
 @Data

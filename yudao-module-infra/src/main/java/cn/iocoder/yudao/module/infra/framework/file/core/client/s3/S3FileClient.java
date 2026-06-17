@@ -53,6 +53,7 @@ public class S3FileClient extends AbstractFileClient<S3FileClientConfig> {
         AwsCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(
                 AwsBasicCredentials.create(config.getAccessKey(), config.getAccessSecret()));
         URI endpoint = URI.create(buildEndpoint());
+        URI presignerEndpoint = URI.create(buildPresignerEndpoint());
         S3Configuration serviceConfiguration = S3Configuration.builder() // Path-style 访问
                 .pathStyleAccessEnabled(Boolean.TRUE.equals(config.getEnablePathStyleAccess()))
                 .chunkedEncodingEnabled(false) // 禁用分块编码，参见 https://t.zsxq.com/kBy57
@@ -66,7 +67,7 @@ public class S3FileClient extends AbstractFileClient<S3FileClientConfig> {
         presigner = S3Presigner.builder()
                 .credentialsProvider(credentialsProvider)
                 .region(region)
-                .endpointOverride(endpoint)
+                .endpointOverride(presignerEndpoint)
                 .serviceConfiguration(serviceConfiguration)
                 .build();
     }
@@ -116,7 +117,7 @@ public class S3FileClient extends AbstractFileClient<S3FileClientConfig> {
     public String presignGetUrl(String url, Integer expirationSeconds) {
         // 1. 将 url 转换为 path
         String path = StrUtil.removePrefix(url, config.getDomain() + "/");
-        path = HttpUtils.decodeUtf8(HttpUtils.removeUrlQuery(path));
+        path = HttpUtils.decodeUrlPath(HttpUtils.removeUrlQuery(path));
 
         // 2.1 情况一：公开访问：无需签名
         // 考虑到老版本的兼容，所以必须是 config.getEnablePublicAccess() 为 false 时，才进行签名
@@ -159,6 +160,23 @@ public class S3FileClient extends AbstractFileClient<S3FileClientConfig> {
             return config.getEndpoint();
         }
         return StrUtil.format("https://{}", config.getEndpoint());
+    }
+
+    /**
+     * presigner 节点地址
+     *
+     * @return 节点地址
+     */
+    private String buildPresignerEndpoint() {
+        // 补全 domain
+        if (StrUtil.isEmpty(config.getDomain())) {
+            config.setDomain(buildDomain());
+        }
+
+        if (Boolean.TRUE.equals(config.getEnablePathStyleAccess())) {
+            return StrUtil.removeSuffix(config.getDomain(), StrUtil.format("/{}", config.getBucket()));
+        }
+        return StrUtil.replace(config.getDomain(), StrUtil.format("://{}.", config.getBucket()), "://");
     }
 
     /**

@@ -6,8 +6,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-import javax.validation.constraints.NotEmpty;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import java.util.Collection;
 
 @ConfigurationProperties(prefix = "yudao.codegen")
@@ -54,5 +54,11 @@ public class CodegenProperties {
      */
     @NotNull(message = "是否生成单元测试不能为空")
     private Boolean unitTestEnable;
+
+    /**
+     * 是否生成 Excel 导入接口
+     */
+    @NotNull(message = "是否生成 Excel 导入接口不能为空")
+    private Boolean importEnable;
 
 }

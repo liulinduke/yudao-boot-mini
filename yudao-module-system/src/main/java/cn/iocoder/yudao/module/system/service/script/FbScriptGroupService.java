@@ -5,7 +5,7 @@ import cn.iocoder.yudao.module.system.controller.admin.script.vo.FbScriptGroupPa
 import cn.iocoder.yudao.module.system.controller.admin.script.vo.FbScriptGroupSaveReqVO;
 import cn.iocoder.yudao.module.system.dal.dataobject.script.FbScriptGroupDO;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 /**

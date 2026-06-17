@@ -1,7 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.account;
 
 import java.util.*;
-import javax.validation.*;
+import jakarta.validation.*;
 import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;

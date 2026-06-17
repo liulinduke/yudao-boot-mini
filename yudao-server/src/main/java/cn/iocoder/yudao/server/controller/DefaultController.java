@@ -2,12 +2,11 @@ package cn.iocoder.yudao.server.controller;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.util.servlet.ServletUtils;
+import jakarta.annotation.security.PermitAll;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import javax.annotation.security.PermitAll;
-import javax.servlet.http.HttpServletRequest;
 
 import static cn.iocoder.yudao.framework.common.exception.enums.GlobalErrorCodeConstants.NOT_IMPLEMENTED;
 
@@ -47,10 +46,28 @@ public class DefaultController {
                 "[ERP 模块 yudao-module-erp - 已禁用][参考 https://doc.iocoder.cn/erp/build/ 开启]");
     }
 
+    @RequestMapping(value = { "/admin-api/wms/**"})
+    public CommonResult<Boolean> wms404() {
+        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
+                "[WMS 仓库管理系统 yudao-module-wms - 已禁用][参考 https://doc.iocoder.cn/wms/build/ 开启]");
+    }
+
     @RequestMapping("/admin-api/crm/**")
     public CommonResult<Boolean> crm404() {
         return CommonResult.error(NOT_IMPLEMENTED.getCode(),
                 "[CRM 模块 yudao-module-crm - 已禁用][参考 https://doc.iocoder.cn/crm/build/ 开启]");
+    }
+
+    @RequestMapping(value = { "/admin-api/mes/**"})
+    public CommonResult<Boolean> mes404() {
+        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
+                "[MES 系统 yudao-module-mes - 已禁用][参考 https://doc.iocoder.cn/mes/build/ 开启]");
+    }
+
+    @RequestMapping(value = { "/admin-api/im/**"})
+    public CommonResult<Boolean> im404() {
+        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
+                "[IM 即时通讯 yudao-module-im - 已禁用][参考 https://doc.iocoder.cn/im/build/ 开启]");
     }
 
     @RequestMapping(value = { "/admin-api/report/**"})
@@ -65,11 +82,7 @@ public class DefaultController {
                 "[支付模块 yudao-module-pay - 已禁用][参考 https://doc.iocoder.cn/pay/build/ 开启]");
     }
 
-    @RequestMapping(value = { "/admin-api/ai/**"})
-    public CommonResult<Boolean> ai404() {
-        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
-                "[AI 大模型 yudao-module-ai - 已禁用][参考 https://doc.iocoder.cn/ai/build/ 开启]");
-    }
+
 
     @RequestMapping(value = { "/admin-api/iot/**"})
     public CommonResult<Boolean> iot404() {

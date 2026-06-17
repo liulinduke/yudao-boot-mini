@@ -1,7 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.dailylimit;
 
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;

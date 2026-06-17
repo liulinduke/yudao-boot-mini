@@ -303,6 +303,17 @@ public class LocalDateTimeUtils {
     }
 
     /**
+     * 获取从开始日期起的日期列表
+     *
+     * @param startDate 开始日期
+     * @param days 天数
+     * @return 日期列表，包含开始日期
+     */
+    public static List<LocalDate> getDateList(LocalDate startDate, int days) {
+        return startDate.datesUntil(startDate.plusDays(days)).toList();
+    }
+
+    /**
      * 格式化时间范围
      *
      * @param startTime 开始时间
@@ -333,6 +344,27 @@ public class LocalDateTimeUtils {
             default:
                 throw new IllegalArgumentException("Invalid interval: " + interval);
         }
+    }
+
+    /**
+     * 获取指定日期所在季度的第一天
+     *
+     * @param date 日期
+     * @return 所在季度的第一天
+     */
+    public static LocalDate getQuarterStart(LocalDate date) {
+        Month firstMonthOfQuarter = date.getMonth().firstMonthOfQuarter();
+        return LocalDate.of(date.getYear(), firstMonthOfQuarter, 1);
+    }
+
+    /**
+     * 获取指定日期所在周的第一天（周一）
+     *
+     * @param date 日期
+     * @return 所在周的周一
+     */
+    public static LocalDate getWeekStart(LocalDate date) {
+        return date.with(DayOfWeek.MONDAY);
     }
 
     /**

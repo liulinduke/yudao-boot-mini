@@ -72,6 +72,8 @@
             <artifactId>yudao-spring-boot-starter-mq</artifactId>
         </dependency>
 
+        <!-- Test 测试相关 -->
+
         <!-- 工具类相关 -->
         <dependency>
             <groupId>cn.iocoder.boot</groupId>
@@ -105,6 +107,11 @@
         <dependency>
             <groupId>com.anji-plus</groupId>
             <artifactId>captcha-spring-boot-starter</artifactId> <!-- 验证码，一般用于登录使用 -->
+        </dependency>
+
+        <dependency>
+            <groupId>org.dromara.hutool</groupId>
+            <artifactId>hutool-extra</artifactId> <!-- 邮件 -->
         </dependency>
 
     </dependencies>

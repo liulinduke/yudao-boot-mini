@@ -1,18 +1,15 @@
 package cn.iocoder.yudao.framework.common.util.http;
 
 import cn.hutool.core.codec.Base64;
-import cn.hutool.core.map.TableMap;
 import cn.hutool.core.net.url.UrlBuilder;
-import cn.hutool.core.util.ReflectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
-import lombok.SneakyThrows;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import javax.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -33,30 +30,40 @@ public class HttpUtils {
      * @param value 参数
      * @return 编码后的参数
      */
-    @SneakyThrows
     public static String encodeUtf8(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     /**
-     * 解码 URL 参数
+     * 解码 URL 参数（query parameter）
+     * 注意：此方法会将 + 解码为空格，适用于 query parameter，不适用于 URL path
      *
+     * @see #decodeUrlPath(String)
      * @param value 参数
      * @return 解码后的参数
      */
-    @SneakyThrows
     public static String decodeUtf8(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * 解码 URL 路径
+     * 与 {@link #decodeUtf8(String)} 不同，此方法不会将 + 解码为空格，保持 + 为字面字符
+     * 适用于 URL path 部分的解码
+     *
+     * @param path URL 路径
+     * @return 解码后的路径
+     */
+    public static String decodeUrlPath(String path) {
+        // 先将 + 替换为 %2B，避免被 URLDecoder 解码为空格
+        String encoded = path.replace("+", "%2B");
+        return URLDecoder.decode(encoded, StandardCharsets.UTF_8);
+    }
+
     public static String replaceUrlQuery(String url, String key, String value) {
         UrlBuilder builder = UrlBuilder.of(url, Charset.defaultCharset());
-        // 先移除
-        TableMap<CharSequence, CharSequence> query = (TableMap<CharSequence, CharSequence>)
-                ReflectUtil.getFieldValue(builder.getQuery(), "query");
-        query.remove(key);
-        // 后添加
+        // 先移除；再添加
+        builder.getQuery().remove(key);
         builder.addQuery(key, value);
         return builder.build();
     }

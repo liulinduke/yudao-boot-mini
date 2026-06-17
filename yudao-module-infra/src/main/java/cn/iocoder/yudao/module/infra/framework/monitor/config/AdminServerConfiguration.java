@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.infra.framework.monitor.config;
 
 import de.codecentric.boot.admin.server.config.EnableAdminServer;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -15,8 +17,6 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-
-import javax.servlet.DispatcherType;
 
 /**
  * Spring Boot Admin Server 配置
@@ -40,6 +40,9 @@ public class AdminServerConfiguration {
 
     @Value("${spring.boot.admin.client.password:admin}")
     private String password;
+
+    @Value("${spring.boot.admin.frame-ancestors:'self'}")
+    private String frameAncestors;
 
     /**
      * Spring Boot Admin 专用的 InMemoryUserDetailsManager
@@ -101,6 +104,16 @@ public class AdminServerConfiguration {
                                 adminSeverContextPath + "/instances", // Admin Client 注册端点忽略 CSRF
                                 adminSeverContextPath + "/actuator/**" // Actuator 端点忽略 CSRF
                         )
+                )
+                .headers(headers -> headers
+                        // 特殊：Spring Boot Admin 前端基于 Vue，需 unsafe-inline ／ unsafe-eval 支持内联脚本与表达式
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; "
+                                        + "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                                        + "style-src 'self' 'unsafe-inline'; "
+                                        + "frame-ancestors " + frameAncestors))
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin) // 显式设置 X-Frame-Options 为 SAMEORIGIN
+                        .cacheControl(HeadersConfigurer.CacheControlConfig::disable) // 禁用缓存，避免旧配置生效
                 );
         return httpSecurity.build();
     }

@@ -3,7 +3,7 @@ package cn.iocoder.yudao.module.facebook.controller.admin.accountgroup.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 
 @Schema(description = "管理后台 - Facebook 账号分组保存 Request VO")
 @Data

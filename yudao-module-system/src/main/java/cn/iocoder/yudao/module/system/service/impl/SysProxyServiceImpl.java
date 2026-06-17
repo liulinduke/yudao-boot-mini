@@ -11,7 +11,7 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.system.dal.dataobject.SysProxyDO;
 import cn.iocoder.yudao.module.system.dal.mapper.SysProxyMapper;
 import cn.iocoder.yudao.module.system.service.SysProxyService;
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

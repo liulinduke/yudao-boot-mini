@@ -3,8 +3,8 @@ package cn.iocoder.yudao.module.facebook.controller.admin.operation.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
-import javax.validation.constraints.NotEmpty;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 
 @Schema(description = "管理后台 - 运营任务创建/修改 Request VO")

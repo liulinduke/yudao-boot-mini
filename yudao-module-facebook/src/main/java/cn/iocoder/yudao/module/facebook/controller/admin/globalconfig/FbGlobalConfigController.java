@@ -5,7 +5,7 @@ import cn.iocoder.yudao.module.facebook.controller.admin.globalconfig.vo.FbGloba
 import cn.iocoder.yudao.module.facebook.service.globalconfig.FbGlobalConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;

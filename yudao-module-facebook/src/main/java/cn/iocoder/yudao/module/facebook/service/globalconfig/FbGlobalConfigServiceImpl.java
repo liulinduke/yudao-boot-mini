@@ -5,7 +5,7 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.controller.admin.globalconfig.vo.FbGlobalConfigSaveReqVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.globalconfig.FbGlobalConfigDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.globalconfig.FbGlobalConfigMapper;
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

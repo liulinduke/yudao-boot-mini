@@ -1,7 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.fbcollectpost;
 
 import java.util.*;
-import javax.validation.*;
+import jakarta.validation.*;
 import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectpost.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;

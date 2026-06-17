@@ -3,7 +3,7 @@ package cn.iocoder.yudao.module.facebook.service.operation;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.*;
 
-import javax.validation.*;
+import jakarta.validation.*;
 import java.util.List;
 
 /**

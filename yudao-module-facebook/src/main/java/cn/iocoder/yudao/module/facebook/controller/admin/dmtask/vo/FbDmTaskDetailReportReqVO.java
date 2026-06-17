@@ -3,8 +3,8 @@ package cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @Schema(description = "管理后台 - 上报群发私信明细结果 Request VO")
 @Data

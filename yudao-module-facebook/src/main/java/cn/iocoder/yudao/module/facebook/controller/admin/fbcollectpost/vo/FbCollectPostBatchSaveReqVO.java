@@ -3,8 +3,8 @@ package cn.iocoder.yudao.module.facebook.controller.admin.fbcollectpost.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
-import javax.validation.Valid;
-import javax.validation.constraints.*;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.util.List;
 
 @Schema(description = "管理后台 - FB帖子采集结果批量保存 Request VO")
