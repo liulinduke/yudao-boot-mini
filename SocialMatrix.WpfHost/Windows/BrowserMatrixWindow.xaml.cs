@@ -886,6 +886,7 @@ namespace SocialMatrix.WpfHost.Windows
                         break;
 
                     case 10:
+                    case 15:
                         System.Diagnostics.Debug.WriteLine($"📋 执行转帖任务...");
                         await WaitForPageReady(browser, timeoutMs: 30000);
                         await Task.Delay(2500);
@@ -911,7 +912,7 @@ namespace SocialMatrix.WpfHost.Windows
                             string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
                             string resultStr = result.Result?.ToString() ?? "[]";
                             System.Diagnostics.Debug.WriteLine($"✅ 转帖执行完成: {resultStr}");
-                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 10);
+                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, taskType);
                         }
                         else
                         {
@@ -1306,9 +1307,9 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine("✅ 进入链接加组分支");
                 return GenerateAddGroupCollectScript(accountId, expectedCount, config);
             }
-            else if (taskType == 10) // 转帖任务
+            else if (taskType == 10 || taskType == 15) // 转帖/帖子评论任务
             {
-                System.Diagnostics.Debug.WriteLine("✅ 进入转帖任务分支");
+                System.Diagnostics.Debug.WriteLine("✅ 进入转帖/帖子评论任务分支");
                 return GenerateRepostScriptFromConfig(config);
             }
             else if (taskType == 11) // 帖子评论点赞采集

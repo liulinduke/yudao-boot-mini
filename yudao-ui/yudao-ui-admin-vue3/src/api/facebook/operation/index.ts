@@ -2,7 +2,7 @@ import request from '@/config/axios'
 
 export interface FbOperationTask {
   id?: string | number
-  taskType: number // 任务类型（9-链接加组 10-转贴 14-群发私信 12-发个人帖 13-发群帖）
+  taskType: number // 任务类型（9-链接加组 10-转贴 12-发个人帖 13-发群帖 14-群发私信 15-帖子评论）
   taskName?: string
   status?: number // 任务状态（0-待执行 1-执行中 2-已完成 3-已停止 4-失败）
   expectedCount: number
@@ -13,7 +13,7 @@ export interface FbOperationTask {
   remark?: string
   createTime?: string
   actionConfig?: string
-  sourceType?: 'operation' | 'dm' // operation=fb_operation_task, dm=facebook_dm_task
+  sourceType?: 'operation' | 'dm'
 }
 
 export interface FbOperationTaskDetail {
@@ -23,10 +23,10 @@ export interface FbOperationTaskDetail {
   fbAccount?: string
   targetUrls?: string
   targetGroupIds?: string
-  postUrl?: string // 帖子链接
-  actionConfig?: string // 执行项配置（JSON格式）
-  commentScript?: string // 评论话术
-  scriptLibraryId?: number // 话术库ID
+  postUrl?: string
+  actionConfig?: string
+  commentScript?: string
+  scriptLibraryId?: number
   expectedCount: number
   actualCount?: number
   status?: number
@@ -49,7 +49,7 @@ export interface FbOperationAddGroupResult {
   groupId?: string
   groupName?: string
   groupUrl?: string
-  joinStatus?: number // 加组状态（0-待处理 1-成功 2-失败 3-已加入）
+  joinStatus?: number
   failReason?: string
   joinTime?: string
   syncTime?: string
@@ -71,10 +71,11 @@ export interface FbOperationTaskSaveReqVO {
   accountIds: string[]
   targetUrls?: string
   targetGroupIds?: string
-  postUrl?: string // 帖子链接
-  actionConfig?: any // 执行项配置
-  commentScript?: string // 评论话术
-  scriptLibraryId?: number // 话术库ID
+  postUrl?: string
+  postUrls?: string[]
+  actionConfig?: any
+  commentScript?: string
+  scriptLibraryId?: number
   expectedCount: number
   remark?: string
 }
@@ -97,14 +98,6 @@ export interface FbOperationAddGroupResultItem {
   syncTime?: string
 }
 
-export interface FbOperationTaskDetailRespVO {
-  task: FbOperationTask
-  details: FbOperationTaskDetail[]
-  results?: FbOperationAddGroupResult[]
-  repostResults?: FbRepostResult[]
-}
-
-// 转帖结果接口
 export interface FbRepostResult {
   id?: number
   detailId?: number
@@ -112,12 +105,12 @@ export interface FbRepostResult {
   accountId: string
   fbAccount?: string
   postUrl?: string
-  actionType?: number // 操作类型（1-点赞 2-转发到动态消息 3-已废弃 4-转贴到好友 5-转发到群组）
-  targetType?: string // friend/group
+  actionType?: number
+  targetType?: string
   targetId?: string
   targetName?: string
   targetUrl?: string
-  status?: number // 0-待处理 1-成功 2-失败 3-待审核
+  status?: number
   failReason?: string
   executeTime?: string
   remark?: string
@@ -144,42 +137,42 @@ export interface FbRepostResultItem {
   remark?: string
 }
 
-// 查询运营任务分页
+export interface FbOperationTaskDetailRespVO {
+  task: FbOperationTask
+  details: FbOperationTaskDetail[]
+  results?: FbOperationAddGroupResult[]
+  repostResults?: FbRepostResult[]
+  groupPublishResults?: any[]
+}
+
 export const getFbOperationTaskPage = (params: FbOperationTaskPageReqVO) => {
   return request.get({ url: '/facebook/fb-operation-task/page', params })
 }
 
-// 查询运营任务详情
 export const getFbOperationTask = (id: string | number) => {
   return request.get({ url: '/facebook/fb-operation-task/get', params: { id } })
 }
 
-// 新增运营任务
 export const createFbOperationTask = (data: FbOperationTaskSaveReqVO) => {
   return request.post({ url: '/facebook/fb-operation-task/create', data })
 }
 
-// 修改运营任务
 export const updateFbOperationTask = (data: FbOperationTaskSaveReqVO) => {
   return request.put({ url: '/facebook/fb-operation-task/update', data })
 }
 
-// 删除运营任务
 export const deleteFbOperationTask = (id: number) => {
   return request.delete({ url: '/facebook/fb-operation-task/delete', params: { id } })
 }
 
-// 批量保存链接加组结果
 export const batchSaveAddGroupResult = (data: FbOperationAddGroupResultBatchSaveReqVO) => {
   return request.post({ url: '/facebook/fb-operation-task/batch-save-add-group-result', data })
 }
 
-// 获取待执行的明细列表
 export const getPendingDetails = (fbAccount: string) => {
   return request.get({ url: '/facebook/fb-operation-task/pending-details', params: { fbAccount } })
 }
 
-// 批量保存转帖结果
 export const batchSaveRepostResult = (data: FbRepostResultBatchSaveReqVO) => {
   return request.post({ url: '/facebook/fb-operation-task/batch-save-repost-result', data })
 }

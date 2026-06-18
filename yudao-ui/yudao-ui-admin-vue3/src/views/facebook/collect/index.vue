@@ -321,9 +321,9 @@ const { t } = useI18n()
 const functions = [
   {
     type: 'pages',
-    title: '主页采集',
+    title: '公共主页采集',
     icon: 'ep:user',
-    description: '采集Facebook主页信息',
+    description: '采集Facebook公共主页信息',
     disabled: false
   },
   {
@@ -335,10 +335,10 @@ const functions = [
   },
   {
     type: 'users',
-    title: '用户采集',
+    title: '个人主页采集',
     icon: 'ep:user-filled',
-    description: '采集Facebook用户资料',
-    disabled: false // 启用用户采集
+    description: '采集Facebook个人主页信息',
+    disabled: false // 启用个人主页采集
   },
   {
     type: 'groups',
@@ -589,7 +589,7 @@ onMounted(() => {
 
         message.success(`明细 ${detailId} 群组采集完成，共采集 ${parsedResults.length} 条数据`)
       } else if (taskType === 7) {
-        // 群组成员采集 - 复用用户采集的保存接口
+        // 群组成员采集 - 复用个人主页采集的保存接口
         const parsedResults = results.map((item: any) => {
           // 解析粉丝数（如果有）
           if (item.followers && typeof item.followers === 'string') {
@@ -605,7 +605,7 @@ onMounted(() => {
 
         message.success(`明细 ${detailId} 群成员采集完成，共采集 ${parsedResults.length} 条数据`)
       } else if (taskType === 8) {
-        // 同行采集 - 复用用户采集的保存接口
+        // 同行采集 - 复用个人主页采集的保存接口
         const parsedResults = results.map((item: any) => {
           // 解析粉丝数（如果有）
           if (item.followers && typeof item.followers === 'string') {
@@ -624,7 +624,7 @@ onMounted(() => {
         // 链接加组属于运营任务，在 operation/FbOperationForm.vue 中保存，避免采集页重复保存
         return
       } else {
-        // 用户采集、帖子评论点赞采集 - 解析并保存用户数据
+        // 个人主页采集、帖子评论点赞采集 - 解析并保存用户数据
         const parsedResults = results.map((item: any) => {
           // 解析粉丝数/点赞数
           if (item.followers && typeof item.followers === 'string') {

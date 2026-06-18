@@ -32,7 +32,7 @@ export function setupWpfOperationSync() {
   initialized = true
 
   onCollectionComplete(async (data) => {
-    if (data.taskType === 10) {
+    if (data.taskType === 10 || data.taskType === 15) {
       await saveRepostResult(data)
       return
     }

@@ -17,6 +17,7 @@
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
+            <el-tag v-else-if="taskDetail.task?.taskType === 15" type="warning">帖子评论</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 13" type="info">发群帖</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 14" type="warning">群发私信</el-tag>
           </el-descriptions-item>
@@ -45,7 +46,11 @@
           <el-descriptions-item label="结束时间">{{
             formatDate(taskDetail.task?.endTime)
           }}</el-descriptions-item>
-          <el-descriptions-item v-if="taskDetail.task?.taskType === 10" label="帖链接" :span="3">
+          <el-descriptions-item
+            v-if="taskDetail.task?.taskType === 10 || taskDetail.task?.taskType === 15"
+            label="帖链接"
+            :span="3"
+          >
             <el-link
               v-if="repostPostUrl"
               :href="repostPostUrl"
@@ -57,7 +62,11 @@
             </el-link>
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item v-if="taskDetail.task?.taskType === 10" label="执行项" :span="3">
+          <el-descriptions-item
+            v-if="taskDetail.task?.taskType === 10 || taskDetail.task?.taskType === 15"
+            label="执行项"
+            :span="3"
+          >
             <div v-if="repostActionTags.length > 0" class="flex flex-wrap gap-1">
               <el-tag v-for="tag in repostActionTags" :key="tag" size="small">{{ tag }}</el-tag>
             </div>
@@ -70,10 +79,16 @@
       </el-card>
 
       <!-- 转帖结果（转帖任务直接展示，不显示任务明细 Tab） -->
-      <el-card v-if="formType === 'view' && taskDetail?.task?.taskType === 10" class="mb-4">
+      <el-card
+        v-if="
+          formType === 'view' &&
+          (taskDetail?.task?.taskType === 10 || taskDetail?.task?.taskType === 15)
+        "
+        class="mb-4"
+      >
         <template #header>
           <div class="card-header flex items-center justify-between">
-            <span>🔄 转帖结果</span>
+            <span>{{ taskDetail?.task?.taskType === 15 ? '💬 帖子评论结果' : '🔄 转帖结果' }}</span>
             <span class="text-sm text-gray-500 font-normal">
               共 {{ repostResultList.length }} 条 · 成功 {{ repostSuccessCount }} · 待审核
               {{ repostPendingCount }} · 失败 {{ repostFailCount }}
@@ -107,7 +122,12 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip>
+          <el-table-column
+            :label="taskDetail?.task?.taskType === 15 ? '评论内容/备注' : '备注'"
+            prop="remark"
+            min-width="160"
+            show-overflow-tooltip
+          >
             <template #default="scope">
               {{ scope.row.remark || scope.row.failReason || '-' }}
             </template>
@@ -118,7 +138,10 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="repostResultList.length === 0" description="暂无转帖执行记录" />
+        <el-empty
+          v-if="repostResultList.length === 0"
+          :description="taskDetail?.task?.taskType === 15 ? '暂无帖子评论执行记录' : '暂无转帖执行记录'"
+        />
       </el-card>
 
       <!-- 发群帖结果（发群帖任务直接展示，不显示任务明细 Tab） -->
@@ -263,6 +286,7 @@
         v-if="
           formType === 'view' &&
           taskDetail?.task?.taskType !== 10 &&
+          taskDetail?.task?.taskType !== 15 &&
           taskDetail?.task?.taskType !== 13
         "
         v-model="activeTab"
@@ -419,7 +443,7 @@
 import { ref, reactive, computed } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
-import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
+import { FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import {
   createFbOperationTask,
   getFbOperationTask,
@@ -430,8 +454,6 @@ import { startBrowserCollect } from '@/utils/wpfBridge'
 import GroupSelector from '../collect/components/GroupSelector.vue'
 
 const message = useMessage()
-const { t } = useI18n()
-
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const formLoading = ref(false)
@@ -448,7 +470,8 @@ const REPOST_ACTION_LABELS: Record<number, string> = {
   2: '转发到动态消息',
   3: '个人中心(已废弃)',
   4: '转贴到好友',
-  5: '转发到群组'
+  5: '转发到群组',
+  6: '评论'
 }
 
 const parsedRepostConfig = computed(() => {
@@ -472,6 +495,7 @@ const repostActionTags = computed(() => {
   for (const action of config.actions) {
     if (action === 1) tags.push('点赞')
     else if (action === 2) tags.push('转发到动态消息')
+    else if (action === 6) tags.push('评论')
     else if (action === 4) {
       const count = config.shareToFriendCount || 1
       tags.push(`转贴到好友 ×${count}`)
@@ -508,6 +532,7 @@ const getRepostActionLabel = (actionType?: number) =>
 const getRepostActionTagType = (actionType?: number) => {
   if (actionType === 1) return 'primary'
   if (actionType === 2) return 'success'
+  if (actionType === 6) return 'danger'
   if (actionType === 4) return 'info'
   if (actionType === 5) return 'warning'
   return 'info'
@@ -516,6 +541,7 @@ const getRepostActionTagType = (actionType?: number) => {
 const getRepostTargetLabel = (row: any) => {
   if (row.actionType === 1) return '原帖'
   if (row.actionType === 2) return '本人动态（Feed）'
+  if (row.actionType === 6) return '帖子评论'
   if (row.actionType === 4) return row.targetName || 'Messenger 推荐好友'
   if (row.actionType === 5) return row.targetName || row.targetId || '未命名群组'
   return row.targetName || '-'
@@ -576,7 +602,8 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
       taskDetail.value = data
       detailList.value = data.details || []
       resultList.value = data.results || []
-      repostResultList.value = data.task?.taskType === 10 ? data.repostResults || [] : []
+      repostResultList.value =
+        data.task?.taskType === 10 || data.task?.taskType === 15 ? data.repostResults || [] : []
       groupPublishResultList.value =
         data.task?.taskType === 13 ? data.groupPublishResults || [] : []
     } finally {
@@ -781,6 +808,7 @@ const resetForm = () => {
   detailList.value = []
   resultList.value = []
   repostResultList.value = []
+  groupPublishResultList.value = []
   activeTab.value = 'details'
   formRef.value?.resetFields()
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Services;
@@ -25,15 +26,19 @@ namespace SocialMatrix.WpfHost.Services
             var actions = config["actions"]?.ToObject<int[]>() ?? Array.Empty<int>();
             var shareToFriendCount = config["shareToFriendCount"]?.Value<int>() ?? 10;
             var selectedGroups = config["selectedGroups"]?.ToObject<JArray>() ?? new JArray();
-            var feedMessage = config["feedMessage"]?.ToString() ?? "";
-            var friendMessage = config["friendMessage"]?.ToString() ?? "";
-            var groupMessage = config["groupMessage"]?.ToString() ?? "";
+            var feedMessage = PickMessage(config["feedScripts"] as JArray, config["feedAppendRandomEmoji"]?.Value<bool>() ?? false);
+            var friendMessage = PickMessage(config["friendScripts"] as JArray, config["friendAppendRandomEmoji"]?.Value<bool>() ?? false);
+            var groupMessage = PickMessage(config["groupScripts"] as JArray, config["groupAppendRandomEmoji"]?.Value<bool>() ?? false);
+            var commentMessage = config.Value<string>("finalCommentText")
+                                 ?? config.Value<string>("commentScript")
+                                 ?? PickMessage(config["commentScripts"] as JArray, config["commentAppendRandomEmoji"]?.Value<bool>() ?? false);
 
             BeginScript();
             AddRepostHelpers();
             _js.AppendLine($"            const feedMessage = {JsonConvert.SerializeObject(feedMessage)};");
             _js.AppendLine($"            const friendMessage = {JsonConvert.SerializeObject(friendMessage)};");
             _js.AppendLine($"            const groupMessage = {JsonConvert.SerializeObject(groupMessage)};");
+            _js.AppendLine($"            const commentMessage = {JsonConvert.SerializeObject(commentMessage)};");
             _js.AppendLine($"            const TARGET_POST_URL = {JsonConvert.SerializeObject(_postUrl)};");
             _js.AppendLine("            const results = [];");
             _js.AppendLine("            console.log('[转帖] 开始执行, 帖子:', TARGET_POST_URL);");
@@ -58,6 +63,48 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("    });");
 
             return _js.ToString();
+        }
+
+        private static string PickMessage(JArray? scripts, bool appendRandomEmoji)
+        {
+            if (scripts == null || scripts.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var candidates = scripts
+                .Select(token => token?.ToString()?.Trim())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var random = new Random();
+            var selected = candidates[random.Next(candidates.Count)];
+            if (!appendRandomEmoji)
+            {
+                return selected;
+            }
+
+            string[] emojis =
+            {
+                "\U0001F600",
+                "\U0001F604",
+                "\U0001F60A",
+                "\U0001F609",
+                "\U0001F44D",
+                "\U0001F525",
+                "\U0001F44F",
+                "\U0001F389",
+                "\U0001F970",
+                "\u2764\uFE0F"
+            };
+            var emojiCount = random.Next(1, 3);
+            var suffix = string.Concat(Enumerable.Range(0, emojiCount).Select(_ => emojis[random.Next(emojis.Length)]));
+            return $"{selected} {suffix}".Trim();
         }
 
         private void AddRepostHelpers()
@@ -302,6 +349,111 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("                }");
             _js.AppendLine("                return null;");
             _js.AppendLine("            };");
+            _js.AppendLine("            const getVisibleTextboxes = (root) => [...(root?.querySelectorAll('[role=\"textbox\"], div[contenteditable=\"true\"], textarea') || [])].filter(isVisibleElement);");
+            _js.AppendLine("            const isCommentTextbox = (el) => {");
+            _js.AppendLine("                if (!el || !isVisibleElement(el)) return false;");
+            _js.AppendLine("                const aria = normalizeText(el.getAttribute('aria-label'));");
+            _js.AppendLine("                const ariaPlaceholder = normalizeText(el.getAttribute('aria-placeholder'));");
+            _js.AppendLine("                const placeholder = normalizeText(el.getAttribute('placeholder'));");
+            _js.AppendLine("                const text = normalizeText(el.textContent || '');");
+            _js.AppendLine("                const blob = `${aria} ${ariaPlaceholder} ${placeholder} ${text}`;");
+            _js.AppendLine("                return blob.includes('comment') || blob.includes('leave a comment') || blob.includes('write a comment') || blob.includes('发表评论') || blob.includes('评论');");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findCommentTextbox = () => {");
+            _js.AppendLine("                const roots = [postRoot, ...getVisibleDialogs(), document.querySelector('[role=\"main\"]'), document.body].filter(Boolean);");
+            _js.AppendLine("                for (const root of roots) {");
+            _js.AppendLine("                    const boxes = getVisibleTextboxes(root);");
+            _js.AppendLine("                    for (const box of boxes) {");
+            _js.AppendLine("                        if (isCommentTextbox(box)) return box;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const findCommentButton = () => {");
+            _js.AppendLine("                const roots = [postRoot, ...getVisibleDialogs(), document.querySelector('[role=\"main\"]'), document.body].filter(Boolean);");
+            _js.AppendLine("                for (const root of roots) {");
+            _js.AppendLine("                    const candidates = [...root.querySelectorAll('[role=\"button\"], a[href], div[aria-label], span[aria-label]')];");
+            _js.AppendLine("                    for (const el of candidates) {");
+            _js.AppendLine("                        if (!isVisibleElement(el)) continue;");
+            _js.AppendLine("                        const aria = normalizeText(el.getAttribute('aria-label'));");
+            _js.AppendLine("                        const text = normalizeText(el.textContent || '');");
+            _js.AppendLine("                        const blob = `${aria} ${text}`;");
+            _js.AppendLine("                        if (blob.includes('post comment') || blob.includes('comment') || blob.includes('leave a comment') || blob.includes('write a comment') || blob.includes('评论')) return el;");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const getCommentSurfaceRoot = () => postRoot || [...getVisibleDialogs()].pop() || document.querySelector('[role=\"main\"]') || document.body;");
+            _js.AppendLine("            const getCommentSurfaceText = () => {");
+            _js.AppendLine("                const root = getCommentSurfaceRoot();");
+            _js.AppendLine("                if (!root) return '';");
+            _js.AppendLine("                try {");
+            _js.AppendLine("                    const clone = root.cloneNode(true);");
+            _js.AppendLine("                    clone.querySelectorAll('[role=\"textbox\"], [contenteditable=\"true\"], textarea').forEach(el => el.remove());");
+            _js.AppendLine("                    return normalizeText(clone.innerText || clone.textContent || '');");
+            _js.AppendLine("                } catch (e) {");
+            _js.AppendLine("                    return normalizeText(root.innerText || root.textContent || '');");
+            _js.AppendLine("                }");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const ensureCommentEditor = async () => {");
+            _js.AppendLine("                let editor = findCommentTextbox();");
+            _js.AppendLine("                if (editor) return editor;");
+            _js.AppendLine("                const commentBtn = findCommentButton();");
+            _js.AppendLine("                if (!commentBtn) {");
+            _js.AppendLine("                    console.warn('[转帖评论] 未找到评论入口');");
+            _js.AppendLine("                    return null;");
+            _js.AppendLine("                }");
+            _js.AppendLine("                await humanClick(commentBtn);");
+            _js.AppendLine("                await randomDelay(1200, 2200);");
+            _js.AppendLine("                const start = Date.now();");
+            _js.AppendLine("                while (Date.now() - start < 10000) {");
+            _js.AppendLine("                    editor = findCommentTextbox();");
+            _js.AppendLine("                    if (editor) return editor;");
+            _js.AppendLine("                    await randomDelay(400, 700);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return null;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const commentTextAppears = (text, beforeSurfaceText = '') => {");
+            _js.AppendLine("                const normalized = normalizeText(text);");
+            _js.AppendLine("                if (!normalized) return false;");
+            _js.AppendLine("                const surfaceText = getCommentSurfaceText();");
+            _js.AppendLine("                if (!surfaceText.includes(normalized)) return false;");
+            _js.AppendLine("                return !beforeSurfaceText || !beforeSurfaceText.includes(normalized) || surfaceText.length > beforeSurfaceText.length;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const submitCommentByKeyboard = async (editor) => {");
+            _js.AppendLine("                if (!editor) return false;");
+            _js.AppendLine("                editor.focus();");
+            _js.AppendLine("                await randomDelay(200, 400);");
+            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true }));");
+            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true }));");
+            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true }));");
+            _js.AppendLine("                await randomDelay(1500, 2500);");
+            _js.AppendLine("                return true;");
+            _js.AppendLine("            };");
+            _js.AppendLine("            const clickCommentSubmit = async (editor) => {");
+            _js.AppendLine("                const roots = [];");
+            _js.AppendLine("                if (editor) {");
+            _js.AppendLine("                    let current = editor.parentElement;");
+            _js.AppendLine("                    for (let i = 0; i < 6 && current; i++, current = current.parentElement) roots.push(current);");
+            _js.AppendLine("                }");
+            _js.AppendLine("                roots.push(postRoot, ...getVisibleDialogs(), document.body);");
+            _js.AppendLine("                for (const root of roots) {");
+            _js.AppendLine("                    if (!root) continue;");
+            _js.AppendLine("                    for (const btn of root.querySelectorAll('[role=\"button\"]')) {");
+            _js.AppendLine("                        if (!isClickableButton(btn)) continue;");
+            _js.AppendLine("                        const aria = normalizeText(btn.getAttribute('aria-label'));");
+            _js.AppendLine("                        const text = normalizeText(btn.textContent || '');");
+            _js.AppendLine("                        const blob = `${aria} ${text}`;");
+            _js.AppendLine("                        if (blob.includes('leave a comment') || blob.includes('write a comment') || blob.includes('comment with') || blob.includes('insert an emoji') || blob.includes('attach a photo or video') || blob.includes('comment with a gif') || blob.includes('comment with a sticker')) continue;");
+            _js.AppendLine("                        if (blob === 'comment' || blob.includes('post comment') || blob.includes('发表评论') || blob.includes('发布评论') || blob.includes('send comment')) {");
+            _js.AppendLine("                            await humanClick(btn);");
+            _js.AppendLine("                            await randomDelay(1500, 2500);");
+            _js.AppendLine("                            return true;");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                }");
+            _js.AppendLine("                return false;");
+            _js.AppendLine("            };");
             _js.AppendLine("            const clickButtonInRoot = async (root, matcher) => {");
             _js.AppendLine("                if (!root) return false;");
             _js.AppendLine("                for (const btn of root.querySelectorAll('[role=\"button\"]')) {");
@@ -412,72 +564,84 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("            const inputShareText = async (editor, messageText) => {");
             _js.AppendLine("                if (!messageText || !String(messageText).trim()) return true;");
             _js.AppendLine("                if (!editor) return false;");
-            _js.AppendLine("                editor.focus();");
-            _js.AppendLine("                await randomDelay(300, 600);");
-            _js.AppendLine("                try {");
-            _js.AppendLine("                    const sel = window.getSelection();");
-            _js.AppendLine("                    const range = document.createRange();");
-            _js.AppendLine("                    range.selectNodeContents(editor);");
-            _js.AppendLine("                    range.collapse(false);");
-            _js.AppendLine("                    sel.removeAllRanges();");
-            _js.AppendLine("                    sel.addRange(range);");
-            _js.AppendLine("                } catch (e) { /* ignore */ }");
+            _js.AppendLine("                const expectedText = String(messageText).trim();");
+            _js.AppendLine("                const clearEditor = async () => {");
+            _js.AppendLine("                    editor.focus();");
+            _js.AppendLine("                    await randomDelay(200, 400);");
+            _js.AppendLine("                    try {");
+            _js.AppendLine("                        if (typeof editor.value === 'string') {");
+            _js.AppendLine("                            editor.value = '';");
+            _js.AppendLine("                            editor.dispatchEvent(new Event('input', { bubbles: true }));");
+            _js.AppendLine("                            return;");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                        if (editor.isContentEditable) {");
+            _js.AppendLine("                            const sel = window.getSelection();");
+            _js.AppendLine("                            const range = document.createRange();");
+            _js.AppendLine("                            range.selectNodeContents(editor);");
+            _js.AppendLine("                            sel.removeAllRanges();");
+            _js.AppendLine("                            sel.addRange(range);");
+            _js.AppendLine("                            document.execCommand('delete', false);");
+            _js.AppendLine("                            editor.innerHTML = '';");
+            _js.AppendLine("                            editor.textContent = '';");
+            _js.AppendLine("                        }");
+            _js.AppendLine("                    } catch (e) { console.warn('[转帖] 清空输入框失败', e); }");
+            _js.AppendLine("                };");
+            _js.AppendLine("                const readTyped = () => getEditorText(editor).trim();");
+            _js.AppendLine("                await clearEditor();");
+            _js.AppendLine("                await randomDelay(250, 450);");
             _js.AppendLine("                let typed = '';");
             _js.AppendLine("                try {");
-            _js.AppendLine("                    document.execCommand('insertText', false, messageText);");
-            _js.AppendLine("                    editor.dispatchEvent(new InputEvent('input', { data: messageText, bubbles: true, inputType: 'insertText' }));");
-            _js.AppendLine("                    typed = getEditorText(editor);");
+            _js.AppendLine("                    if (typeof editor.value === 'string') {");
+            _js.AppendLine("                        editor.value = messageText;");
+            _js.AppendLine("                        editor.dispatchEvent(new Event('input', { bubbles: true }));");
+            _js.AppendLine("                    } else {");
+            _js.AppendLine("                        document.execCommand('insertText', false, messageText);");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    await randomDelay(250, 450);");
+            _js.AppendLine("                    typed = readTyped();");
             _js.AppendLine("                } catch (e) { console.warn('[转帖] insertText 整段失败', e); }");
-            _js.AppendLine("                if (!typed) {");
+            _js.AppendLine("                if (typed !== expectedText) {");
+            _js.AppendLine("                    await clearEditor();");
+            _js.AppendLine("                    await randomDelay(200, 350);");
             _js.AppendLine("                    for (const ch of messageText) {");
-            _js.AppendLine("                        document.execCommand('insertText', false, ch);");
-            _js.AppendLine("                        editor.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                        if (typeof editor.value === 'string') {");
+            _js.AppendLine("                            editor.value += ch;");
+            _js.AppendLine("                            editor.dispatchEvent(new Event('input', { bubbles: true }));");
+            _js.AppendLine("                        } else {");
+            _js.AppendLine("                            document.execCommand('insertText', false, ch);");
+            _js.AppendLine("                        }");
             _js.AppendLine("                        await randomDelay(30, 80);");
             _js.AppendLine("                    }");
-            _js.AppendLine("                    typed = getEditorText(editor);");
+            _js.AppendLine("                    await randomDelay(250, 450);");
+            _js.AppendLine("                    typed = readTyped();");
             _js.AppendLine("                }");
-            _js.AppendLine("                await randomDelay(400, 700);");
-            _js.AppendLine("                console.log('[转帖] 附言输入结果, 长度:', typed.length);");
-            _js.AppendLine("                return typed.length > 0;");
+            _js.AppendLine("                console.log('[转帖] 附言输入结果:', typed);");
+            _js.AppendLine("                return typed === expectedText;");
             _js.AppendLine("            };");
-            _js.AppendLine("            const shareFail = (reason) => ({ ok: false, reason: reason || '' });");
-            _js.AppendLine("            const shareOk = (status = 1, remark = '') => ({ ok: true, status, remark });");
-            _js.AppendLine("            const detectGroupPostPendingApproval = async () => {");
-            _js.AppendLine("                await randomDelay(1000, 2000);");
-            _js.AppendLine("                const keywords = [");
-            _js.AppendLine("                    'submitted to group admins for approval',");
-            _js.AppendLine("                    'submitted to group admin',");
-            _js.AppendLine("                    'waiting for admin approval',");
-            _js.AppendLine("                    'pending admin approval',");
-            _js.AppendLine("                    '待群组管理员审核',");
-            _js.AppendLine("                    '等待管理员审核',");
-            _js.AppendLine("                    '已提交给群组管理员'");
-            _js.AppendLine("                ];");
-            _js.AppendLine("                const hit = (text) => {");
-            _js.AppendLine("                    const t = normalizeText(text);");
-            _js.AppendLine("                    return keywords.some(k => t.includes(normalizeText(k)));");
-            _js.AppendLine("                };");
-            _js.AppendLine("                if (hit(document.body?.innerText || '')) return true;");
-            _js.AppendLine("                for (const el of document.querySelectorAll('[role=\"alert\"], [role=\"status\"], [aria-live=\"polite\"], [aria-live=\"assertive\"]')) {");
-            _js.AppendLine("                    if (hit(el.textContent || '')) return true;");
+            _js.AppendLine("            const submitComment = async () => {");
+            _js.AppendLine("                if (!commentMessage || !String(commentMessage).trim()) return shareFail('评论话术为空');");
+            _js.AppendLine("                const editor = await ensureCommentEditor();");
+            _js.AppendLine("                if (!editor) return shareFail('未找到评论输入框');");
+            _js.AppendLine("                const beforeSubmitSurface = getCommentSurfaceText();");
+            _js.AppendLine("                if (!(await inputShareText(editor, commentMessage))) return shareFail('评论内容输入失败');");
+            _js.AppendLine("                const beforeSubmitVisible = getEditorText(editor);");
+            _js.AppendLine("                const clicked = await clickCommentSubmit(editor);");
+            _js.AppendLine("                if (!clicked) {");
+            _js.AppendLine("                    await submitCommentByKeyboard(editor);");
             _js.AppendLine("                }");
-            _js.AppendLine("                return false;");
-            _js.AppendLine("            };");
-            _js.AppendLine("            const fillShareMessage = async (messageText) => {");
-            _js.AppendLine("                if (!messageText || !String(messageText).trim()) return true;");
-            _js.AppendLine("                const composer = getShareComposerDialog();");
-            _js.AppendLine("                if (composer) {");
-            _js.AppendLine("                    const editor = findVisibleShareEditor(composer);");
-            _js.AppendLine("                    if (editor && await inputShareText(editor, messageText)) return true;");
+            _js.AppendLine("                const start = Date.now();");
+            _js.AppendLine("                while (Date.now() - start < 12000) {");
+            _js.AppendLine("                    const currentText = getEditorText(editor);");
+            _js.AppendLine("                    if (!currentText || currentText.length < beforeSubmitVisible.length / 2) {");
+            _js.AppendLine("                        return shareOk(1, commentMessage);");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (commentTextAppears(commentMessage, beforeSubmitSurface)) {");
+            _js.AppendLine("                        return shareOk(1, commentMessage);");
+            _js.AppendLine("                    }");
+            _js.AppendLine("                    if (detectRetryTooEarly()) return shareFail('评论限流(Retried Too Early)');");
+            _js.AppendLine("                    await randomDelay(500, 900);");
             _js.AppendLine("                }");
-            _js.AppendLine("                const dialogs = getVisibleDialogs();");
-            _js.AppendLine("                for (let i = dialogs.length - 1; i >= 0; i--) {");
-            _js.AppendLine("                    if (postRoot && dialogs[i] === postRoot) continue;");
-            _js.AppendLine("                    const editor = findVisibleShareEditor(dialogs[i]);");
-            _js.AppendLine("                    if (editor && await inputShareText(editor, messageText)) return true;");
-            _js.AppendLine("                }");
-            _js.AppendLine("                console.warn('[转帖] 未找到可见附言输入框');");
-            _js.AppendLine("                return false;");
+            _js.AppendLine("                return shareFail('评论提交后未确认成功');");
             _js.AppendLine("            };");
             _js.AppendLine("            const submitGroupPost = async () => {");
             _js.AppendLine("                await randomDelay(1500, 2500);");
@@ -626,6 +790,22 @@ namespace SocialMatrix.WpfHost.Services
                 _js.AppendLine("            }");
                 _js.AppendLine("            await closeShareComposer();");
                 _js.AppendLine("            await randomDelay(2500, 4000);");
+                _js.AppendLine("");
+            }
+
+            if (Array.Exists(actions, a => a == 6))
+            {
+                _js.AppendLine("            // 评论");
+                _js.AppendLine("            {");
+                _js.AppendLine("                const commentResult = await submitComment();");
+                _js.AppendLine("                if (commentResult?.ok) {");
+                _js.AppendLine("                    results.push({ actionType: 6, status: commentResult.status || 1, targetName: '评论', remark: commentResult.remark || '' });");
+                _js.AppendLine("                } else {");
+                _js.AppendLine("                    const failReason = detectRetryTooEarly() ? '操作过快(Retried Too Early)，请稍后重试' : (commentResult?.reason || '评论失败');");
+                _js.AppendLine("                    results.push({ actionType: 6, status: 2, failReason });");
+                _js.AppendLine("                }");
+                _js.AppendLine("            }");
+                _js.AppendLine("            await randomDelay(2000, 3500);");
                 _js.AppendLine("");
             }
 

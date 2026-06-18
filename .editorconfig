@@ -1,0 +1,29 @@
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,sln,props,targets,xaml,xml,config,resx,sql,ps1,bat,cmd}]
+charset = utf-8-bom
+end_of_line = crlf
+indent_style = space
+indent_size = 2
+
+[*.{js,jsx,ts,tsx,vue,json,yml,yaml,md,css,scss,html,mjs,cjs}]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+
+[*.java]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+
+[*.{sh}]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2

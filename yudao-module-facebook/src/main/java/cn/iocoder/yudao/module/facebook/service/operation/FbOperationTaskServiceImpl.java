@@ -2,8 +2,12 @@ package cn.iocoder.yudao.module.facebook.service.operation;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationAddGroupResultDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
@@ -20,6 +24,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbRepostResultMapper
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
+import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -30,12 +35,18 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.invalidParamException;
 import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 
 /**
@@ -48,6 +59,8 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
     private static final int DM_TASK_TYPE = 14;
+    private static final int REPOST_TASK_TYPE = 10;
+    private static final int POST_COMMENT_TASK_TYPE = 15;
 
     @Resource
     private FbOperationTaskMapper operationTaskMapper;
@@ -70,9 +83,15 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     @Resource
     private FbAccountMapper fbAccountMapper;
 
+    @Resource
+    private FacebookDailyLimitService dailyLimitService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createOperationTask(FbOperationTaskSaveReqVO createReqVO) {
+        if (createReqVO.getTaskType() != null && createReqVO.getTaskType() == POST_COMMENT_TASK_TYPE) {
+            return createPostCommentTask(createReqVO);
+        }
         // 1. 创建主任务
         FbOperationTaskDO task = BeanUtils.toBean(createReqVO, FbOperationTaskDO.class);
         task.setStatus(0); // 待执行
@@ -115,6 +134,137 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setStatus(0); // 待执行
             operationTaskDetailMapper.insert(detail);
             details.add(detail);
+        }
+
+        return task.getId();
+    }
+
+    private Long createPostCommentTask(FbOperationTaskSaveReqVO createReqVO) {
+        List<String> normalizedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
+        if (CollUtil.isEmpty(normalizedAccountIds)) {
+            throw invalidParamException("执行账号不能为空");
+        }
+
+        JSONObject actionConfig = parseActionConfig(createReqVO.getActionConfig());
+        List<Integer> selectedActions = parseActionList(actionConfig);
+        if (CollUtil.isEmpty(selectedActions)) {
+            throw invalidParamException("至少选择一个执行项");
+        }
+        if (selectedActions.stream().anyMatch(action -> action != 1 && action != 6)) {
+            throw invalidParamException("帖子评论任务仅支持点赞和评论");
+        }
+
+        List<String> normalizedPostUrls = normalizePostUrls(createReqVO.getPostUrls(), actionConfig);
+        if (CollUtil.isEmpty(normalizedPostUrls)) {
+            throw invalidParamException("至少提供一个帖子链接");
+        }
+
+        List<String> commentScripts = parseScriptList(actionConfig, "commentScripts");
+        boolean appendRandomEmoji = actionConfig.getBool("commentAppendRandomEmoji", false);
+        if (selectedActions.contains(6) && CollUtil.isEmpty(commentScripts)) {
+            throw invalidParamException("已勾选评论，评论话术不能为空");
+        }
+
+        List<Long> accountIdLongs = normalizedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList());
+        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(accountIdLongs);
+        Map<Long, String> accountIdToFbAccountMap = accountList.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
+
+        List<AccountAllocationState> accountStates = normalizedAccountIds.stream()
+                .map(accountId -> {
+                    Long accountIdLong = Long.valueOf(accountId);
+                    String fbAccount = accountIdToFbAccountMap.get(accountIdLong);
+                    if (StrUtil.isBlank(fbAccount)) {
+                        FbAccountDO account = fbAccountMapper.selectById(accountIdLong);
+                        fbAccount = account != null ? StrUtil.nullToEmpty(account.getFbAccount()) : "";
+                    }
+                    int commentRemaining = selectedActions.contains(6)
+                            ? dailyLimitService.getRemainingCount(accountId, OperationTypeEnum.COMMENT)
+                            : 0;
+                    return new AccountAllocationState(accountId, fbAccount, commentRemaining);
+                })
+                .collect(Collectors.toList());
+
+        Map<String, DetailAllocation> allocations = new LinkedHashMap<>();
+        int assignedCommentPosts = 0;
+        if (selectedActions.contains(6)) {
+            List<AccountAllocationState> commentAccounts = accountStates.stream()
+                    .filter(account -> account.commentRemaining > 0)
+                    .collect(Collectors.toList());
+            if (CollUtil.isEmpty(commentAccounts)) {
+                throw invalidParamException("所选账号今日评论额度不足，无法创建帖子评论任务");
+            }
+            for (String postUrl : normalizedPostUrls) {
+                AccountAllocationState account = pickNextCommentAccount(commentAccounts);
+                if (account == null) {
+                    break;
+                }
+                DetailAllocation allocation = getOrCreateAllocation(allocations, account, postUrl);
+                allocation.actions.add(6);
+                if (StrUtil.isBlank(allocation.commentScript)) {
+                    allocation.commentScript = buildFinalCommentText(commentScripts, appendRandomEmoji);
+                }
+                account.commentAssigned++;
+                assignedCommentPosts++;
+            }
+            if (assignedCommentPosts == 0) {
+                throw invalidParamException("所选账号今日评论额度不足，无法分配任何评论帖子");
+            }
+        }
+
+        if (selectedActions.contains(1)) {
+            for (String postUrl : normalizedPostUrls) {
+                DetailAllocation existing = findAllocationByPost(allocations, postUrl);
+                if (existing != null) {
+                    existing.actions.add(1);
+                    continue;
+                }
+                AccountAllocationState likeAccount = pickNextLikeAccount(accountStates);
+                DetailAllocation likeAllocation = getOrCreateAllocation(allocations, likeAccount, postUrl);
+                likeAllocation.actions.add(1);
+                likeAccount.likeAssigned++;
+            }
+        }
+
+        if (allocations.isEmpty()) {
+            throw invalidParamException("未生成任何可执行明细，请检查帖子和账号配置");
+        }
+
+        int expectedCount = allocations.values().stream().mapToInt(item -> item.actions.size()).sum();
+        JSONObject taskConfig = JSONUtil.parseObj(actionConfig.toString());
+        taskConfig.set("actions", selectedActions);
+        taskConfig.set("postUrls", normalizedPostUrls);
+        taskConfig.set("assignedCommentPostCount", assignedCommentPosts);
+        taskConfig.set("totalPostCount", normalizedPostUrls.size());
+
+        FbOperationTaskDO task = BeanUtils.toBean(createReqVO, FbOperationTaskDO.class);
+        task.setTaskType(POST_COMMENT_TASK_TYPE);
+        task.setStatus(0);
+        task.setActualCount(0);
+        task.setExpectedCount(expectedCount);
+        task.setAccountIds(String.join(",", normalizedAccountIds));
+        task.setActionConfig(taskConfig.toString());
+        operationTaskMapper.insert(task);
+
+        for (DetailAllocation allocation : allocations.values()) {
+            JSONObject detailConfig = JSONUtil.parseObj(taskConfig.toString());
+            detailConfig.set("actions", new ArrayList<>(allocation.actions));
+            detailConfig.set("postUrls", Collections.singletonList(allocation.postUrl));
+            if (StrUtil.isNotBlank(allocation.commentScript)) {
+                detailConfig.set("finalCommentText", allocation.commentScript);
+            }
+
+            FbOperationTaskDetailDO detail = new FbOperationTaskDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setAccountId(allocation.accountId);
+            detail.setFbAccount(allocation.fbAccount);
+            detail.setPostUrl(allocation.postUrl);
+            detail.setActionConfig(detailConfig.toString());
+            detail.setCommentScript(allocation.commentScript);
+            detail.setExpectedCount(allocation.actions.size());
+            detail.setActualCount(0);
+            detail.setStatus(0);
+            operationTaskDetailMapper.insert(detail);
         }
 
         return task.getId();
@@ -184,7 +334,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(task.getId());
             respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
         }
-        if (task.getTaskType() != null && task.getTaskType() == 10) {
+        if (task.getTaskType() != null && (task.getTaskType() == REPOST_TASK_TYPE || task.getTaskType() == POST_COMMENT_TASK_TYPE)) {
             List<FbRepostResultDO> repostResults = repostResultMapper.selectListByTaskId(task.getId());
             List<FbRepostResultRespVO> repostResultItems = BeanUtils.toBean(repostResults, FbRepostResultRespVO.class);
             enrichRepostResultFbAccount(repostResultItems);
@@ -639,6 +789,196 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             task.setEndTime(LocalDateTime.now());
         }
         operationTaskMapper.updateById(task);
+    }
+
+    private List<String> normalizeAccountIds(List<String> accountIds) {
+        if (CollUtil.isEmpty(accountIds)) {
+            return Collections.emptyList();
+        }
+        return accountIds.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private JSONObject parseActionConfig(String rawConfig) {
+        if (StrUtil.isBlank(rawConfig)) {
+            return JSONUtil.createObj();
+        }
+        try {
+            return JSONUtil.parseObj(rawConfig);
+        } catch (Exception ex) {
+            throw invalidParamException("执行项配置格式不正确");
+        }
+    }
+
+    private List<Integer> parseActionList(JSONObject config) {
+        JSONArray actions = config.getJSONArray("actions");
+        if (actions == null) {
+            return Collections.emptyList();
+        }
+        return actions.stream()
+                .map(item -> {
+                    if (item instanceof Number) {
+                        return ((Number) item).intValue();
+                    }
+                    return Integer.parseInt(String.valueOf(item));
+                })
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> normalizePostUrls(List<String> postUrls, JSONObject actionConfig) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (CollUtil.isNotEmpty(postUrls)) {
+            postUrls.forEach(postUrl -> addNormalizedPostUrl(normalized, postUrl));
+        }
+        JSONArray configPostUrls = actionConfig.getJSONArray("postUrls");
+        if (configPostUrls != null) {
+            configPostUrls.forEach(item -> addNormalizedPostUrl(normalized, item == null ? null : String.valueOf(item)));
+        }
+        addNormalizedPostUrl(normalized, actionConfig.getStr("postUrl"));
+        return new ArrayList<>(normalized);
+    }
+
+    private void addNormalizedPostUrl(Set<String> target, String rawUrl) {
+        if (StrUtil.isBlank(rawUrl)) {
+            return;
+        }
+        String[] lines = rawUrl.split("\\r?\\n");
+        for (String line : lines) {
+            String url = StrUtil.trim(line);
+            if (StrUtil.isNotBlank(url)) {
+                target.add(url);
+            }
+        }
+    }
+
+    private List<String> parseScriptList(JSONObject config, String field) {
+        JSONArray scripts = config.getJSONArray(field);
+        if (scripts == null) {
+            return Collections.emptyList();
+        }
+        return scripts.stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toList());
+    }
+
+    private AccountAllocationState pickNextCommentAccount(List<AccountAllocationState> accounts) {
+        return accounts.stream()
+                .filter(account -> account.commentAssigned < account.commentRemaining)
+                .sorted(Comparator
+                        .comparingInt(AccountAllocationState::getCommentLoadRate)
+                        .thenComparingInt(account -> account.commentAssigned)
+                        .thenComparing(account -> account.accountId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private AccountAllocationState pickNextLikeAccount(List<AccountAllocationState> accounts) {
+        return accounts.stream()
+                .sorted(Comparator
+                        .comparingInt((AccountAllocationState account) -> account.likeAssigned)
+                        .thenComparingInt(account -> account.commentAssigned)
+                        .thenComparing(account -> account.accountId))
+                .findFirst()
+                .orElse(accounts.get(0));
+    }
+
+    private DetailAllocation getOrCreateAllocation(Map<String, DetailAllocation> allocations,
+                                                   AccountAllocationState account,
+                                                   String postUrl) {
+        String key = buildAllocationKey(account.accountId, postUrl);
+        DetailAllocation existing = allocations.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        DetailAllocation allocation = new DetailAllocation();
+        allocation.accountId = account.accountId;
+        allocation.fbAccount = account.fbAccount;
+        allocation.postUrl = postUrl;
+        allocations.put(key, allocation);
+        return allocation;
+    }
+
+    private String buildAllocationKey(String accountId, String postUrl) {
+        return accountId + "||" + postUrl;
+    }
+
+    private DetailAllocation findAllocationByPost(Map<String, DetailAllocation> allocations, String postUrl) {
+        return allocations.values().stream()
+                .filter(item -> StrUtil.equals(item.postUrl, postUrl))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String buildFinalCommentText(List<String> commentScripts, boolean appendRandomEmoji) {
+        if (CollUtil.isEmpty(commentScripts)) {
+            return null;
+        }
+        String base = commentScripts.get(ThreadLocalRandom.current().nextInt(commentScripts.size()));
+        if (StrUtil.isBlank(base)) {
+            return null;
+        }
+        String normalized = base.trim();
+        if (!appendRandomEmoji) {
+            return normalized;
+        }
+        return normalized + " " + generateRandomEmojiSuffix();
+    }
+
+    private String generateRandomEmojiSuffix() {
+        String[] emojiPool = new String[] {
+                "\uD83D\uDE00",
+                "\uD83D\uDE04",
+                "\uD83D\uDE01",
+                "\uD83D\uDE0A",
+                "\uD83D\uDE09",
+                "\uD83D\uDE42",
+                "\uD83D\uDE0D",
+                "\uD83E\uDD70",
+                "\uD83E\uDD1D",
+                "\uD83D\uDC4D",
+                "\uD83D\uDD25",
+                "\u2764"
+        };
+        int count = ThreadLocalRandom.current().nextInt(1, 3);
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            builder.append(emojiPool[ThreadLocalRandom.current().nextInt(emojiPool.length)]);
+        }
+        return builder.toString();
+    }
+
+    private static class AccountAllocationState {
+        private final String accountId;
+        private final String fbAccount;
+        private final int commentRemaining;
+        private int commentAssigned;
+        private int likeAssigned;
+
+        private AccountAllocationState(String accountId, String fbAccount, int commentRemaining) {
+            this.accountId = accountId;
+            this.fbAccount = fbAccount;
+            this.commentRemaining = Math.max(commentRemaining, 0);
+        }
+
+        private int getCommentLoadRate() {
+            if (commentRemaining <= 0) {
+                return Integer.MAX_VALUE;
+            }
+            return (commentAssigned * 1000) / commentRemaining;
+        }
+    }
+
+    private static class DetailAllocation {
+        private String accountId;
+        private String fbAccount;
+        private String postUrl;
+        private String commentScript;
+        private final Set<Integer> actions = new LinkedHashSet<>();
     }
 
 }

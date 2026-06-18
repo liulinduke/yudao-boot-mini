@@ -46,8 +46,8 @@ public class FacebookDailyLimitController {
     @Parameter(name = "type", description = "操作类型", required = true)
     @PreAuthorize("@ss.hasPermission('facebook:account:query')")
     public CommonResult<Integer> getRemainingCount(
-            @PathVariable String accountId,
-            @PathVariable String type) {
+            @PathVariable("accountId") String accountId,
+            @PathVariable("type") String type) {
         OperationTypeEnum operationType = OperationTypeEnum.getByCode(type);
         if (operationType == null) {
             return success(0);

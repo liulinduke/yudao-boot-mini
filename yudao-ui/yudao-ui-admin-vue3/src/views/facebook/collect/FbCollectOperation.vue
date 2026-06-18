@@ -86,9 +86,9 @@ const message = useMessage()
 const functions = [
   {
     type: 'pages',
-    title: '主页采集',
+    title: '公共主页采集',
     icon: 'ep:user',
-    description: '采集Facebook主页信息',
+    description: '采集Facebook公共主页信息',
     disabled: false
   },
   {
@@ -100,9 +100,9 @@ const functions = [
   },
   {
     type: 'users',
-    title: '用户采集',
+    title: '个人主页采集',
     icon: 'ep:user-filled',
-    description: '采集Facebook用户资料',
+    description: '采集Facebook个人主页信息',
     disabled: false
   },
   {

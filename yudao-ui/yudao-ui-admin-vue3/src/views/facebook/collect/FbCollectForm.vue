@@ -133,15 +133,11 @@
             <el-form-item label="采集方式">
               <el-radio-group v-model="postPageInputMode" @change="handlePostPageInputModeChange">
                 <el-radio label="manual">手动输入 Page 链接</el-radio>
-                <el-radio label="select">从潜客选择</el-radio>
+                <el-radio label="select">从资源库选择</el-radio>
               </el-radio-group>
             </el-form-item>
 
-            <el-form-item
-              v-if="postPageInputMode === 'manual'"
-              label="Page 链接"
-              prop="searchUrl"
-            >
+            <el-form-item v-if="postPageInputMode === 'manual'" label="Page 链接" prop="searchUrl">
               <el-input
                 v-model="formData.searchUrl"
                 type="textarea"
@@ -177,15 +173,11 @@
             <el-form-item label="采集方式">
               <el-radio-group v-model="postGroupInputMode" @change="handlePostGroupInputModeChange">
                 <el-radio label="manual">手动输入群组链接</el-radio>
-                <el-radio label="select">从群组选择</el-radio>
+                <el-radio label="select">从资源库选择</el-radio>
               </el-radio-group>
             </el-form-item>
 
-            <el-form-item
-              v-if="postGroupInputMode === 'manual'"
-              label="群组链接"
-              prop="searchUrl"
-            >
+            <el-form-item v-if="postGroupInputMode === 'manual'" label="群组链接" prop="searchUrl">
               <el-input
                 v-model="formData.searchUrl"
                 type="textarea"
@@ -285,14 +277,56 @@
           />
         </el-form-item>
 
-        <!-- 帖子评论点赞采集：直接输入帖子链接 -->
-        <el-form-item v-if="formData.taskType === 11" label="帖子链接" prop="searchUrl">
+        <!-- 帖子评论点赞采集：采集方式选择 -->
+        <el-form-item v-if="formData.taskType === 11" label="采集方式">
+          <el-radio-group v-model="commentLikeInputMode" @change="handleCommentLikeInputModeChange">
+            <el-radio label="manual">手动输入链接</el-radio>
+            <el-radio label="select">从资源库选择</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <!-- 手动输入链接模式 -->
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeInputMode === 'manual'"
+          label="帖子链接"
+          prop="searchUrl"
+        >
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
             :rows="4"
             :placeholder="getUrlPlaceholder(formData.taskType)"
           />
+        </el-form-item>
+
+        <!-- 从资源库选择模式 -->
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeInputMode === 'select'"
+          label="选择帖子"
+        >
+          <div class="w-full">
+            <el-button type="primary" @click="openPostSelector" class="mb-2">
+              <Icon icon="ep:plus" class="mr-5px" /> 选择帖子
+            </el-button>
+            <div v-if="selectedPosts.length > 0" class="mt-2">
+              <el-tag
+                v-for="post in selectedPosts"
+                :key="post.id"
+                closable
+                @close="removeSelectedPost(post.id)"
+                class="mr-2 mb-2"
+              >
+                {{
+                  post.postContent
+                    ? post.postContent.length > 30
+                      ? post.postContent.substring(0, 30) + '...'
+                      : post.postContent
+                    : post.url
+                }}
+              </el-tag>
+            </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择帖子，请点击上方按钮选择 </div>
+          </div>
         </el-form-item>
 
         <!-- 帖子评论点赞采集：采集选项 -->
@@ -334,7 +368,7 @@
         <el-form-item v-if="formData.taskType === 7" label="采集方式" prop="searchUrl">
           <el-radio-group v-model="groupInputMode" @change="handleGroupInputModeChange">
             <el-radio label="manual">手动输入链接</el-radio>
-            <el-radio label="select">从群组选择</el-radio>
+            <el-radio label="select">从资源库选择</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -352,7 +386,7 @@
           />
         </el-form-item>
 
-        <!-- 从群组选择模式 -->
+        <!-- 从资源库选择模式 -->
         <el-form-item
           v-if="formData.taskType === 7 && groupInputMode === 'select'"
           label="选择群组"
@@ -389,7 +423,7 @@
         <el-form-item v-if="formData.taskType === 8" label="采集方式">
           <el-radio-group v-model="userInputMode" @change="handleUserInputModeChange">
             <el-radio label="manual">手动输入链接</el-radio>
-            <el-radio label="select">从潜客选择</el-radio>
+            <el-radio label="select">从资源库选择</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -407,11 +441,11 @@
           />
         </el-form-item>
 
-        <!-- 从潜客选择模式 -->
-        <el-form-item v-if="formData.taskType === 8 && userInputMode === 'select'" label="选择用户">
+        <!-- 从资源库选择模式 -->
+        <el-form-item v-if="formData.taskType === 8 && userInputMode === 'select'" label="选择潜客">
           <div class="w-full">
             <el-button type="primary" @click="openUserSelector" class="mb-2">
-              <Icon icon="ep:plus" class="mr-5px" /> 选择用户
+              <Icon icon="ep:plus" class="mr-5px" /> 选择潜客
             </el-button>
             <div v-if="selectedUsers.length > 0" class="mt-2">
               <el-tag
@@ -424,7 +458,7 @@
                 {{ user.userName }}
               </el-tag>
             </div>
-            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择用户，请点击上方按钮选择 </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择潜客，请点击上方按钮选择 </div>
           </div>
         </el-form-item>
 
@@ -563,7 +597,7 @@
             <el-table-column label="活跃度" prop="activeQuantity" width="150" />
           </el-table>
 
-          <!-- 用户采集结果显示（默认） -->
+          <!-- 个人主页采集结果显示（默认） -->
           <el-table v-else :data="filteredUserList" stripe border max-height="500">
             <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
             <el-table-column label="用户名" prop="userName" width="150" />
@@ -608,6 +642,9 @@
 
   <!-- 用户选择器组件 -->
   <UserSelector v-model="userSelectorVisible" @confirm="handleUserConfirm" />
+
+  <!-- 帖子选择器组件 -->
+  <PostSelector v-model="postSelectorVisible" @confirm="handlePostConfirm" />
 </template>
 
 <script setup lang="ts">
@@ -625,6 +662,7 @@ import { useMessage } from '@/hooks/web/useMessage'
 import request from '@/config/axios'
 import GroupSelector from './components/GroupSelector.vue'
 import UserSelector from './components/UserSelector.vue'
+import PostSelector from './components/PostSelector.vue'
 
 const { t } = useI18n() // 国际化
 const message = useMessage() // 消息弹窗
@@ -741,7 +779,7 @@ const accounts = ref<any[]>([]) // 账号列表
 // 群组选择相关
 const groupSelectorVisible = ref(false) // 群组选择弹框显示状态
 const selectedGroups = ref<FbCollectGroup[]>([]) // 已选择的群组
-const groupInputMode = ref<'manual' | 'select'>('select') // 群组成员采集输入模式：manual-手动输入, select-从群组选择
+const groupInputMode = ref<'manual' | 'select'>('select') // 群组成员采集输入模式：manual-手动输入, select-从资源库选择
 
 // 同行采集相关
 const relationTypes = ref<string[]>(['followers']) // 默认选中粉丝
@@ -759,6 +797,9 @@ const selectedPostGroups = ref<FbCollectGroup[]>([])
 // 帖子评论点赞采集相关
 const commentLikeOptions = ref<string[]>(['comment', 'like']) // 默认同时采集评论和点赞
 const likeExpectedCount = ref(100) // 点赞期望数量
+const commentLikeInputMode = ref<'manual' | 'select'>('manual') // 帖子评论点赞采集输入模式
+const postSelectorVisible = ref(false) // 帖子选择弹框显示状态
+const selectedPosts = ref<FbCollectPost[]>([]) // 已选择的帖子
 
 /** 打开弹窗 */
 const open = async (type: string, id?: number, taskTypeValue?: number) => {
@@ -861,7 +902,7 @@ const loadUserList = async (taskId: number) => {
           taskId
         })
       } else {
-        // 用户采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
+        // 个人主页采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
@@ -1141,9 +1182,9 @@ const handleUserSizeChange = (size: number) => {
 /** 根据任务类型获取URL提示文本 */
 const getUrlPlaceholder = (taskType?: number) => {
   const placeholders: Record<number, string> = {
-    1: '请输入主页采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/pages?q=关键词',
+    1: '请输入公共主页采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/pages?q=关键词',
     2: '请输入帖子采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/top?q=关键词',
-    3: '请输入用户采集链接，多个链接请换行分隔。\n在 Facebook 搜索目标用户后，复制浏览器地址栏的完整链接。\n示例：https://facebook.com/search/people?q=关键词',
+    3: '请输入个人主页采集链接，多个链接请换行分隔。\n在 Facebook 搜索目标用户后，复制浏览器地址栏的完整链接。\n示例：https://facebook.com/search/people?q=关键词',
     4: '请输入群组采集链接，多个链接请换行分隔。\n示例：https://facebook.com/groups/xxx',
     5: '请输入活动采集链接，多个链接请换行分隔。\n示例：https://facebook.com/events/xxx',
     6: '请输入评论采集链接，多个链接请换行分隔。\n示例：https://facebook.com/xxx/posts/xxx',
@@ -1159,9 +1200,9 @@ const generateSearchUrl = (taskType: number, keyword: string): string => {
 
   // 根据不同的taskType生成不同的搜索URL
   const urlMap: Record<number, string> = {
-    1: `https://www.facebook.com/search/pages?q=${encodeURIComponent(keyword)}`, // 主页采集
+    1: `https://www.facebook.com/search/pages?q=${encodeURIComponent(keyword)}`, // 公共主页采集
     2: `https://www.facebook.com/search/top?q=${encodeURIComponent(keyword)}`, // 帖子采集
-    3: `https://www.facebook.com/search/people?q=${encodeURIComponent(keyword)}`, // 用户采集
+    3: `https://www.facebook.com/search/people?q=${encodeURIComponent(keyword)}`, // 个人主页采集
     4: `https://www.facebook.com/search/groups?q=${encodeURIComponent(keyword)}`, // 群组采集
     5: `https://www.facebook.com/search/events?q=${encodeURIComponent(keyword)}`, // 活动采集
     6: `https://www.facebook.com/search/top?q=${encodeURIComponent(keyword)}`, // 评论采集(先搜索帖子)
@@ -1279,11 +1320,15 @@ const openPostGroupSelector = () => {
 }
 
 const refreshPostPageUrls = () => {
-  formData.value.searchUrl = selectedPostPages.value.map((user) => toPagePostsUrl(user.url)).join('\n')
+  formData.value.searchUrl = selectedPostPages.value
+    .map((user) => toPagePostsUrl(user.url))
+    .join('\n')
 }
 
 const refreshPostGroupUrls = () => {
-  formData.value.searchUrl = selectedPostGroups.value.map((group) => toGroupPostsUrl(group.url)).join('\n')
+  formData.value.searchUrl = selectedPostGroups.value
+    .map((group) => toGroupPostsUrl(group.url))
+    .join('\n')
 }
 
 const removeSelectedPostPage = (userId: number) => {
@@ -1314,7 +1359,7 @@ const handleGroupInputModeChange = (mode: 'manual' | 'select') => {
     selectedGroups.value = []
     formData.value.searchUrl = ''
   } else {
-    // 切换到从群组选择，清空手动输入的链接
+    // 切换到从资源库选择，清空手动输入的链接
     formData.value.searchUrl = ''
   }
 }
@@ -1372,7 +1417,7 @@ const handleUserInputModeChange = (mode: 'manual' | 'select') => {
     selectedUsers.value = []
     formData.value.searchUrl = ''
   } else {
-    // 切换到从潜客选择，清空手动输入的链接
+    // 切换到从资源库选择，清空手动输入的链接
     formData.value.searchUrl = ''
   }
 }
@@ -1456,6 +1501,48 @@ const handleUserConfirm = (users: FbCollectUser[]) => {
   )
 }
 
+/** 打开帖子选择弹框 */
+const openPostSelector = () => {
+  postSelectorVisible.value = true
+}
+
+/** 处理帖子评论点赞采集输入模式切换 */
+const handleCommentLikeInputModeChange = (mode: 'manual' | 'select') => {
+  if (mode === 'manual') {
+    // 切换到手动输入，清空已选帖子
+    selectedPosts.value = []
+    formData.value.searchUrl = ''
+  } else {
+    // 切换到从资源库选择，清空手动输入的链接
+    formData.value.searchUrl = ''
+  }
+}
+
+/** 移除已选择的帖子 */
+const removeSelectedPost = (postId: number) => {
+  const index = selectedPosts.value.findIndex((p) => p.id === postId)
+  if (index > -1) {
+    selectedPosts.value.splice(index, 1)
+    // 重新生成链接
+    refreshCommentLikePostUrls()
+  }
+}
+
+/** 刷新帖子评论点赞采集的URL */
+const refreshCommentLikePostUrls = () => {
+  formData.value.searchUrl = selectedPosts.value.map((post) => post.url).join('\n')
+}
+
+/** 确认帖子选择（组件回调） */
+const handlePostConfirm = (posts: FbCollectPost[]) => {
+  selectedPosts.value = posts
+
+  // 生成帖子链接
+  refreshCommentLikePostUrls()
+
+  message.success(`已选择 ${posts.length} 个帖子，生成了 ${posts.length} 个采集链接`)
+}
+
 // 监听keyword和taskType变化,自动生成URL
 watch(
   () => [formData.value.keyword, formData.value.taskType],
@@ -1471,7 +1558,7 @@ watch(
 watch(
   () => relationTypes.value,
   () => {
-    // 只有在同行采集模式且从潜客选择模式下才生效
+    // 只有在同行采集模式且从资源库选择模式下才生效
     if (
       formData.value.taskType === 8 &&
       userInputMode.value === 'select' &&

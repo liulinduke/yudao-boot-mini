@@ -1,7 +1,6 @@
 <template>
   <div>
     <el-row :gutter="20">
-      <!-- 左侧：运营工具 -->
       <el-col :span="8">
         <ContentWrap>
           <div class="operation-section">
@@ -24,7 +23,6 @@
         </ContentWrap>
       </el-col>
 
-      <!-- 右侧：任务列表 -->
       <el-col :span="16">
         <ContentWrap>
           <div class="task-section">
@@ -33,7 +31,7 @@
               <span class="ml-6px">任务列表</span>
             </h3>
           </div>
-          <!-- 搜索工作栏 -->
+
           <el-form
             class="search-form"
             :model="queryParams"
@@ -49,7 +47,8 @@
                 class="!w-140px"
               >
                 <el-option label="链接加组" :value="9" />
-                <el-option label="转贴" :value="10" />
+                <el-option label="转帖" :value="10" />
+                <el-option label="帖子评论" :value="15" />
                 <el-option label="群发私信" :value="14" />
                 <el-option label="发个人帖" :value="12" />
                 <el-option label="发群帖" :value="13" />
@@ -87,7 +86,6 @@
             </el-form-item>
           </el-form>
 
-          <!-- 列表 -->
           <el-table
             row-key="id"
             v-loading="loading"
@@ -98,7 +96,8 @@
             <el-table-column label="任务类型" align="center" prop="taskType" width="100">
               <template #default="scope">
                 <el-tag v-if="scope.row.taskType === 9" type="primary">链接加组</el-tag>
-                <el-tag v-else-if="scope.row.taskType === 10" type="success">转贴</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 10" type="success">转帖</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 15" type="warning">帖子评论</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 14" type="warning">群发私信</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 12" type="info">发个人帖</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 13" type="danger">发群帖</el-tag>
@@ -142,11 +141,11 @@
                 <el-button link type="primary" @click="openForm('view', scope.row)">
                   详情
                 </el-button>
-                <el-button link type="danger" @click="handleDelete(scope.row)"> 删除 </el-button>
+                <el-button link type="danger" @click="handleDelete(scope.row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <!-- 分页 -->
+
           <Pagination
             :total="total"
             v-model:page="queryParams.pageNo"
@@ -157,19 +156,11 @@
       </el-col>
     </el-row>
 
-    <!-- 表单弹窗：添加/修改 -->
     <FbOperationForm ref="formRef" @success="getList" />
-
-    <!-- 转帖表单弹窗 -->
     <RepostForm ref="repostFormRef" @success="getList" />
-
-    <!-- 群发私信表单弹窗 -->
+    <PostCommentForm ref="postCommentFormRef" @success="getList" />
     <DmTaskForm ref="dmTaskFormRef" @success="getList" />
-
-    <!-- 发个人帖表单弹窗 -->
     <PublishPostForm ref="publishPostFormRef" @success="getList" />
-
-    <!-- 发群帖表单弹窗 -->
     <GroupPublishForm ref="groupPublishFormRef" @success="getList" />
   </div>
 </template>
@@ -181,6 +172,7 @@ import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
 import RepostForm from './RepostForm.vue'
+import PostCommentForm from './PostCommentForm.vue'
 import DmTaskForm from './dmtask/DmTaskForm.vue'
 import PublishPostForm from './PublishPostForm.vue'
 import GroupPublishForm from './GroupPublishForm.vue'
@@ -199,38 +191,13 @@ defineOptions({ name: 'FbOperation' })
 const message = useMessage()
 const { t } = useI18n()
 
-// 运营工具列表
 const operationTools = [
-  {
-    type: 'add-group',
-    title: '链接加组',
-    icon: 'ep:user-filled',
-    disabled: false
-  },
-  {
-    type: 'repost',
-    title: '转贴',
-    icon: 'ep:share',
-    disabled: false // 启用转帖功能
-  },
-  {
-    type: 'mass-message',
-    title: '群发私信',
-    icon: 'ep:message',
-    disabled: false // 启用群发私信功能
-  },
-  {
-    type: 'publish-post',
-    title: '发个人帖',
-    icon: 'ep:document-add',
-    disabled: false // 启用了发个人帖功能
-  },
-  {
-    type: 'group-publish',
-    title: '发群帖',
-    icon: 'ep:connection',
-    disabled: false // 启用了发群帖功能
-  }
+  { type: 'add-group', title: '链接加组', icon: 'ep:user-filled', disabled: false },
+  { type: 'repost', title: '转帖', icon: 'ep:share', disabled: false },
+  { type: 'post-comment', title: '帖子评论', icon: 'ep:chat-dot-round', disabled: false },
+  { type: 'mass-message', title: '群发私信', icon: 'ep:message', disabled: false },
+  { type: 'publish-post', title: '发个人帖', icon: 'ep:document-add', disabled: false },
+  { type: 'group-publish', title: '发群帖', icon: 'ep:connection', disabled: false }
 ]
 
 const activeTool = ref('')
@@ -248,7 +215,6 @@ const queryFormRef = ref()
 const handledAddGroupDetailIds = new Set<string>()
 const accountCache = ref<any[]>([])
 
-/** 查询列表 */
 const getList = async () => {
   loading.value = true
   try {
@@ -264,17 +230,16 @@ const getList = async () => {
   }
 }
 
-/** 选择工具 - 打开新建任务弹窗 */
 const selectTool = (type: string) => {
   if (operationTools.find((f) => f.type === type)?.disabled) {
     message.warning('该功能开发中')
     return
   }
   activeTool.value = type
-
-  // 根据不同类型打开不同表单
   if (type === 'repost') {
     repostFormRef.value.open()
+  } else if (type === 'post-comment') {
+    postCommentFormRef.value.open()
   } else if (type === 'mass-message') {
     dmTaskFormRef.value.open('create')
   } else if (type === 'publish-post') {
@@ -286,30 +251,24 @@ const selectTool = (type: string) => {
   }
 }
 
-/** 根据工具类型获取任务类型 */
 const getTaskTypeByTool = (toolType: string): number => {
   const typeMap: Record<string, number> = {
-    'add-group': 9, // 链接加组（运营任务从9开始）
-    repost: 10, // 转贴
-    'mass-message': 14, // 群发私信
-    'publish-post': 12, // 发个人帖
-    'group-publish': 13 // 发群帖
+    'add-group': 9,
+    repost: 10,
+    'post-comment': 15,
+    'mass-message': 14,
+    'publish-post': 12,
+    'group-publish': 13
   }
   return typeMap[toolType] || 9
 }
 
-/** 计算进度 */
 const getProgress = (task: FbOperationTask) => {
-  if (!task.expectedCount || task.expectedCount === 0) {
-    return 0
-  }
-  if (task.status === 2) {
-    return 100
-  }
+  if (!task.expectedCount || task.expectedCount === 0) return 0
+  if (task.status === 2) return 100
   return Math.min(100, Math.round(((task.actualCount || 0) / task.expectedCount) * 100))
 }
 
-/** 格式化日期 */
 const formatDate = (date: string | Date | null | undefined) => {
   if (!date) return '-'
   const d = new Date(date)
@@ -323,24 +282,22 @@ const formatDate = (date: string | Date | null | undefined) => {
   })
 }
 
-/** 搜索按钮操作 */
 const handleQuery = () => {
   queryParams.pageNo = 1
   getList()
 }
 
-/** 添加/修改操作 */
 const formRef = ref()
 const repostFormRef = ref()
+const postCommentFormRef = ref()
 const dmTaskFormRef = ref()
 const publishPostFormRef = ref()
 const groupPublishFormRef = ref()
+
 const openForm = (type: string, row: FbOperationTask) => {
-  // 详情统一走 FbOperationForm（后端会查 facebook_dm_task + facebook_dm_task_detail）
   formRef.value.open(type, row.id)
 }
 
-/** 删除按钮操作 */
 const handleDelete = async (row: FbOperationTask) => {
   try {
     await message.delConfirm()
@@ -354,7 +311,6 @@ const handleDelete = async (row: FbOperationTask) => {
   } catch {}
 }
 
-/** 加载账号缓存（用于加组结果保存时补全 fbAccount） */
 const loadAccountCache = async () => {
   try {
     const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 500 })
@@ -365,7 +321,6 @@ const loadAccountCache = async () => {
   }
 }
 
-/** 保存链接加组结果 */
 const saveAddGroupResults = async (data: any) => {
   if (data.taskType !== 9) return
   const detailId = String(data.detailId || '')
@@ -395,7 +350,6 @@ const saveAddGroupResults = async (data: any) => {
   await getList()
 }
 
-/** 初始化 */
 onMounted(() => {
   getList()
   loadAccountCache()
@@ -471,7 +425,6 @@ onUnmounted(() => {
   }
 }
 
-// 右侧搜索区域和表格之间的分隔线
 :deep(.el-col:last-child) {
   .el-form {
     padding-bottom: 16px;

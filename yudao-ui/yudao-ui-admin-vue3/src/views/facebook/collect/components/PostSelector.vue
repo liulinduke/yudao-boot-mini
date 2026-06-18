@@ -1,18 +1,23 @@
 <template>
-  <Dialog v-model="visible" title="选择潜客" width="80%">
+  <Dialog v-model="visible" title="选择帖子" width="80%">
     <div v-loading="loading">
       <!-- 查询条件 -->
       <el-form :inline="true" :model="queryParams" class="mb-4">
-        <el-form-item label="用户名">
+        <el-form-item label="帖子内容">
           <el-input
-            v-model="queryParams.userName"
-            placeholder="请输入用户名"
+            v-model="queryParams.postContent"
+            placeholder="请输入帖子内容关键词"
             clearable
             @keyup.enter="loadList"
           />
         </el-form-item>
-        <el-form-item label="所在地">
-          <el-input v-model="queryParams.city" placeholder="请输入所在地" clearable />
+        <el-form-item label="发帖人">
+          <el-input
+            v-model="queryParams.postUser"
+            placeholder="请输入发帖人"
+            clearable
+            @keyup.enter="loadList"
+          />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadList">查询</el-button>
@@ -20,7 +25,7 @@
         </el-form-item>
       </el-form>
 
-      <!-- 用户列表表格 -->
+      <!-- 帖子列表表格 -->
       <el-table
         :data="list"
         stripe
@@ -29,12 +34,14 @@
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column label="用户ID" prop="id" width="100" />
-        <el-table-column label="用户名" prop="userName" min-width="150" show-overflow-tooltip />
-        <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
-        <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
-        <el-table-column label="粉丝数" prop="followers" width="100" />
-        <el-table-column label="所在地" prop="city" width="120" />
+        <el-table-column label="帖子ID" prop="id" width="100" />
+        <el-table-column label="发帖人" prop="postUser" width="150" />
+        <el-table-column label="帖子链接" prop="url" min-width="250" show-overflow-tooltip />
+        <el-table-column label="帖子内容" prop="postContent" min-width="300" show-overflow-tooltip />
+        <el-table-column label="点赞数" prop="reactionCount" width="100" />
+        <el-table-column label="评论数" prop="commentCount" width="100" />
+        <el-table-column label="转发数" prop="reshareCount" width="100" />
+        <el-table-column label="来源" prop="fromResource" width="120" />
       </el-table>
 
       <!-- 分页 -->
@@ -59,9 +66,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
-import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
+import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
 import { useMessage } from '@/hooks/web/useMessage'
 
 const message = useMessage()
@@ -80,43 +87,40 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  confirm: [selectedUsers: FbCollectUser[]]
+  'confirm': [selectedPosts: FbCollectPost[]]
 }>()
 
 // 状态
 const visible = ref(false)
 const loading = ref(false)
-const list = ref<FbCollectUser[]>([])
+const list = ref<FbCollectPost[]>([])
 const total = ref(0)
 const pageNo = ref(1)
 const pageSize = ref(20)
-const selectedUsers = ref<FbCollectUser[]>([])
+const selectedPosts = ref<FbCollectPost[]>([])
 
 // 查询参数
 const queryParams = reactive({
-  userName: '',
-  city: ''
+  postContent: '',
+  postUser: ''
 })
 
 // 监听 modelValue 变化
-watch(
-  () => props.modelValue,
-  (val) => {
-    visible.value = val
-    if (val) {
-      // 打开时重置并加载数据
-      pageNo.value = 1
-      loadList()
-    }
+watch(() => props.modelValue, (val) => {
+  visible.value = val
+  if (val) {
+    // 打开时重置并加载数据
+    pageNo.value = 1
+    loadList()
   }
-)
+})
 
 // 监听 visible 变化
 watch(visible, (val) => {
   emit('update:modelValue', val)
 })
 
-/** 加载用户列表 */
+/** 加载帖子列表 */
 const loadList = async () => {
   loading.value = true
   try {
@@ -124,21 +128,21 @@ const loadList = async () => {
       pageNo: pageNo.value,
       pageSize: pageSize.value
     }
-
+    
     // 添加查询条件
-    if (queryParams.userName) {
-      params.userName = queryParams.userName
+    if (queryParams.postContent) {
+      params.postContent = queryParams.postContent
     }
-    if (queryParams.city) {
-      params.city = queryParams.city
+    if (queryParams.postUser) {
+      params.postUser = queryParams.postUser
     }
-
-    const response = await FbCollectUserApi.getFbCollectUserPage(params)
+    
+    const response = await FbCollectPostApi.getFbCollectPostPage(params)
     list.value = response.list || []
     total.value = response.total || 0
   } catch (error) {
-    console.error('加载用户列表失败:', error)
-    message.error('加载用户列表失败')
+    console.error('加载帖子列表失败:', error)
+    message.error('加载帖子列表失败')
   } finally {
     loading.value = false
   }
@@ -146,25 +150,25 @@ const loadList = async () => {
 
 /** 重置查询 */
 const resetQuery = () => {
-  queryParams.userName = ''
-  queryParams.city = ''
+  queryParams.postContent = ''
+  queryParams.postUser = ''
   pageNo.value = 1
   loadList()
 }
 
 /** 处理选择变化 */
-const handleSelectionChange = (selection: FbCollectUser[]) => {
-  selectedUsers.value = selection
+const handleSelectionChange = (selection: FbCollectPost[]) => {
+  selectedPosts.value = selection
 }
 
 /** 确认选择 */
 const handleConfirm = () => {
-  if (selectedUsers.value.length === 0) {
-    message.warning('请至少选择一个用户')
+  if (selectedPosts.value.length === 0) {
+    message.warning('请至少选择一个帖子')
     return
   }
-
-  emit('confirm', selectedUsers.value)
+  
+  emit('confirm', selectedPosts.value)
   visible.value = false
 }
 
