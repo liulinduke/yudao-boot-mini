@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-row :gutter="20">
+    <el-row :gutter="10">
       <!-- 左侧：功能卡片 -->
       <el-col :span="8">
         <ContentWrap>

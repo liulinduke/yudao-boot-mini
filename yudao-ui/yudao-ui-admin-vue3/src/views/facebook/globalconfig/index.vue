@@ -1,13 +1,10 @@
  <template>
   <ContentWrap>
-    <el-card>
-      <template #header>
-        <div class="flex justify-between items-center">
-          <span class="text-lg font-bold">FB全局配置</span>
-        </div>
-      </template>
+    <div class="mb-4">
+      <span class="text-lg font-bold">FB全局配置</span>
+    </div>
 
-      <el-form :model="formData" label-width="150px" class="max-w-600px">
+    <el-form :model="formData" label-width="150px" class="max-w-600px">
         <el-form-item label="每日私信次数">
           <el-input-number
             v-model="formData.dm_daily_limit"
@@ -77,7 +74,6 @@
           <el-button type="primary" @click="handleSubmit" :loading="loading">保存配置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
   </ContentWrap>
 </template>
 

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-row :gutter="20">
+    <el-row :gutter="10">
       <el-col :span="8">
         <ContentWrap>
           <div class="operation-section">
