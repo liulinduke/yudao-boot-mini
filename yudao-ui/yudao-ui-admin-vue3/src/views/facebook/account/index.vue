@@ -61,7 +61,7 @@
       </div>
 
       <!-- 右侧：账号列表 -->
-      <div class="flex-1 flex flex-col">
+      <div class="flex-1 min-w-0 flex flex-col">
         <!-- 搜索工作栏 -->
         <el-form
           class="-mb-15px"
@@ -166,59 +166,62 @@
         </div>
 
         <!-- 列表 -->
-        <div class="flex-1 mt-4 overflow-auto">
-          <el-table
-            row-key="id"
-            v-loading="loading"
-            :data="list"
-            :stripe="true"
-            :show-overflow-tooltip="true"
-            @selection-change="handleRowCheckboxChange"
-            style="width: 100%; min-width: 1000px;"
-          >
-            <el-table-column type="selection" width="55" />
-            <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
-            <el-table-column label="密码" align="center" prop="password" width="150" />
-            <el-table-column label="地区" align="center" prop="area" width="100" />
-            <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
-            <el-table-column label="代理" align="center" prop="proxyName" width="150">
-              <template #default="scope">
-                <el-tag v-if="scope.row.proxyName" type="info" size="small">
-                  {{ scope.row.proxyName }}
-                </el-tag>
-                <span v-else class="text-gray-400">-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="账户状态" align="center" prop="status" width="100" />
-            <el-table-column label="备注" align="center" prop="remark" />
-            <el-table-column
-              label="创建时间"
-              align="center"
-              prop="createTime"
-              :formatter="dateFormatter"
-              width="180px"
-            />
-            <el-table-column label="操作" align="center" width="120">
-              <template #default="scope">
-                <el-button
-                  link
-                  type="primary"
-                  @click="openForm('update', scope.row.id)"
-                  v-hasPermi="['facebook:fb-account:update']"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  link
-                  type="danger"
-                  @click="handleDelete(scope.row.id)"
-                  v-hasPermi="['facebook:fb-account:delete']"
-                >
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+        <div class="flex-1 min-w-0 mt-4 overflow-hidden">
+          <div class="fb-account-table-scroll">
+            <el-table
+              row-key="id"
+              v-loading="loading"
+              :data="list"
+              :stripe="true"
+              :fit="false"
+              :show-overflow-tooltip="true"
+              @selection-change="handleRowCheckboxChange"
+              style="width: 100%;"
+            >
+              <el-table-column type="selection" width="55" />
+              <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
+              <el-table-column label="密码" align="center" prop="password" width="150" />
+              <el-table-column label="地区" align="center" prop="area" width="100" />
+              <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
+              <el-table-column label="代理" align="center" prop="proxyName" width="150">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.proxyName" type="info" size="small">
+                    {{ scope.row.proxyName }}
+                  </el-tag>
+                  <span v-else class="text-gray-400">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="账户状态" align="center" prop="status" width="100" />
+              <el-table-column label="备注" align="center" prop="remark" width="180" />
+              <el-table-column
+                label="创建时间"
+                align="center"
+                prop="createTime"
+                :formatter="dateFormatter"
+                width="180px"
+              />
+              <el-table-column label="操作" align="center" width="120" fixed="right">
+                <template #default="scope">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="openForm('update', scope.row.id)"
+                    v-hasPermi="['facebook:fb-account:update']"
+                  >
+                    编辑
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    @click="handleDelete(scope.row.id)"
+                    v-hasPermi="['facebook:fb-account:delete']"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
           <!-- 分页 -->
           <Pagination
             :total="total"
@@ -435,9 +438,22 @@ const handleBatchLogin = () => {
     }
   })
 
-  loginRunning.value = true
-  startAccountLoginBatch(payload)
-  message.notifySuccess(`已提交 ${payload.length} 个账号登录`)
+  try {
+    startAccountLoginBatch(payload)
+    loginRunning.value = true
+    message.notifySuccess(`已提交 ${payload.length} 个账号登录`)
+  } catch (error) {
+    console.error('启动批量登录失败:', error)
+    loginRunning.value = false
+    payload.forEach((item) => {
+      const target = list.value.find((account) => account.id === item.id)
+      if (target) {
+        target.loginStatus = 'FAILED'
+        target.loginErrorReason = '启动登录失败'
+      }
+    })
+    message.error('启动批量登录失败')
+  }
 }
 
 /** 导出按钮操作 */
@@ -518,3 +534,10 @@ onMounted(() => {
   })
 })
 </script>
+
+<style scoped>
+.fb-account-table-scroll {
+  width: 100%;
+  min-width: 0;
+}
+</style>

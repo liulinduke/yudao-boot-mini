@@ -37,7 +37,7 @@ namespace SocialMatrix.WpfHost.Windows
         public event Action<string>? OnAccountLoginProgress;
         public event Action<string>? OnAccountLoginBatchComplete;
 
-        public void StartAccountLoginBatch(List<AccountLoginRequest> accounts)
+        public void StartAccountLoginBatch(List<AccountLoginRequest> accounts, bool? closeAfterEachAccountOverride = null)
         {
             lock (_accountLoginLock)
             {
@@ -49,7 +49,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
                 _accountLoginRunningCount = 0;
                 _accountLoginBatchActive = true;
-                _accountLoginCloseAfterEachAccount = accounts.Count > _maxConcurrentBrowsers;
+                _accountLoginCloseAfterEachAccount = closeAfterEachAccountOverride ?? accounts.Count > _maxConcurrentBrowsers;
             }
 
             _ = PumpAccountLoginQueueAsync();
@@ -329,6 +329,42 @@ namespace SocialMatrix.WpfHost.Windows
                                     cancelable: true
                                 }));
                             };
+                            const getViewportIntersectionArea = (rect) => {
+                                const left = Math.max(0, rect.left);
+                                const top = Math.max(0, rect.top);
+                                const right = Math.min(window.innerWidth, rect.right);
+                                const bottom = Math.min(window.innerHeight, rect.bottom);
+                                return Math.max(0, right - left) * Math.max(0, bottom - top);
+                            };
+                            const hasBlockingOverlay = () => {
+                                const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+                                const elements = Array.from(document.querySelectorAll('body *'));
+                                for (const el of elements) {
+                                    const rect = el.getBoundingClientRect();
+                                    const areaRatio = getViewportIntersectionArea(rect) / viewportArea;
+                                    if (areaRatio < 0.45) continue;
+
+                                    const style = window.getComputedStyle(el);
+                                    if (!style || style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+
+                                    const position = style.position;
+                                    const role = (el.getAttribute('role') || '').toLowerCase();
+                                    const ariaModal = (el.getAttribute('aria-modal') || '').toLowerCase() === 'true';
+                                    const isFixedLayer = position === 'fixed' || position === 'sticky';
+                                    const isDialogLayer = role === 'dialog' || ariaModal || !!el.querySelector('[role=""dialog""], [aria-modal=""true""]');
+                                    if (!isFixedLayer && !isDialogLayer) continue;
+
+                                    const bg = style.backgroundColor || '';
+                                    const hasVisibleBackdrop =
+                                        /rgba?\(/i.test(bg) && !/rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/i.test(bg) ||
+                                        (style.backdropFilter && style.backdropFilter !== 'none') ||
+                                        (style.webkitBackdropFilter && style.webkitBackdropFilter !== 'none');
+
+                                    if (areaRatio > 0.75 && isFixedLayer && hasVisibleBackdrop) return true;
+                                    if (areaRatio > 0.55 && isDialogLayer) return true;
+                                }
+                                return false;
+                            };
                             const clickPoint = (x, y) => {
                                 const target = document.elementFromPoint(x, y) || document.body || document.documentElement;
                                 const opts = {
@@ -348,10 +384,14 @@ namespace SocialMatrix.WpfHost.Windows
                             fireKey('keyup');
 
                             setTimeout(() => {
-                                const x = Math.floor(window.innerWidth * 0.52);
-                                const y = Math.floor(Math.min(window.innerHeight - 36, window.innerHeight * 0.78));
-                                clickPoint(x, y);
-                                resolve(true);
+                                if (hasBlockingOverlay()) {
+                                    const x = Math.floor(window.innerWidth * 0.52);
+                                    const y = Math.floor(Math.min(window.innerHeight - 36, window.innerHeight * 0.78));
+                                    clickPoint(x, y);
+                                    resolve(true);
+                                    return;
+                                }
+                                resolve(false);
                             }, 250);
                         } catch (e) {
                             console.warn('[登录] 清理登录后浮层失败:', e);

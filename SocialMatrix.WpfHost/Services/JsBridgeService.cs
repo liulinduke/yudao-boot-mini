@@ -201,15 +201,7 @@ namespace SocialMatrix.WpfHost.Services
                         return;
                     }
 
-                    // 获取BrowserMatrixWindow
-                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    
-                    BrowserMatrixWindow? browserMatrixWindow = null;
-                    if (browserMatrixField != null)
-                    {
-                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                    }
+                    var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     
                     bool needCreateBrowser = browserMatrixWindow == null ||
                                             !browserMatrixWindow.HasBrowser(accountId);
@@ -257,16 +249,7 @@ namespace SocialMatrix.WpfHost.Services
             
             System.Diagnostics.Debug.WriteLine($"🚀 启动指纹浏览器进行语言设置: 账号={accountId}, 语言={(language == 1 ? "英文" : "中文")}");
             
-            // 获取BrowserMatrixWindow实例
-            var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            
-            if (browserMatrixField == null)
-            {
-                throw new InvalidOperationException("无法访问BrowserMatrixWindow实例");
-            }
-
-            var browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+            var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
             
             if (browserMatrixWindow == null)
             {
@@ -276,7 +259,7 @@ namespace SocialMatrix.WpfHost.Services
                 // 等待窗口创建
                 await Task.Delay(500);
                 
-                browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
+                browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                 if (browserMatrixWindow == null)
                 {
                     throw new InvalidOperationException("BrowserMatrixWindow创建失败");
@@ -342,15 +325,7 @@ namespace SocialMatrix.WpfHost.Services
                         return;
                     }
 
-                    // 获取BrowserMatrixWindow
-                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    
-                    BrowserMatrixWindow? browserMatrixWindow = null;
-                    if (browserMatrixField != null)
-                    {
-                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                    }
+                    var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     
                     // 如果窗口不存在或浏览器不存在，先创建
                     bool needCreateBrowser = browserMatrixWindow == null || 
@@ -369,11 +344,7 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 12); // 发个人帖任务类型
                         
-                        // 重新获取BrowserMatrixWindow
-                        if (browserMatrixField != null)
-                        {
-                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                        }
+                        browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     }
 
                     if (browserMatrixWindow != null)
@@ -421,15 +392,7 @@ namespace SocialMatrix.WpfHost.Services
                         return;
                     }
 
-                    // 获取BrowserMatrixWindow
-                    var browserMatrixField = typeof(MainWindow).GetField("_browserMatrixWindow", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    
-                    BrowserMatrixWindow? browserMatrixWindow = null;
-                    if (browserMatrixField != null)
-                    {
-                        browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                    }
+                    var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     
                     // 如果窗口不存在或浏览器不存在，先创建
                     bool needCreateBrowser = browserMatrixWindow == null || 
@@ -448,11 +411,7 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 13); // 发群帖任务类型
                         
-                        // 重新获取BrowserMatrixWindow
-                        if (browserMatrixField != null)
-                        {
-                            browserMatrixWindow = browserMatrixField.GetValue(mainWindow) as BrowserMatrixWindow;
-                        }
+                        browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     }
 
                     if (browserMatrixWindow != null)

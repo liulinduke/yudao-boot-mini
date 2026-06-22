@@ -15,6 +15,7 @@ namespace SocialMatrix.WpfHost
     {
         private JsBridgeService? _jsBridge;
         private BrowserMatrixWindow? _browserMatrixWindow;
+        private readonly Dictionary<string, BrowserMatrixWindow> _browserMatrixWindows = new();
 
         public MainWindow()
         {
@@ -69,40 +70,72 @@ namespace SocialMatrix.WpfHost
                 System.Diagnostics.Debug.WriteLine($"📋 MainWindow 收到配置: {config}");
             }
 
-            // 如果窗口不存在，创建新窗口
-            if (_browserMatrixWindow == null || !_browserMatrixWindow.IsVisible)
+            if (!_browserMatrixWindows.ContainsKey(accountId) &&
+                _browserMatrixWindows.Count >= BrowserMatrixWindow.MaxConcurrentBrowsers)
             {
-                _browserMatrixWindow = new BrowserMatrixWindow();
-                
-                // 监听采集完成事件
-                _browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
-                {
-                    System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
-                    
-                    // 将数据回传给 Vue
-                    Dispatcher.Invoke(() =>
-                    {
-                        ReturnCollectionDataToVue(dId, accId, jsonData, taskType);
-                    });
-                };
-                
-                System.Diagnostics.Debug.WriteLine($"✅ 已注册 OnCollectionComplete 事件监听");
-                EnsureAccountLoginWindowEvents();
-                _browserMatrixWindow.Show();
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ BrowserMatrixWindow 已存在，复用现有窗口");
+                UpdateStatus($"已达到最大并发窗口数 ({BrowserMatrixWindow.MaxConcurrentBrowsers})，无法为账号 {accountId} 创建窗口");
+                return;
             }
 
-            // 在矩阵窗口中创建浏览器并启动自动化采集（detailId 按账号绑定，避免多账号互相覆盖）
-            _browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
+            var browserMatrixWindow = GetOrCreateBrowserMatrixWindow(accountId);
+
+            // 在矩阵窗口中创建浏览器并启动自动化采集（每个 WPF 窗口只承载一个账号）
+            browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
                 cookie, searchUrl, expectedCount, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation);
             
-            // 激活窗口（置顶）
-            _browserMatrixWindow.Activate();
-            
             UpdateStatus($"已为账号 {accountId} 启动自动化采集 (明细ID: {detailId}, 类型: {taskType})");
+        }
+
+        public BrowserMatrixWindow? GetBrowserMatrixWindowForAccount(string accountId)
+        {
+            return _browserMatrixWindows.TryGetValue(accountId, out var window) && window.IsWindowAvailable
+                ? window
+                : null;
+        }
+
+        private BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)
+        {
+            if (_browserMatrixWindows.TryGetValue(accountId, out var existingWindow) && existingWindow.IsWindowAvailable)
+            {
+                _browserMatrixWindow = existingWindow;
+                System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的 BrowserMatrixWindow 已存在，复用该账号窗口");
+                return existingWindow;
+            }
+
+            var browserMatrixWindow = new BrowserMatrixWindow();
+            _browserMatrixWindows[accountId] = browserMatrixWindow;
+            _browserMatrixWindow = browserMatrixWindow;
+
+            browserMatrixWindow.Closed += (_, _) =>
+            {
+                if (_browserMatrixWindows.TryGetValue(accountId, out var current) && ReferenceEquals(current, browserMatrixWindow))
+                {
+                    _browserMatrixWindows.Remove(accountId);
+                }
+                if (ReferenceEquals(_browserMatrixWindow, browserMatrixWindow))
+                {
+                    _browserMatrixWindow = null;
+                }
+            };
+
+            // 监听采集完成事件
+            browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
+            {
+                System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
+                
+                // 将数据回传给 Vue
+                Dispatcher.Invoke(() =>
+                {
+                    ReturnCollectionDataToVue(dId, accId, jsonData, taskType);
+                });
+            };
+
+            RegisterAccountLoginWindowEvents(browserMatrixWindow);
+            browserMatrixWindow.Show();
+            browserMatrixWindow.Activate();
+            System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 创建独立 BrowserMatrixWindow");
+
+            return browserMatrixWindow;
         }
 
         /// <summary>
@@ -152,16 +185,20 @@ namespace SocialMatrix.WpfHost
         /// </summary>
         public void CloseBrowserForAccount(string accountId)
         {
-            if (_browserMatrixWindow != null)
+            if (_browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow))
             {
-                _browserMatrixWindow.CloseBrowser(accountId);
+                browserMatrixWindow.CloseBrowser(accountId);
                 UpdateStatus($"已关闭账号 {accountId} 的浏览器");
                 
                 // 如果没有活跃浏览器，关闭窗口
-                if (_browserMatrixWindow.GetActiveBrowserCount() == 0)
+                if (browserMatrixWindow.GetActiveBrowserCount() == 0)
                 {
-                    _browserMatrixWindow.Close();
-                    _browserMatrixWindow = null;
+                    browserMatrixWindow.Close();
+                    _browserMatrixWindows.Remove(accountId);
+                    if (ReferenceEquals(_browserMatrixWindow, browserMatrixWindow))
+                    {
+                        _browserMatrixWindow = null;
+                    }
                 }
             }
         }

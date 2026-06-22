@@ -1,6 +1,7 @@
 using CefSharp;
 using CefSharp.Wpf;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Helpers;
 using System;
 using System.Collections.Generic;
@@ -35,9 +36,12 @@ namespace SocialMatrix.WpfHost.Windows
 
         // 最大并发数配置（从后端读取，默认19 - 8GB内存推荐值）
         private static int _maxConcurrentBrowsers = 19;
+        public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
         private static FingerprintGlobalConfig? _globalConfig = null;
         private static DateTime _configLastFetchTime = DateTime.MinValue;
         private static readonly TimeSpan ConfigCacheDuration = TimeSpan.FromMinutes(5);
+
+        public bool IsWindowAvailable => IsVisible;
 
         /// <summary>
         /// 指纹浏览器全局配置
@@ -67,7 +71,11 @@ namespace SocialMatrix.WpfHost.Windows
 
                 // TODO: 替换为实际的后端 API 地址
                 var response = await httpClient.GetStringAsync("http://localhost:48080/admin-api/facebook/global-config/all");
-                var configs = JsonConvert.DeserializeObject<List<Dictionary<string, string>>>(response);
+                var responseToken = JToken.Parse(response);
+                var configToken = responseToken as JArray
+                    ?? responseToken["data"] as JArray
+                    ?? responseToken["result"] as JArray;
+                var configs = configToken?.ToObject<List<Dictionary<string, string>>>();
 
                 if (configs != null)
                 {

@@ -115,12 +115,11 @@ export function closeBrowser(accountId: string): void {
 }
 
 export function startAccountLoginBatch(accounts: FbAccountLoginBridgePayload[]): void {
+  if (!window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+    throw new Error('WPF 桥接未就绪，请在 WPF 环境中运行')
+  }
   try {
-    if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      window.chrome.webview.hostObjects.sync.wpfBridge.StartAccountLoginBatch(JSON.stringify(accounts))
-    } else {
-      console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
-    }
+    window.chrome.webview.hostObjects.sync.wpfBridge.StartAccountLoginBatch(JSON.stringify(accounts))
   } catch (error) {
     console.error('启动批量登录失败', error)
     throw error
