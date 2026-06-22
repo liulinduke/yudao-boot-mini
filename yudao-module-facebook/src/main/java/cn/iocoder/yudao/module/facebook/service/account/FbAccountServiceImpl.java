@@ -169,6 +169,24 @@ public class FbAccountServiceImpl implements FbAccountService {
         }
     }
 
+    @Override
+    public void updateFbAccountLoginResult(FbAccountLoginResultUpdateReqVO reqVO) {
+        validateFbAccountExists(reqVO.getId());
+
+        FbAccountDO updateObj = new FbAccountDO();
+        updateObj.setId(reqVO.getId());
+        updateObj.setLoginStatus(reqVO.getLoginStatus());
+        updateObj.setLoginErrorReason(reqVO.getLoginErrorReason());
+        if (StrUtil.isNotBlank(reqVO.getCookie())) {
+            updateObj.setCookie(reqVO.getCookie());
+        }
+        if ("SUCCESS".equalsIgnoreCase(reqVO.getLoginStatus())) {
+            updateObj.setLoginErrorReason(null);
+            updateObj.setLastLoginTime(LocalDateTime.now());
+        }
+        fbAccountMapper.updateById(updateObj);
+    }
+
     private String extractUserIdFromCookie(String cookie) {
         if (StrUtil.isEmpty(cookie)) {
             return null;

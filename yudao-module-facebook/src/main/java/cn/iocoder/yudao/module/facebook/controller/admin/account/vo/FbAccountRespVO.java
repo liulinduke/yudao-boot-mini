@@ -55,6 +55,9 @@ public class FbAccountRespVO {
     @Schema(description = "2FA")
     @ExcelProperty("2FA")
     private String tfa;
+    private String loginStatus;
+    private String loginErrorReason;
+    private LocalDateTime lastLoginTime;
 
     @Schema(description = "邮件信息")
     @ExcelProperty("邮件信息")
@@ -96,4 +99,4 @@ public class FbAccountRespVO {
     @ExcelProperty("创建时间")
     private LocalDateTime createTime;
 
-}
+}

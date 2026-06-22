@@ -22,6 +22,7 @@
     <PackageReference Include="CefSharp.Wpf.NETCore" Version="131.3.7" />
     <!-- JSON 处理 -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Otp.NET" Version="1.4.0" />
     <!-- Windows API 支持 -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>

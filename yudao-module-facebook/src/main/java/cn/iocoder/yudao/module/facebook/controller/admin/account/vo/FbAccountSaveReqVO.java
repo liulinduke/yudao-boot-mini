@@ -44,6 +44,9 @@ public class FbAccountSaveReqVO {
 
     @Schema(description = "2FA")
     private String tfa;
+    private String loginStatus;
+    private String loginErrorReason;
+    private LocalDateTime lastLoginTime;
 
     @Schema(description = "邮件信息")
     private String email;

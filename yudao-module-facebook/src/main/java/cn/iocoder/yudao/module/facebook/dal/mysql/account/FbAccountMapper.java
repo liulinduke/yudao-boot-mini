@@ -29,6 +29,8 @@ public interface FbAccountMapper extends BaseMapperX<FbAccountDO> {
                 .eqIfPresent(FbAccountDO::getCookie, reqVO.getCookie())
                 .eqIfPresent(FbAccountDO::getUserAgent, reqVO.getUserAgent())
                 .eqIfPresent(FbAccountDO::getTfa, reqVO.getTfa())
+                .eqIfPresent(FbAccountDO::getLoginStatus, reqVO.getLoginStatus())
+                .likeIfPresent(FbAccountDO::getLoginErrorReason, reqVO.getLoginErrorReason())
                 .eqIfPresent(FbAccountDO::getEmail, reqVO.getEmail())
                 .eqIfPresent(FbAccountDO::getEmailPassword, reqVO.getEmailPassword())
                 .eqIfPresent(FbAccountDO::getDeviceId, reqVO.getDeviceId())

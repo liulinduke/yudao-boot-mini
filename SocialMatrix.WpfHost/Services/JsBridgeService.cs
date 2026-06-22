@@ -64,6 +64,14 @@ namespace SocialMatrix.WpfHost.Services
             });
         }
 
+        public void StartAccountLoginBatch(string accountsJson)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                _mainWindow.StartAccountLoginBatch(accountsJson);
+            });
+        }
+
         /// <summary>
         /// 保存 Vue 登录后的 Token
         /// </summary>

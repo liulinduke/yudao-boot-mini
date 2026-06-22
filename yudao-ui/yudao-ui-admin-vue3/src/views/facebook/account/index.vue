@@ -155,6 +155,14 @@
           >
             <Icon icon="ep:setting" class="mr-5px" /> 批量修改代理
           </el-button>
+          <el-button
+            type="primary"
+            plain
+            :disabled="isEmpty(checkedIds) || loginRunning"
+            @click="handleBatchLogin"
+          >
+            <Icon icon="ep:promotion" class="mr-5px" /> 登录
+          </el-button>
         </div>
 
         <!-- 列表 -->
@@ -253,6 +261,13 @@ import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
 import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
+import {
+  startAccountLoginBatch,
+  onAccountLoginProgress,
+  onAccountLoginComplete,
+  type FbAccountLoginBridgePayload,
+  type FbAccountLoginBridgeResult
+} from '@/utils/wpfBridge'
 
 /** FB账号 列表 */
 defineOptions({ name: 'FbAccount' })
@@ -286,6 +301,7 @@ const cookieImportDialogRef = ref()
 
 // 批量修改代理相关
 const batchUpdateProxyDialogRef = ref()
+const loginRunning = ref(false)
 
 /** 查询列表 */
 const getList = async () => {
@@ -374,6 +390,56 @@ const handleRowCheckboxChange = (records: FbAccount[]) => {
   checkedIds.value = records.map((item) => item.id!)
 }
 
+const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
+  const target = list.value.find((item) => item.id === result.accountDbId)
+  if (!target) return
+
+  if (result.status === 'running') {
+    target.loginStatus = 'RUNNING'
+    target.loginErrorReason = ''
+  } else if (result.status === 'success') {
+    target.loginStatus = 'SUCCESS'
+    target.loginErrorReason = ''
+  } else if (result.status === 'failed') {
+    target.loginStatus = 'FAILED'
+    target.loginErrorReason = result.errorReason || '登录失败'
+  } else if (result.status === 'skipped') {
+    target.loginStatus = 'FAILED'
+    target.loginErrorReason = result.errorReason || '缺少登录凭据'
+  } else {
+    target.loginStatus = 'PENDING'
+    target.loginErrorReason = ''
+  }
+}
+
+const handleBatchLogin = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  if (!selectedAccounts.length) {
+    message.warning('请先选择账号')
+    return
+  }
+
+  const payload: FbAccountLoginBridgePayload[] = selectedAccounts.map((item) => ({
+    id: item.id!,
+    accountId: item.fbAccount || '',
+    password: item.password,
+    tfa: item.tfa,
+    cookie: item.cookie || null
+  }))
+
+  payload.forEach((item) => {
+    const target = list.value.find((account) => account.id === item.id)
+    if (target) {
+      target.loginStatus = 'PENDING'
+      target.loginErrorReason = ''
+    }
+  })
+
+  loginRunning.value = true
+  startAccountLoginBatch(payload)
+  message.notifySuccess(`已提交 ${payload.length} 个账号登录`)
+}
+
 /** 导出按钮操作 */
 const handleExport = async () => {
   try {
@@ -439,5 +505,16 @@ onMounted(() => {
   loadGroups()
   loadProxies()
   getList()
+
+  onAccountLoginProgress((result) => {
+    updateAccountLoginState(result)
+  })
+
+  onAccountLoginComplete(async ({ summary, results }) => {
+    results.forEach((item) => updateAccountLoginState(item))
+    loginRunning.value = false
+    await getList()
+    message.notifySuccess(`批量登录完成，成功 ${summary.success}，失败 ${summary.failed}，跳过 ${summary.skipped}`)
+  })
 })
 </script>

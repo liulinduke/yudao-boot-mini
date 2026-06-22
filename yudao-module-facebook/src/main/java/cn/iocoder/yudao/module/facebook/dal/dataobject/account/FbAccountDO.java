@@ -68,6 +68,9 @@ public class FbAccountDO extends TenantBaseDO {
      * 2FA
      */
     private String tfa;
+    private String loginStatus;
+    private String loginErrorReason;
+    private LocalDateTime lastLoginTime;
     /**
      * 邮件信息
      */

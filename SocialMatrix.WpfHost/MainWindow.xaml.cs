@@ -1,5 +1,6 @@
 
 using Microsoft.Web.WebView2.Core;
+using System.Collections.Generic;
 using SocialMatrix.WpfHost.Services;
 using SocialMatrix.WpfHost.Windows;
 using System;
@@ -86,6 +87,7 @@ namespace SocialMatrix.WpfHost
                 };
                 
                 System.Diagnostics.Debug.WriteLine($"✅ 已注册 OnCollectionComplete 事件监听");
+                EnsureAccountLoginWindowEvents();
                 _browserMatrixWindow.Show();
             }
             else

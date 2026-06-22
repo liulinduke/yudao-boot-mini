@@ -1,9 +1,7 @@
 /**
  * WPF CefSharp 桥接工具
- * 仅负责与 WPF BrowserMatrixWindow 通信
  */
 
-// 扩展 Window 接口以支持 CefSharp
 declare global {
   interface Window {
     chrome?: {
@@ -21,6 +19,8 @@ declare global {
                 config?: string,
                 isOperation?: boolean
               ) => void
+              StopBrowser?: (accountId: string) => void
+              StartAccountLoginBatch: (accountsJson: string) => void
             }
           }
         }
@@ -30,19 +30,24 @@ declare global {
   }
 }
 
-export {}
+export interface FbAccountLoginBridgePayload {
+  id: number
+  accountId: string
+  password?: string
+  tfa?: string
+  cookie?: string | null
+}
 
-/**
- * 启动浏览器进行自动化采集
- * @param taskId 任务ID
- * @param accountId 账号ID(fbAccount)
- * @param cookie Cookie字符串
- * @param url 采集URL
- * @param expectedCount 期望采集数量
- * @param taskType 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
- * @param config 配置JSON字符串（可选）
- * @param isOperation 是否为运营任务（true=加组/转帖等，false=采集）
- */
+export interface FbAccountLoginBridgeResult {
+  accountDbId: number
+  accountId: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  loginMode?: 'cookie' | 'credential'
+  errorReason?: string
+  cookieSaved?: boolean
+  windowClosed?: boolean
+}
+
 export function startBrowserCollect(
   taskId: string,
   accountId: string,
@@ -54,87 +59,80 @@ export function startBrowserCollect(
   isOperation: boolean = false
 ): void {
   try {
-    // 检查是否在 WPF 环境中
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
-
-      // 如果有config参数，尝试传递（需要WPF端支持）
       if (config) {
-        console.log(`📋 传递配置到WPF: ${config}`)
-        // 注意：这里需要WPF端的StartBrowser方法支持第7个参数
-        // 如果WPF端尚未更新，会抛出异常，需要在catch中处理
         try {
-          // @ts-ignore - 动态调用以支持可选参数
           bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
         } catch (e) {
-          console.warn('⚠️ WPF端不支持config参数，使用旧版本')
           bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
         }
       } else {
         bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation)
       }
-
-      console.log(`已启动浏览器任务 - 任务ID: ${taskId}, 账号ID: ${accountId}, URL: ${url}, 类型: ${taskType}, 运营: ${isOperation}`)
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
     }
   } catch (error) {
-    console.error('启动浏览器失败:', error)
+    console.error('启动浏览器失败', error)
     throw error
   }
 }
 
-/**
- * 监听采集完成事件（CustomEvent）
- * @param callback 采集完成回调函数
- */
 export function onCollectionComplete(callback: (data: any) => void): void {
   try {
-    console.log('🔍 注册 CustomEvent 监听器...')
-    
     window.addEventListener('fb:collection:complete', (event: any) => {
-      console.log('📨 收到采集完成事件:', event)
-      const { detailId, accountId, data, taskType, timestamp } = event.detail
-      console.log('📊 明细ID(detailId):', detailId)
-      console.log('📊 账号ID:', accountId)
-      console.log('📊 任务类型:', taskType)
-      console.log('📊 数据条数:', Array.isArray(data) ? data.length : 0)
-      
-      // 构建统一的数据格式
-      const formattedData = {
+      const detail = event.detail || {}
+      const results = detail.data ?? detail.results ?? []
+
+      callback({
         type: 'CollectionComplete',
-        detailId: detailId,  // WPF返回的detailId
-        accountId: accountId,
-        taskType: taskType,  // 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
-        results: data,
-        count: Array.isArray(data) ? data.length : 0,
-        timestamp: timestamp
-      }
-      
-      callback(formattedData)
+        detailId: detail.detailId,
+        accountId: detail.accountId,
+        taskType: detail.taskType,
+        results,
+        count: Array.isArray(results) ? results.length : 0,
+        timestamp: detail.timestamp
+      })
     })
-    
-    console.log('✅ 已注册采集完成事件监听')
   } catch (error) {
-    console.error('❌ 注册事件监听失败:', error)
+    console.error('注册采集完成事件失败', error)
   }
 }
 
-/**
- * 关闭指定账号的浏览器
- * @param accountId 账号ID(fbAccount)
- */
 export function closeBrowser(accountId: string): void {
   try {
+    const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
+    if (bridge?.StopBrowser) {
+      bridge.StopBrowser(accountId)
+    } else {
+      console.warn('WPF 桥接未就绪或不支持关闭浏览器')
+    }
+  } catch (error) {
+    console.error('关闭浏览器失败', error)
+    throw error
+  }
+}
+
+export function startAccountLoginBatch(accounts: FbAccountLoginBridgePayload[]): void {
+  try {
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      // TODO: WPF 需要添加 CloseBrowser 方法
-      // window.chrome.webview.hostObjects.sync.wpfBridge.CloseBrowser(accountId)
-      console.log(`请求关闭浏览器 - 账号ID: ${accountId}`)
+      window.chrome.webview.hostObjects.sync.wpfBridge.StartAccountLoginBatch(JSON.stringify(accounts))
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
     }
   } catch (error) {
-    console.error('关闭浏览器失败:', error)
+    console.error('启动批量登录失败', error)
     throw error
   }
+}
+
+export function onAccountLoginProgress(callback: (data: FbAccountLoginBridgeResult) => void): void {
+  window.addEventListener('fb:account-login:progress', (event: any) => callback(event.detail))
+}
+
+export function onAccountLoginComplete(
+  callback: (data: { summary: { total: number; success: number; failed: number; skipped: number }; results: FbAccountLoginBridgeResult[] }) => void
+): void {
+  window.addEventListener('fb:account-login:complete', (event: any) => callback(event.detail))
 }

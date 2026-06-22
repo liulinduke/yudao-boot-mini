@@ -135,4 +135,11 @@ public class FbAccountController {
         return success(true);
     }
 
+    @PutMapping("/update-login-result")
+    @Operation(summary = "更新FB账号登录结果")
+    public CommonResult<Boolean> updateFbAccountLoginResult(@Valid @RequestBody FbAccountLoginResultUpdateReqVO reqVO) {
+        fbAccountService.updateFbAccountLoginResult(reqVO);
+        return success(true);
+    }
+
 }

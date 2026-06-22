@@ -89,4 +89,6 @@ public interface FbAccountService {
      */
     void importFbAccountCookie(FbAccountCookieImportReqVO importReqVO);
 
+    void updateFbAccountLoginResult(FbAccountLoginResultUpdateReqVO reqVO);
+
 }

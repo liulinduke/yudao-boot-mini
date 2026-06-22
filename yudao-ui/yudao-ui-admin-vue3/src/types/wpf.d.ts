@@ -10,10 +10,18 @@ declare global {
           sync?: {
             wpfBridge?: {
               StartBrowser: (
-                accountId: number,
+                taskId: string,
+                accountId: string,
                 cookie: string | null,
                 url: string,
-                expectedCount: number
+                expectedCount: number,
+                taskType?: number,
+                config?: string | null,
+                isOperation?: boolean
+              ) => void
+              StopBrowser?: (accountId: string) => void
+              StartAccountLoginBatch: (
+                accountsJson: string
               ) => void
             }
           }

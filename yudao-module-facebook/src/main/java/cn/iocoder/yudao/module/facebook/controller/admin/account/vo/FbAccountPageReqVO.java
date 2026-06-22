@@ -42,6 +42,8 @@ public class FbAccountPageReqVO extends PageParam {
 
     @Schema(description = "2FA")
     private String tfa;
+    private String loginStatus;
+    private String loginErrorReason;
 
     @Schema(description = "邮件信息")
     private String email;

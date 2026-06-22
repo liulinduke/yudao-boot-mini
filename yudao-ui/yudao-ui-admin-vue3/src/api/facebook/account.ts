@@ -40,6 +40,10 @@ export const FbAccountApi = {
   importFbAccountCookie: (data: FbAccountCookieImportReqVO) => {
     return request.post({ url: '/facebook/fb-account/import-cookie', data })
   },
+
+  updateFbAccountLoginResult: (data: FbAccountLoginResultUpdateReqVO) => {
+    return request.put({ url: '/facebook/fb-account/update-login-result', data })
+  },
 }
 
 export interface FbAccountPageReqVO {
@@ -55,6 +59,9 @@ export interface FbAccountPageReqVO {
   cookie?: string
   userAgent?: string
   tfa?: string
+  loginStatus?: string
+  loginErrorReason?: string
+  lastLoginTime?: string
   email?: string
   emailPassword?: string
   deviceId?: string
@@ -79,6 +86,9 @@ export interface FbAccount {
   cookie?: string
   userAgent?: string
   tfa?: string
+  loginStatus?: string
+  loginErrorReason?: string
+  lastLoginTime?: string
   email?: string
   emailPassword?: string
   deviceId?: string
@@ -108,6 +118,13 @@ export interface FbAccountCookieImportReqVO {
   groupId?: number | null
   proxyId?: number | null
   useSessionCookie?: boolean
+}
+
+export interface FbAccountLoginResultUpdateReqVO {
+  id: number
+  loginStatus: string
+  loginErrorReason?: string
+  cookie?: string
 }
 
 export interface FbAccountImportPreviewVO {
