@@ -37,6 +37,7 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Override
     public Long createFbAccount(FbAccountSaveReqVO createReqVO) {
         FbAccountDO fbAccount = BeanUtils.toBean(createReqVO, FbAccountDO.class);
+        handleEmptyCookie(fbAccount);
         fbAccountMapper.insert(fbAccount);
         return fbAccount.getId();
     }
@@ -45,6 +46,7 @@ public class FbAccountServiceImpl implements FbAccountService {
     public void updateFbAccount(FbAccountSaveReqVO updateReqVO) {
         validateFbAccountExists(updateReqVO.getId());
         FbAccountDO updateObj = BeanUtils.toBean(updateReqVO, FbAccountDO.class);
+        handleEmptyCookie(updateObj);
         fbAccountMapper.updateById(updateObj);
     }
 
@@ -133,6 +135,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             account.setStatus(true);
             account.setCreateTime(now);
             account.setUpdateTime(now);
+            handleEmptyCookie(account);
 
             fbAccountMapper.insert(account);
         }
@@ -206,6 +209,12 @@ public class FbAccountServiceImpl implements FbAccountService {
         }
 
         return null;
+    }
+
+    private void handleEmptyCookie(FbAccountDO account) {
+        if (StrUtil.isEmpty(account.getCookie())) {
+            account.setCookie("[]");
+        }
     }
 
 }

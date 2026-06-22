@@ -24,12 +24,14 @@ namespace SocialMatrix.WpfHost.Windows
             string? LoginMode = null,
             string? ErrorReason = null,
             bool CookieSaved = false,
-            bool WindowClosed = false);
+            bool WindowClosed = false,
+            [property: JsonIgnore] string? CookieJson = null);
 
         private readonly Queue<AccountLoginRequest> _accountLoginQueue = new();
         private readonly List<AccountLoginResult> _accountLoginResults = new();
         private int _accountLoginRunningCount = 0;
         private bool _accountLoginBatchActive = false;
+        private bool _accountLoginCloseAfterEachAccount = false;
         private readonly object _accountLoginLock = new();
 
         public event Action<string>? OnAccountLoginProgress;
@@ -47,6 +49,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
                 _accountLoginRunningCount = 0;
                 _accountLoginBatchActive = true;
+                _accountLoginCloseAfterEachAccount = accounts.Count > _maxConcurrentBrowsers;
             }
 
             _ = PumpAccountLoginQueueAsync();
@@ -87,6 +90,13 @@ namespace SocialMatrix.WpfHost.Windows
                         results = _accountLoginResults
                     });
                     OnAccountLoginBatchComplete?.Invoke(payload);
+                    if (_accountLoginCloseAfterEachAccount && GetActiveBrowserCount() == 0)
+                    {
+                        Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            Close();
+                        }));
+                    }
                     break;
                 }
 
@@ -139,14 +149,17 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             bool windowClosed = false;
-            Application.Current.Dispatcher.Invoke(() =>
+            if (_accountLoginCloseAfterEachAccount)
             {
-                CloseBrowser(account.AccountId);
-                windowClosed = true;
-            });
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    CloseBrowser(account.AccountId);
+                    windowClosed = true;
+                });
+            }
             result = result with { WindowClosed = windowClosed };
 
-            await PersistAccountLoginResultAsync(result);
+            await PersistAccountLoginResultAsync(result, result.CookieJson);
             await EmitAccountLoginProgress(result);
 
             lock (_accountLoginLock)
@@ -164,13 +177,11 @@ namespace SocialMatrix.WpfHost.Windows
             bool isLoginPage = await CheckIfLoginPage(browser);
             if (!isLoginPage)
             {
+                await DismissPostLoginOverlayAsync(browser);
                 var cookieJson = await ExportFacebookCookiesAsync(browser);
                 if (!string.IsNullOrWhiteSpace(cookieJson))
                 {
-                    await PersistAccountLoginResultAsync(
-                        new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true),
-                        cookieJson);
-                    return new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true);
+                    return new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true, CookieJson: cookieJson);
                 }
             }
 
@@ -194,13 +205,11 @@ namespace SocialMatrix.WpfHost.Windows
             var authState = await DetectFacebookAuthStateAsync(browser);
             if (authState == "home")
             {
+                await DismissPostLoginOverlayAsync(browser);
                 var cookieJson = await ExportFacebookCookiesAsync(browser);
                 if (!string.IsNullOrWhiteSpace(cookieJson))
                 {
-                    await PersistAccountLoginResultAsync(
-                        new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true),
-                        cookieJson);
-                    return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true);
+                    return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true, CookieJson: cookieJson);
                 }
                 return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "Login succeeded but cookie was not captured");
             }
@@ -235,13 +244,11 @@ namespace SocialMatrix.WpfHost.Windows
 
                 if (authState == "home")
                 {
+                    await DismissPostLoginOverlayAsync(browser);
                     var cookieJson = await ExportFacebookCookiesAsync(browser);
                     if (!string.IsNullOrWhiteSpace(cookieJson))
                     {
-                        await PersistAccountLoginResultAsync(
-                            new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true),
-                            cookieJson);
-                        return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true);
+                        return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true, CookieJson: cookieJson);
                     }
                     return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA passed but cookie was not captured");
                 }
@@ -262,7 +269,7 @@ namespace SocialMatrix.WpfHost.Windows
                     const hasSelector = (selectors) => selectors.some(selector => document.querySelector(selector));
                     const hasText = (words) => words.some(word => bodyText.includes(word));
 
-                    if (url.includes('/two_factor/remember_browser') || hasText(['remember this browser', 'save browser'])) return 'remember_browser';
+                    if (url.includes('/two_factor/remember_browser')) return 'remember_browser';
                     if (
                         url.includes('/two_step_verification/two_factor') ||
                         url.includes('/checkpoint/1501092823525282') ||
@@ -274,8 +281,7 @@ namespace SocialMatrix.WpfHost.Windows
                             'input[autocomplete=""one-time-code""]',
                             'input[inputmode=""numeric""]',
                             'input[aria-label*=""code"" i]'
-                        ]) ||
-                        hasText(['two-factor authentication', 'two factor authentication', 'authentication code', 'login code', 'enter code', '输入验证码', '两步验证'])
+                        ])
                     ) return 'two_factor';
                     if (url.includes('/recover/code')) return 'recover_code';
                     if (url.includes('/auth_platform/codesubmit') || hasText(['check your email', 'email code', 'sent to your email'])) return 'email_verify';
@@ -306,6 +312,61 @@ namespace SocialMatrix.WpfHost.Windows
                 : "unknown";
         }
 
+        private async Task DismissPostLoginOverlayAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                await browser.EvaluateScriptAsync(@"
+                    new Promise(function(resolve) {
+                        try {
+                            const fireKey = (type) => {
+                                document.dispatchEvent(new KeyboardEvent(type, {
+                                    key: 'Escape',
+                                    code: 'Escape',
+                                    keyCode: 27,
+                                    which: 27,
+                                    bubbles: true,
+                                    cancelable: true
+                                }));
+                            };
+                            const clickPoint = (x, y) => {
+                                const target = document.elementFromPoint(x, y) || document.body || document.documentElement;
+                                const opts = {
+                                    view: window,
+                                    bubbles: true,
+                                    cancelable: true,
+                                    clientX: x,
+                                    clientY: y
+                                };
+                                target.dispatchEvent(new MouseEvent('mousemove', opts));
+                                target.dispatchEvent(new MouseEvent('mousedown', opts));
+                                target.dispatchEvent(new MouseEvent('mouseup', opts));
+                                target.dispatchEvent(new MouseEvent('click', opts));
+                            };
+
+                            fireKey('keydown');
+                            fireKey('keyup');
+
+                            setTimeout(() => {
+                                const x = Math.floor(window.innerWidth * 0.52);
+                                const y = Math.floor(Math.min(window.innerHeight - 36, window.innerHeight * 0.78));
+                                clickPoint(x, y);
+                                resolve(true);
+                            }, 250);
+                        } catch (e) {
+                            console.warn('[登录] 清理登录后浮层失败:', e);
+                            resolve(false);
+                        }
+                    });
+                ");
+                await Task.Delay(600);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Post-login overlay dismiss failed: {ex.Message}");
+            }
+        }
+
         private static string MapAuthStateToReason(string authState)
         {
             return authState switch
@@ -322,10 +383,94 @@ namespace SocialMatrix.WpfHost.Windows
             };
         }
 
+        private static string BuildLoginHumanHelpers()
+        {
+            return @"
+                    const randomDelay = (min, max) => new Promise(resolve => {
+                        const delay = Math.floor(min + Math.random() * (max - min));
+                        setTimeout(resolve, delay);
+                    });
+                    const isVisible = (el) => !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                    const setNativeValue = (el, value) => {
+                        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                        const tracker = el._valueTracker;
+                        if (tracker) tracker.setValue(el.value || '');
+                        setter ? setter.call(el, value) : (el.value = value);
+                    };
+                    const fireInputEvents = (el, char) => {
+                        const key = char || '0';
+                        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key }));
+                        try {
+                            el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: char || '' }));
+                        } catch {
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    };
+                    const humanTypeInput = async (el, text) => {
+                        if (!el) return false;
+                        el.scrollIntoView({ block: 'center', inline: 'center' });
+                        await randomDelay(180, 420);
+                        el.focus();
+                        await randomDelay(120, 260);
+                        setNativeValue(el, '');
+                        fireInputEvents(el, '');
+                        for (const ch of String(text || '')) {
+                            setNativeValue(el, (el.value || '') + ch);
+                            fireInputEvents(el, ch);
+                            await randomDelay(70, 190);
+                        }
+                        await randomDelay(180, 420);
+                        return true;
+                    };
+                    const humanClick = async (el) => {
+                        if (!el) return false;
+                        el.scrollIntoView({ block: 'center', inline: 'center' });
+                        await randomDelay(180, 420);
+                        const rect = el.getBoundingClientRect();
+                        const targetX = rect.left + rect.width * (0.35 + Math.random() * 0.3);
+                        const targetY = rect.top + rect.height * (0.35 + Math.random() * 0.3);
+                        const startX = Math.random() * window.innerWidth;
+                        const startY = Math.random() * window.innerHeight;
+                        const controlX = (startX + targetX) / 2 + (Math.random() - 0.5) * 180;
+                        const controlY = (startY + targetY) / 2 + (Math.random() - 0.5) * 180;
+                        const steps = 12 + Math.floor(Math.random() * 10);
+                        for (let i = 0; i <= steps; i++) {
+                            const t = i / steps;
+                            const x = Math.pow(1 - t, 2) * startX + 2 * (1 - t) * t * controlX + Math.pow(t, 2) * targetX;
+                            const y = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * controlY + Math.pow(t, 2) * targetY;
+                            document.dispatchEvent(new MouseEvent('mousemove', {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true,
+                                clientX: x + (Math.random() - 0.5) * 3,
+                                clientY: y + (Math.random() - 0.5) * 3
+                            }));
+                            await randomDelay(18, 55);
+                        }
+                        await randomDelay(80, 180);
+                        const opts = { view: window, bubbles: true, cancelable: true, clientX: targetX, clientY: targetY };
+                        el.dispatchEvent(new MouseEvent('mouseover', opts));
+                        el.dispatchEvent(new MouseEvent('mousemove', opts));
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        await randomDelay(70, 160);
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.dispatchEvent(new MouseEvent('click', opts));
+                        if (typeof el.click === 'function') el.click();
+                        await randomDelay(300, 700);
+                        return true;
+                    };
+            ";
+        }
+
         private static string BuildCredentialLoginScript(string accountId, string password)
         {
             return $@"
-                (function() {{
+                new Promise(function(resolve) {{
+                (async function() {{
+                    {BuildLoginHumanHelpers()}
                     const bySelectors = (selectors) => {{
                         for (const selector of selectors) {{
                             const el = document.querySelector(selector);
@@ -334,13 +479,6 @@ namespace SocialMatrix.WpfHost.Windows
                         return null;
                     }};
                     const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                    const setNativeValue = (el, value) => {{
-                        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-                        setter ? setter.call(el, value) : (el.value = value);
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    }};
                     const emailInput = bySelectors([
                         'input[name=""email""]',
                         'input#email',
@@ -374,38 +512,32 @@ namespace SocialMatrix.WpfHost.Windows
                             return ['log in', 'login', '登录'].includes(text);
                         }});
                     if (!emailInput || !passInput || !loginButton) {{
-                        return false;
+                        resolve(false);
+                        return;
                     }}
-                    emailInput.focus();
-                    setNativeValue(emailInput, {JsonConvert.SerializeObject(accountId)});
-                    passInput.focus();
-                    setNativeValue(passInput, {JsonConvert.SerializeObject(password)});
-                    loginButton.click();
-                    return true;
-                }})();
+                    await humanClick(emailInput);
+                    await humanTypeInput(emailInput, {JsonConvert.SerializeObject(accountId)});
+                    await randomDelay(250, 650);
+                    await humanClick(passInput);
+                    await humanTypeInput(passInput, {JsonConvert.SerializeObject(password)});
+                    await randomDelay(400, 900);
+                    await humanClick(loginButton);
+                    resolve(true);
+                }})().catch(error => {{
+                    console.error('[登录] 模拟人登录脚本失败:', error);
+                    resolve(false);
+                }});
+                }});
             ";
         }
 
         private static string BuildTwoFactorSubmitScript(string code)
         {
             return $@"
-                (function() {{
-                    const bySelectors = (selectors) => {{
-                        for (const selector of selectors) {{
-                            const el = document.querySelector(selector);
-                            if (el) return el;
-                        }}
-                        return null;
-                    }};
+                new Promise(function(resolve) {{
+                (async function() {{
+                    {BuildLoginHumanHelpers()}
                     const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                    const setNativeValue = (el, value) => {{
-                        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-                        setter ? setter.call(el, value) : (el.value = value);
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        el.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true, key: '0' }}));
-                    }};
                     const candidates = [
                         'input[name=""approvals_code""]',
                         'input[name=""verification_code""]',
@@ -420,54 +552,89 @@ namespace SocialMatrix.WpfHost.Windows
                         'form input:not([type])'
                     ];
                     const visibleInputs = [...document.querySelectorAll(candidates.join(','))]
-                        .filter(el => el.offsetParent !== null && !el.disabled && el.type !== 'hidden');
+                        .filter(el => isVisible(el) && !el.disabled && el.type !== 'hidden' && el.type !== 'submit');
                     const input = visibleInputs.find(el => {{
                         const max = Number(el.getAttribute('maxlength') || 0);
                         const label = norm(el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id);
-                        return max === 0 || max >= 4 || label.includes('code') || label.includes('验证码');
+                        return max === 0 || max >= 4 || label.includes('code') || label.includes('验证码') || label.includes('驗證碼');
                     }}) || visibleInputs[0];
-                    const submit = bySelectors([
-                        'button[type=""submit""]',
-                        'input[type=""submit""]',
-                        'div[role=""button""][aria-label*=""Continue"" i]',
-                        'div[role=""button""][aria-label*=""Submit"" i]',
-                        'div[role=""button""][aria-label*=""Next"" i]',
-                        'div[role=""button""][aria-label*=""继续""]',
-                        'div[role=""button""][aria-label*=""提交""]',
-                        'div[role=""button""][aria-label*=""下一步""]'
-                    ]) || [...document.querySelectorAll('button, [role=""button""], input[type=""submit""]')]
-                        .filter(el => el.offsetParent !== null && !el.disabled && el.getAttribute('aria-disabled') !== 'true')
-                        .find(el => {{
-                            const text = norm(el.innerText || el.textContent || el.value || el.getAttribute('aria-label'));
-                            return ['continue', 'submit', 'next', 'confirm', '继续', '提交', '下一步', '确认'].includes(text);
-                        }});
-                    if (!input || !submit) {{
-                        return false;
+                    const disabledButtonsBeforeInput = [...document.querySelectorAll('[role=""button""]')]
+                        .filter(el => isVisible(el) && el.getAttribute('aria-disabled') === 'true');
+
+                    const clickSubmit = () => {{
+                        const becameEnabled = disabledButtonsBeforeInput.find(el =>
+                            isVisible(el) && el.getAttribute('aria-disabled') !== 'true'
+                        );
+                        if (becameEnabled) {{
+                            return becameEnabled;
+                        }}
+                        const form = input?.closest('form');
+                        const submit = form?.querySelector('button[type=""submit""], input[type=""submit""]');
+                        if (submit) {{
+                            return submit;
+                        }}
+                        return null;
+                    }};
+
+                    if (!input) {{
+                        resolve(false);
+                        return;
                     }}
-                    input.focus();
-                    setNativeValue(input, {JsonConvert.SerializeObject(code)});
-                    submit.click();
-                    return true;
-                }})();
+                    await humanClick(input);
+                    await humanTypeInput(input, {JsonConvert.SerializeObject(code)});
+                    for (let tries = 0; tries < 16; tries++) {{
+                        await randomDelay(220, 380);
+                        const target = clickSubmit();
+                        if (target && (tries >= 4 || target.getAttribute('role') === 'button')) {{
+                            await humanClick(target);
+                            resolve(true);
+                            return;
+                        }}
+                    }}
+                    const form = input.closest('form');
+                    if (form?.requestSubmit) {{
+                        form.requestSubmit();
+                        resolve(true);
+                        return;
+                    }}
+                    resolve(false);
+                }})().catch(error => {{
+                    console.error('[登录] 模拟人2FA脚本失败:', error);
+                    resolve(false);
+                }});
+                }});
             ";
         }
 
         private static string BuildRememberBrowserScript()
         {
-            return @"
-                (function() {
-                    const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                    const submit = document.querySelector('button[type=""submit""], input[type=""submit""], div[role=""button""][aria-label*=""Continue"" i], div[role=""button""][aria-label*=""继续""]')
-                        || [...document.querySelectorAll('button, [role=""button""], input[type=""submit""]')]
-                            .filter(el => el.offsetParent !== null && !el.disabled && el.getAttribute('aria-disabled') !== 'true')
-                            .find(el => {
-                                const text = norm(el.innerText || el.textContent || el.value || el.getAttribute('aria-label'));
-                                return ['continue', 'ok', 'yes', 'save', 'trust this device', '继续', '确定', '保存'].includes(text);
-                            });
-                    if (!submit) return false;
-                    submit.click();
-                    return true;
-                })();
+            return $@"
+                new Promise(function(resolve) {{
+                (async function() {{
+                    {BuildLoginHumanHelpers()}
+                    const primaryButtons = [...document.querySelectorAll('[role=""button""]')]
+                        .map(el => ({{ el, rect: el.getBoundingClientRect() }}))
+                        .filter(item =>
+                            isVisible(item.el) &&
+                            item.el.getAttribute('aria-disabled') !== 'true' &&
+                            item.rect.width >= 160 &&
+                            item.rect.height >= 32 &&
+                            item.rect.top >= 100
+                        )
+                        .sort((a, b) => (a.rect.top - b.rect.top) || (a.rect.left - b.rect.left));
+
+                    const submit = primaryButtons[0]?.el;
+                    if (!submit) {{
+                        resolve(false);
+                        return;
+                    }}
+                    await humanClick(submit);
+                    resolve(true);
+                }})().catch(error => {{
+                    console.error('[登录] 模拟人信任设备脚本失败:', error);
+                    resolve(false);
+                }});
+                }});
             ";
         }
 
@@ -493,29 +660,72 @@ namespace SocialMatrix.WpfHost.Windows
 
         private async Task<string?> ExportFacebookCookiesAsync(ChromiumWebBrowser browser)
         {
-            var result = await browser.EvaluateScriptAsync(@"
-                (function() {
-                    return JSON.stringify(document.cookie.split(';').map(item => {
-                        const part = item.trim();
-                        const idx = part.indexOf('=');
-                        if (idx <= 0) return null;
-                        return { name: part.slice(0, idx), value: part.slice(idx + 1), domain: '.facebook.com', path: '/' };
-                    }).filter(Boolean));
-                })();
-            ");
-
-            if (!result.Success || result.Result == null)
+            var manager = browser.RequestContext.GetCookieManager(null);
+            if (manager == null)
             {
                 return null;
             }
 
-            var json = result.Result.ToString();
-            if (string.IsNullOrWhiteSpace(json))
+            var visitor = new FacebookCookieCollector();
+            if (!manager.VisitAllCookies(visitor))
             {
                 return null;
             }
 
-            return json.Contains("c_user") ? json : null;
+            var cookies = await visitor.WaitAsync(TimeSpan.FromSeconds(5));
+            var facebookCookies = cookies
+                .Where(cookie =>
+                    !string.IsNullOrWhiteSpace(cookie.Domain) &&
+                    cookie.Domain.Contains("facebook.com", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (!facebookCookies.Any(cookie => cookie.Name == "c_user"))
+            {
+                return null;
+            }
+
+            var payload = facebookCookies.Select(cookie => new
+            {
+                name = cookie.Name,
+                value = cookie.Value,
+                domain = cookie.Domain,
+                path = string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+                secure = cookie.Secure,
+                httpOnly = cookie.HttpOnly,
+                expirationDate = cookie.Expires.HasValue
+                    ? new DateTimeOffset(DateTime.SpecifyKind(cookie.Expires.Value, DateTimeKind.Utc)).ToUnixTimeSeconds()
+                    : (long?)null,
+                sameSite = cookie.SameSite.ToString()
+            });
+
+            return JsonConvert.SerializeObject(payload);
+        }
+
+        private sealed class FacebookCookieCollector : ICookieVisitor
+        {
+            private readonly List<CefSharp.Cookie> _cookies = new();
+            private readonly TaskCompletionSource<List<CefSharp.Cookie>> _completion = new();
+
+            public bool Visit(CefSharp.Cookie cookie, int count, int total, ref bool deleteCookie)
+            {
+                _cookies.Add(cookie);
+                if (count >= total - 1)
+                {
+                    _completion.TrySetResult(_cookies);
+                }
+                return true;
+            }
+
+            public void Dispose()
+            {
+                _completion.TrySetResult(_cookies);
+            }
+
+            public async Task<List<CefSharp.Cookie>> WaitAsync(TimeSpan timeout)
+            {
+                var completed = await Task.WhenAny(_completion.Task, Task.Delay(timeout));
+                return completed == _completion.Task ? await _completion.Task : _cookies;
+            }
         }
 
         private async Task ClearFacebookCookiesAsync(ChromiumWebBrowser browser)
