@@ -47,6 +47,7 @@ public interface FbCollectUserMapper extends BaseMapperX<FbCollectUserDO> {
                 .eqIfPresent(FbCollectUserDO::getEducation, reqVO.getEducation())
                 .betweenIfPresent(FbCollectUserDO::getLastPostTime, reqVO.getLastPostTime())
                 .eqIfPresent(FbCollectUserDO::getLastPostSummary, reqVO.getLastPostSummary())
+                .eqIfPresent(FbCollectUserDO::getDeepCollected, reqVO.getDeepCollected())
                 .eqIfPresent(FbCollectUserDO::getGroupId, reqVO.getGroupId())
                 .eqIfPresent(FbCollectUserDO::getFromResource, reqVO.getFromResource())
                 .eqIfPresent(FbCollectUserDO::getConfig, reqVO.getConfig())

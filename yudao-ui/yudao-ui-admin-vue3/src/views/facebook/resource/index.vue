@@ -36,6 +36,17 @@
               class="!w-200px"
             />
           </el-form-item>
+          <el-form-item label="深度采集" prop="deepCollected">
+            <el-select
+              v-model="userQueryParams.deepCollected"
+              placeholder="是否深度采集"
+              clearable
+              class="!w-150px"
+            >
+              <el-option label="已采集" :value="true" />
+              <el-option label="未采集" :value="false" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="同步时间" prop="syncTime">
             <el-date-picker
               v-model="userQueryParams.syncTime"
@@ -122,6 +133,24 @@
           <el-table-column label="好友数" align="center" prop="friendCount" width="100" />
           <el-table-column label="粉丝数" align="center" prop="followerCount" width="100" />
           <el-table-column label="关注数" align="center" prop="followingCount" width="100" />
+          <el-table-column label="深度采集" align="center" prop="deepCollected" width="100">
+            <template #default="scope">
+              <el-tag :type="scope.row.deepCollected ? 'success' : 'info'">
+                {{ scope.row.deepCollected ? '已采集' : '未采集' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="电话" align="center" prop="phonenumber" width="130" />
+          <el-table-column label="WhatsApp" align="center" prop="whatsapp" width="130" />
+          <el-table-column label="Line" align="center" prop="line" width="120" />
+          <el-table-column label="邮箱" align="center" prop="email" width="180" />
+          <el-table-column label="网站" align="center" prop="website" width="180" show-overflow-tooltip />
+          <el-table-column label="类别" align="center" prop="category" width="140" show-overflow-tooltip />
+          <el-table-column label="简介/状态" align="center" prop="profileStatus" width="180" show-overflow-tooltip />
+          <el-table-column label="所在地" align="center" prop="city" width="120" />
+          <el-table-column label="居住地" align="center" prop="location" width="120" />
+          <el-table-column label="性别" align="center" prop="gender" width="90" />
+          <el-table-column label="最近帖子摘要" align="center" prop="lastPostSummary" width="220" show-overflow-tooltip />
           <el-table-column label="最近发帖" align="center" prop="lastPostTime" width="160">
             <template #default="scope">
               {{ formatDate(scope.row.lastPostTime) }}
@@ -499,6 +528,7 @@ const userQueryParams = reactive({
   pageSize: 10,
   userName: undefined,
   fromResource: undefined,
+  deepCollected: undefined,
   syncTime: []
 })
 

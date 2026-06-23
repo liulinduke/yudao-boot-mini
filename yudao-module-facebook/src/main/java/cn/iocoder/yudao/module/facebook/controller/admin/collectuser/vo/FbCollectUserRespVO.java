@@ -42,6 +42,14 @@ public class FbCollectUserRespVO {
     @ExcelProperty("用户名称")
     private String userName;
 
+    @Schema(description = "头像URL")
+    @ExcelProperty("头像URL")
+    private String avatar;
+
+    @Schema(description = "账户类别")
+    @ExcelProperty("账户类别")
+    private String category;
+
     @Schema(description = "主页链接", example = "https://www.iocoder.cn")
     @ExcelProperty("主页链接")
     private String url;
@@ -131,6 +139,10 @@ public class FbCollectUserRespVO {
     @ExcelProperty("最近帖子摘要")
     private String lastPostSummary;
 
+    @Schema(description = "是否已深度采集")
+    @ExcelProperty("是否已深度采集")
+    private Boolean deepCollected;
+
     @Schema(description = "分组ID", example = "2232")
     @ExcelProperty("分组ID")
     private Long groupId;
@@ -151,4 +163,4 @@ public class FbCollectUserRespVO {
     @ExcelProperty("创建时间")
     private LocalDateTime createTime;
 
-}
+}

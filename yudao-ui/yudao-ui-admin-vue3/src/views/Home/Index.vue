@@ -323,7 +323,7 @@ const getShortcut = async () => {
       color: '#ff6b6b'
     },
     {
-      name: 'AI 大模型',
+      name: 'AI 工作台',
       icon: 'tabler:ai',
       url: '/ai/chat',
       color: '#7c3aed'

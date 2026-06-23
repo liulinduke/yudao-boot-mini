@@ -10,6 +10,7 @@ export interface FbCollectUser {
   fbAccount?: string // FB账号
   fbUserId: string // Facebook用户ID
   userName: string // 用户名称
+  avatar?: string // 头像URL
   url: string // 主页链接
   dataType: number // 数据类型(0个人 1公共)
   followers?: number // 粉丝数
@@ -27,11 +28,13 @@ export interface FbCollectUser {
   profileStatus: string // 签名/状态
   language: string // 语言
   gender: string // 性别
+  category?: string // 账户类别
   relationship: string // 婚姻状况
   workExperience: string // 工作经历
   education: string // 学历
   lastPostTime: string | Dayjs // 最近发帖时间
   lastPostSummary: string // 最近帖子摘要
+  deepCollected?: boolean // 是否已深度采集
   groupId: number // 分组ID
   fromResource: string // 数据来源
   config: string // 配置信息

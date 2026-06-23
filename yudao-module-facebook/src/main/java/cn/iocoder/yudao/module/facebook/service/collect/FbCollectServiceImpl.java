@@ -10,8 +10,10 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 import cn.iocoder.yudao.module.facebook.controller.admin.collect.vo.*;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
@@ -33,15 +35,23 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 @Validated
 public class FbCollectServiceImpl implements FbCollectService {
 
+    private static final int DEEP_COLLECT_TASK_TYPE = 12;
+
     @Resource
     private FbCollectMapper fbCollectMapper;
     
     @Resource
     private FbCollectDetailMapper fbCollectDetailMapper;
 
+    @Resource
+    private FbAccountMapper fbAccountMapper;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FbCollectCreateRespVO createFbCollect(FbCollectSaveReqVO createReqVO) {
+        if (createReqVO.getTaskType() != null && createReqVO.getTaskType() == DEEP_COLLECT_TASK_TYPE) {
+            return createDeepCollect(createReqVO);
+        }
         // 1. 解析URL列表
         List<String> urls = Arrays.stream(createReqVO.getSearchUrl().split("\\n"))
             .filter(url -> url.trim().length() > 0)
@@ -108,6 +118,65 @@ public class FbCollectServiceImpl implements FbCollectService {
         }
             
         // 6. 返回所有明细ID列表
+        return new FbCollectCreateRespVO(task.getId(), detailInfos);
+    }
+
+    private FbCollectCreateRespVO createDeepCollect(FbCollectSaveReqVO createReqVO) {
+        List<String> urls = Arrays.stream(createReqVO.getSearchUrl().split("\\r?\\n"))
+                .map(String::trim)
+                .filter(url -> url.length() > 0)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(urls)) {
+            throw exception(FB_COLLECT_NOT_EXISTS);
+        }
+
+        List<Long> accountIds = createReqVO.getAccountIds();
+        if (CollUtil.isEmpty(accountIds)) {
+            throw exception(FB_COLLECT_NOT_EXISTS);
+        }
+
+        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(accountIds);
+        Map<Long, String> accountMap = accountList.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
+
+        FbCollectDO task = BeanUtils.toBean(createReqVO, FbCollectDO.class);
+        task.setTaskType(DEEP_COLLECT_TASK_TYPE);
+        task.setSearchType(0);
+        task.setSearchUrl(String.join("\n", urls));
+        task.setExpectedCount(1);
+        task.setTotalExpectedCount(urls.size());
+        task.setTotalCollectedCount(0);
+        task.setAccountCount(accountIds.size());
+        task.setUrlCount(urls.size());
+        task.setStatus(1);
+        task.setStartTime(LocalDateTime.now());
+        fbCollectMapper.insert(task);
+
+        List<FbCollectCreateRespVO.DetailInfo> detailInfos = new ArrayList<>();
+        for (int i = 0; i < urls.size(); i++) {
+            Long accountId = accountIds.get(i % accountIds.size());
+            String fbAccount = accountMap.get(accountId);
+            if (fbAccount == null || fbAccount.trim().isEmpty()) {
+                fbAccount = "account_" + accountId;
+            }
+
+            FbCollectDetailDO detail = new FbCollectDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setFbAccount(fbAccount);
+            detail.setSearchUrl(urls.get(i));
+            detail.setExpectedCount(1);
+            detail.setCollectedCount(0);
+            detail.setStatus(0);
+            fbCollectDetailMapper.insert(detail);
+
+            detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
+                    detail.getId(),
+                    fbAccount,
+                    urls.get(i)
+            ));
+        }
+
         return new FbCollectCreateRespVO(task.getId(), detailInfos);
     }
 

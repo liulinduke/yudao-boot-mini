@@ -110,6 +110,9 @@ public class FbCollectUserSaveReqVO {
     @Schema(description = "最近帖子摘要")
     private String lastPostSummary;
 
+    @Schema(description = "是否已深度采集")
+    private Boolean deepCollected;
+
     @Schema(description = "分组ID", example = "2232")
     private Long groupId;
 

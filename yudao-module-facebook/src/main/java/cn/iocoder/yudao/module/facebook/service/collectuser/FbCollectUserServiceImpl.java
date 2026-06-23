@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.facebook.service.collectuser;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
@@ -36,6 +38,8 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 @Service
 @Validated
 public class FbCollectUserServiceImpl implements FbCollectUserService {
+
+    private static final int DEEP_COLLECT_TASK_TYPE = 12;
 
     @Resource
     private FbCollectUserMapper fbCollectUserMapper;
@@ -108,6 +112,9 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
             log.warn("明细 {} 不存在", detailId);
             return 0;
         }
+        FbCollectDO task = fbCollectMapper.selectById(detail.getTaskId());
+        boolean deepCollectTask = task != null && task.getTaskType() != null
+                && task.getTaskType() == DEEP_COLLECT_TASK_TYPE;
         
         int count = 0;
         if (CollUtil.isNotEmpty(results)) {
@@ -138,10 +145,16 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
                 if (result.getProfileStatus() == null && result.getSnippet() != null) {
                     fbCollectUser.setProfileStatus(result.getSnippet());
                 }
-                
-                // 清空id字段,让数据库自动生成主键
-                fbCollectUser.setId(null);
-                fbCollectUserMapper.insert(fbCollectUser);
+
+                if (deepCollectTask) {
+                    fbCollectUser.setDeepCollected(true);
+                    fbCollectUser.setSyncTime(LocalDateTime.now());
+                    upsertDeepCollectedUser(fbCollectUser);
+                } else {
+                    // 清空id字段,让数据库自动生成主键
+                    fbCollectUser.setId(null);
+                    fbCollectUserMapper.insert(fbCollectUser);
+                }
                 count++;
             }
         }
@@ -153,6 +166,44 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         updateDetailAndMainTableAsync(detailId);
         
         return count;
+    }
+
+    private void upsertDeepCollectedUser(FbCollectUserDO incoming) {
+        FbCollectUserDO existing = findExistingUser(incoming);
+        if (existing == null) {
+            incoming.setId(null);
+            fbCollectUserMapper.insert(incoming);
+            return;
+        }
+        incoming.setId(existing.getId());
+        if (StrUtil.isBlank(incoming.getFbUserId())) {
+            incoming.setFbUserId(existing.getFbUserId());
+        }
+        if (StrUtil.isBlank(incoming.getUrl())) {
+            incoming.setUrl(existing.getUrl());
+        }
+        if (StrUtil.isBlank(incoming.getUserName())) {
+            incoming.setUserName(existing.getUserName());
+        }
+        fbCollectUserMapper.updateById(incoming);
+    }
+
+    private FbCollectUserDO findExistingUser(FbCollectUserDO incoming) {
+        if (StrUtil.isNotBlank(incoming.getFbUserId())) {
+            List<FbCollectUserDO> existingList = fbCollectUserMapper.selectList(new LambdaQueryWrapperX<FbCollectUserDO>()
+                    .eq(FbCollectUserDO::getFbUserId, incoming.getFbUserId()));
+            if (CollUtil.isNotEmpty(existingList)) {
+                return existingList.get(0);
+            }
+        }
+        if (StrUtil.isNotBlank(incoming.getUrl())) {
+            List<FbCollectUserDO> existingList = fbCollectUserMapper.selectList(new LambdaQueryWrapperX<FbCollectUserDO>()
+                    .eq(FbCollectUserDO::getUrl, incoming.getUrl()));
+            if (CollUtil.isNotEmpty(existingList)) {
+                return existingList.get(0);
+            }
+        }
+        return null;
     }
     
     /**

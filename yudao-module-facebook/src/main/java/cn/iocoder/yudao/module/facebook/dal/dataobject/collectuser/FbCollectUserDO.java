@@ -152,6 +152,10 @@ public class FbCollectUserDO extends BaseDO {
      */
     private String lastPostSummary;
     /**
+     * 是否已深度采集
+     */
+    private Boolean deepCollected;
+    /**
      * 分组ID
      */
     private Long groupId;

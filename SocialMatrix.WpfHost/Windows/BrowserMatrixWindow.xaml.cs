@@ -1362,6 +1362,11 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine("✅ 进入帖子评论点赞采集分支");
                 return GenerateCommentLikeCollectScript(expectedCount, config);
             }
+            else if (taskType == 12) // 深度采集
+            {
+                System.Diagnostics.Debug.WriteLine("✅ 进入深度采集分支");
+                return GenerateDeepProfileCollectScript(accountId, config);
+            }
             else // 默认主页采集
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ 使用默认主页采集分支 (taskType={taskType})");

@@ -50,7 +50,7 @@
                 class="!w-140px"
               >
                 <el-option
-                  v-for="dict in getIntDictOptions(DICT_TYPE.FB_COLLECT_TYPE)"
+                  v-for="dict in collectTypeOptions"
                   :key="dict.value"
                   :label="dict.label"
                   :value="dict.value"
@@ -121,7 +121,10 @@
             <el-table-column type="selection" width="55" />
             <el-table-column label="任务类型" align="center" prop="taskType" width="130">
               <template #default="scope">
-                <dict-tag :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
+                <el-tag v-if="scope.row.taskType === DEEP_COLLECT_TASK_TYPE" type="success">
+                  深度采集
+                </el-tag>
+                <dict-tag v-else :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
               </template>
             </el-table-column>
             <el-table-column
@@ -341,6 +344,13 @@ const functions = [
     disabled: false // 启用个人主页采集
   },
   {
+    type: 'deep-users',
+    title: '深度采集',
+    icon: 'ep:search',
+    description: '进入主页采集联系方式和最近帖子',
+    disabled: false
+  },
+  {
     type: 'groups',
     title: '群组采集',
     icon: 'ep:user',
@@ -378,6 +388,13 @@ const functions = [
 ]
 
 const activeFunction = ref('')
+const DEEP_COLLECT_TASK_TYPE = 12
+const collectTypeOptions = computed(() => {
+  const options = getIntDictOptions(DICT_TYPE.FB_COLLECT_TYPE)
+  return options.some((item) => Number(item.value) === DEEP_COLLECT_TASK_TYPE)
+    ? options
+    : [...options, { label: '深度采集', value: DEEP_COLLECT_TASK_TYPE }]
+})
 const loading = ref(true)
 const list = ref<FbCollect[]>([])
 const total = ref(0)
@@ -426,6 +443,7 @@ const getTaskTypeByFunction = (funcType: string): number => {
     pages: 1,
     posts: 2,
     users: 3,
+    'deep-users': DEEP_COLLECT_TASK_TYPE,
     groups: 4,
     events: 5,
     comments: 11, // 帖子评论点赞采集
@@ -678,6 +696,8 @@ const checkAndStartNextTask = async (accountId: string, collectedCount: number =
     if (pendingDetails.length > 0) {
       // 有下一个任务,复用浏览器继续采集
       const nextDetail = pendingDetails[0]
+      const nextTask = await FbCollectApi.getFbCollect(nextDetail.taskId)
+      const nextTaskType = nextTask?.taskType || nextDetail.taskType || 1
       console.log(`✅ 发现下一个任务: 明细ID=${nextDetail.id}, URL=${nextDetail.searchUrl}`)
 
       // 启动下一个采集(复用已打开的浏览器)
@@ -687,7 +707,7 @@ const checkAndStartNextTask = async (accountId: string, collectedCount: number =
         null,
         nextDetail.searchUrl,
         nextDetail.expectedCount,
-        nextDetail.taskType || 1 // 传递任务类型
+        nextTaskType // 传递任务类型
       )
 
       message.info(`账号 ${accountId} 继续采集下一个链接...`)
