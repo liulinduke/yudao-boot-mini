@@ -2,7 +2,7 @@ import request from '@/config/axios'
 
 export interface FbOperationTask {
   id?: string | number
-  taskType: number // 任务类型（9-链接加组 10-转贴 12-发个人帖 13-发群帖 14-群发私信 15-帖子评论）
+  taskType: number // 任务类型（9-链接加组 10-转贴 12-发个人帖 13-发群帖 14-群发私信 15-帖子评论 16-刷粉）
   taskName?: string
   status?: number // 任务状态（0-待执行 1-执行中 2-已完成 3-已停止 4-失败）
   expectedCount: number

@@ -928,6 +928,38 @@ namespace SocialMatrix.WpfHost.Windows
                         }
                         break;
 
+                    case 16:
+                        System.Diagnostics.Debug.WriteLine($"⭐ 执行刷粉任务...");
+                        await WaitForPageReady(browser, timeoutMs: 30000);
+                        await Task.Delay(2000);
+                        var followScript = GenerateFollowScriptFromConfig(accountId, config);
+                        if (string.IsNullOrWhiteSpace(followScript))
+                        {
+                            OnCollectionError?.Invoke(accountId, "刷粉脚本生成失败，请检查任务配置");
+                            break;
+                        }
+                        System.Diagnostics.Debug.WriteLine($"🔍 刷粉脚本长度: {followScript.Length} 字符");
+                        var followEvalTask = browser.EvaluateScriptAsync(followScript);
+                        var followCompleted = await Task.WhenAny(followEvalTask, Task.Delay(420000));
+                        if (followCompleted != followEvalTask)
+                        {
+                            OnCollectionError?.Invoke(accountId, "刷粉脚本执行超时（420s）");
+                            break;
+                        }
+                        var followResult = await followEvalTask;
+                        if (followResult.Success)
+                        {
+                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string resultStr = followResult.Result?.ToString() ?? "[]";
+                            System.Diagnostics.Debug.WriteLine($"✅ 刷粉执行完成: {resultStr}");
+                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 16);
+                        }
+                        else
+                        {
+                            OnCollectionError?.Invoke(accountId, $"刷粉JS执行失败: {followResult.Message}");
+                        }
+                        break;
+
                     default:
                         System.Diagnostics.Debug.WriteLine($"⚠️ 未知运营任务类型: taskType={taskType}");
                         OnCollectionError?.Invoke(accountId, $"不支持的任务类型: {taskType}");
@@ -1319,6 +1351,11 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入转帖/帖子评论任务分支");
                 return GenerateRepostScriptFromConfig(config);
+            }
+            else if (taskType == 16) // 刷粉任务
+            {
+                System.Diagnostics.Debug.WriteLine("✅ 进入刷粉任务分支");
+                return GenerateFollowScriptFromConfig(accountId, config);
             }
             else if (taskType == 11) // 帖子评论点赞采集
             {

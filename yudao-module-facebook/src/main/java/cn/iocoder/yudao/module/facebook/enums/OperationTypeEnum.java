@@ -15,7 +15,8 @@ public enum OperationTypeEnum {
     DM("dm", "私信", 100),
     REPOST("repost", "转帖", 50),
     JOIN_GROUP("join_group", "加组", 30),
-    COMMENT("comment", "评论", 200);
+    COMMENT("comment", "评论", 200),
+    FOLLOW("follow", "关注", 100);
 
     /**
      * 操作类型代码

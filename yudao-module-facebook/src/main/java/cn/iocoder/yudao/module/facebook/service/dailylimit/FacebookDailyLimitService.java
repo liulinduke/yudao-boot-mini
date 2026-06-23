@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.dailylimit;
 
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
+import cn.iocoder.yudao.module.facebook.service.globalconfig.FbGlobalConfigService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,6 +27,9 @@ public class FacebookDailyLimitService {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private FbGlobalConfigService globalConfigService;
 
     /**
      * 获取今日剩余次数
@@ -81,8 +85,16 @@ public class FacebookDailyLimitService {
      * @return 限制次数
      */
     public int getConfiguredLimit(OperationTypeEnum type) {
-        // TODO: 从数据库或配置中心读取，暂时使用默认值
-        return type.getDefaultLimit();
+        String configValue = globalConfigService.getConfigValue(type.getCode() + "_daily_limit");
+        if (configValue == null || configValue.trim().isEmpty()) {
+            return type.getDefaultLimit();
+        }
+        try {
+            return Math.max(0, Integer.parseInt(configValue.trim()));
+        } catch (NumberFormatException ex) {
+            log.warn("操作 {} 的每日限制配置无效: {}, 使用默认值 {}", type.getCode(), configValue, type.getDefaultLimit());
+            return type.getDefaultLimit();
+        }
     }
 
     /**

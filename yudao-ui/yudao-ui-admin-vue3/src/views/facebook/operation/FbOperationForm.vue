@@ -18,6 +18,7 @@
             <el-tag v-if="taskDetail.task?.taskType === 9" type="primary">链接加组</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 10" type="success">转贴</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 15" type="warning">帖子评论</el-tag>
+            <el-tag v-else-if="taskDetail.task?.taskType === 16" type="primary">刷粉</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 13" type="info">发群帖</el-tag>
             <el-tag v-else-if="taskDetail.task?.taskType === 14" type="warning">群发私信</el-tag>
           </el-descriptions-item>
@@ -47,8 +48,8 @@
             formatDate(taskDetail.task?.endTime)
           }}</el-descriptions-item>
           <el-descriptions-item
-            v-if="taskDetail.task?.taskType === 10 || taskDetail.task?.taskType === 15"
-            label="帖链接"
+            v-if="isRepostLikeTask"
+            :label="taskDetail.task?.taskType === 16 ? '目标主页' : '帖链接'"
             :span="3"
           >
             <el-link
@@ -63,7 +64,7 @@
             <span v-else>-</span>
           </el-descriptions-item>
           <el-descriptions-item
-            v-if="taskDetail.task?.taskType === 10 || taskDetail.task?.taskType === 15"
+            v-if="isRepostLikeTask"
             label="执行项"
             :span="3"
           >
@@ -82,13 +83,13 @@
       <el-card
         v-if="
           formType === 'view' &&
-          (taskDetail?.task?.taskType === 10 || taskDetail?.task?.taskType === 15)
+          isRepostLikeTask
         "
         class="mb-4"
       >
         <template #header>
           <div class="card-header flex items-center justify-between">
-            <span>{{ taskDetail?.task?.taskType === 15 ? '💬 帖子评论结果' : '🔄 转帖结果' }}</span>
+            <span>{{ repostResultTitle }}</span>
             <span class="text-sm text-gray-500 font-normal">
               共 {{ repostResultList.length }} 条 · 成功 {{ repostSuccessCount }} · 待审核
               {{ repostPendingCount }} · 失败 {{ repostFailCount }}
@@ -140,7 +141,7 @@
         </el-table>
         <el-empty
           v-if="repostResultList.length === 0"
-          :description="taskDetail?.task?.taskType === 15 ? '暂无帖子评论执行记录' : '暂无转帖执行记录'"
+          :description="repostResultEmptyText"
         />
       </el-card>
 
@@ -471,8 +472,28 @@ const REPOST_ACTION_LABELS: Record<number, string> = {
   3: '个人中心(已废弃)',
   4: '转贴到好友',
   5: '转发到群组',
-  6: '评论'
+  6: '评论',
+  7: '关注'
 }
+
+const isRepostLikeTask = computed(() => {
+  const taskType = taskDetail.value?.task?.taskType
+  return taskType === 10 || taskType === 15 || taskType === 16
+})
+
+const repostResultTitle = computed(() => {
+  const taskType = taskDetail.value?.task?.taskType
+  if (taskType === 15) return '💬 帖子评论结果'
+  if (taskType === 16) return '⭐ 刷粉结果'
+  return '🔄 转帖结果'
+})
+
+const repostResultEmptyText = computed(() => {
+  const taskType = taskDetail.value?.task?.taskType
+  if (taskType === 15) return '暂无帖子评论执行记录'
+  if (taskType === 16) return '暂无刷粉执行记录'
+  return '暂无转帖执行记录'
+})
 
 const parsedRepostConfig = computed(() => {
   const raw = taskDetail.value?.task?.actionConfig || detailList.value[0]?.actionConfig || ''
@@ -496,6 +517,7 @@ const repostActionTags = computed(() => {
     if (action === 1) tags.push('点赞')
     else if (action === 2) tags.push('转发到动态消息')
     else if (action === 6) tags.push('评论')
+    else if (action === 7) tags.push('关注')
     else if (action === 4) {
       const count = config.shareToFriendCount || 1
       tags.push(`转贴到好友 ×${count}`)
@@ -533,6 +555,7 @@ const getRepostActionTagType = (actionType?: number) => {
   if (actionType === 1) return 'primary'
   if (actionType === 2) return 'success'
   if (actionType === 6) return 'danger'
+  if (actionType === 7) return 'primary'
   if (actionType === 4) return 'info'
   if (actionType === 5) return 'warning'
   return 'info'
@@ -542,6 +565,7 @@ const getRepostTargetLabel = (row: any) => {
   if (row.actionType === 1) return '原帖'
   if (row.actionType === 2) return '本人动态（Feed）'
   if (row.actionType === 6) return '帖子评论'
+  if (row.actionType === 7) return row.targetUrl || row.postUrl || row.targetName || '目标主页'
   if (row.actionType === 4) return row.targetName || 'Messenger 推荐好友'
   if (row.actionType === 5) return row.targetName || row.targetId || '未命名群组'
   return row.targetName || '-'
@@ -603,7 +627,9 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
       detailList.value = data.details || []
       resultList.value = data.results || []
       repostResultList.value =
-        data.task?.taskType === 10 || data.task?.taskType === 15 ? data.repostResults || [] : []
+        data.task?.taskType === 10 || data.task?.taskType === 15 || data.task?.taskType === 16
+          ? data.repostResults || []
+          : []
       groupPublishResultList.value =
         data.task?.taskType === 13 ? data.groupPublishResults || [] : []
     } finally {

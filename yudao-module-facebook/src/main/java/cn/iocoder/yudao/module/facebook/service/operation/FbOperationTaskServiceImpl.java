@@ -61,6 +61,8 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     private static final int DM_TASK_TYPE = 14;
     private static final int REPOST_TASK_TYPE = 10;
     private static final int POST_COMMENT_TASK_TYPE = 15;
+    private static final int FOLLOW_TASK_TYPE = 16;
+    private static final int FOLLOW_ACTION_TYPE = 7;
 
     @Resource
     private FbOperationTaskMapper operationTaskMapper;
@@ -91,6 +93,9 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     public Long createOperationTask(FbOperationTaskSaveReqVO createReqVO) {
         if (createReqVO.getTaskType() != null && createReqVO.getTaskType() == POST_COMMENT_TASK_TYPE) {
             return createPostCommentTask(createReqVO);
+        }
+        if (createReqVO.getTaskType() != null && createReqVO.getTaskType() == FOLLOW_TASK_TYPE) {
+            return createFollowTask(createReqVO);
         }
         // 1. 创建主任务
         FbOperationTaskDO task = BeanUtils.toBean(createReqVO, FbOperationTaskDO.class);
@@ -134,6 +139,79 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setStatus(0); // 待执行
             operationTaskDetailMapper.insert(detail);
             details.add(detail);
+        }
+
+        return task.getId();
+    }
+
+    private Long createFollowTask(FbOperationTaskSaveReqVO createReqVO) {
+        List<String> normalizedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
+        if (CollUtil.isEmpty(normalizedAccountIds)) {
+            throw invalidParamException("执行账号不能为空");
+        }
+
+        JSONObject actionConfig = parseActionConfig(createReqVO.getActionConfig());
+        List<Integer> selectedActions = parseActionList(actionConfig);
+        if (CollUtil.isEmpty(selectedActions)) {
+            selectedActions = Collections.singletonList(FOLLOW_ACTION_TYPE);
+        }
+        if (selectedActions.size() != 1 || !selectedActions.contains(FOLLOW_ACTION_TYPE)) {
+            throw invalidParamException("刷粉任务仅支持关注");
+        }
+
+        String targetUrl = resolveFollowTargetUrl(createReqVO, actionConfig);
+        if (StrUtil.isBlank(targetUrl)) {
+            throw invalidParamException("目标主页链接不能为空");
+        }
+        if (!targetUrl.matches("(?i)^https?://(www\\.)?facebook\\.com/.+")) {
+            throw invalidParamException("请输入有效的 Facebook 主页链接");
+        }
+
+        List<Long> accountIdLongs = normalizedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList());
+        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(accountIdLongs);
+        Map<Long, String> accountIdToFbAccountMap = accountList.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
+
+        List<String> executableAccountIds = normalizedAccountIds.stream()
+                .filter(accountId -> dailyLimitService.getRemainingCount(accountId, OperationTypeEnum.FOLLOW) > 0)
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(executableAccountIds)) {
+            throw invalidParamException("所选账号今日关注额度不足，无法创建刷粉任务");
+        }
+
+        JSONObject taskConfig = JSONUtil.parseObj(actionConfig.toString());
+        taskConfig.set("actions", selectedActions);
+        taskConfig.set("targetUrl", targetUrl);
+        taskConfig.set("postUrl", targetUrl);
+
+        FbOperationTaskDO task = BeanUtils.toBean(createReqVO, FbOperationTaskDO.class);
+        task.setTaskType(FOLLOW_TASK_TYPE);
+        task.setStatus(0);
+        task.setActualCount(0);
+        task.setExpectedCount(executableAccountIds.size());
+        task.setAccountIds(String.join(",", executableAccountIds));
+        task.setActionConfig(taskConfig.toString());
+        operationTaskMapper.insert(task);
+
+        for (String accountIdStr : executableAccountIds) {
+            Long accountId = Long.valueOf(accountIdStr);
+            String fbAccount = accountIdToFbAccountMap.get(accountId);
+            if (StrUtil.isBlank(fbAccount)) {
+                FbAccountDO account = fbAccountMapper.selectById(accountId);
+                fbAccount = account != null ? StrUtil.nullToEmpty(account.getFbAccount()) : "";
+            }
+
+            FbOperationTaskDetailDO detail = new FbOperationTaskDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setAccountId(accountIdStr);
+            detail.setFbAccount(fbAccount);
+            detail.setTargetUrls(targetUrl);
+            detail.setPostUrl(targetUrl);
+            detail.setActionConfig(taskConfig.toString());
+            detail.setExpectedCount(1);
+            detail.setActualCount(0);
+            detail.setStatus(0);
+            operationTaskDetailMapper.insert(detail);
         }
 
         return task.getId();
@@ -334,7 +412,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             List<FbOperationAddGroupResultDO> results = addGroupResultMapper.selectListByTaskId(task.getId());
             respVO.setResults(BeanUtils.toBean(results, FbOperationAddGroupResultRespVO.class));
         }
-        if (task.getTaskType() != null && (task.getTaskType() == REPOST_TASK_TYPE || task.getTaskType() == POST_COMMENT_TASK_TYPE)) {
+        if (task.getTaskType() != null && (task.getTaskType() == REPOST_TASK_TYPE || task.getTaskType() == POST_COMMENT_TASK_TYPE || task.getTaskType() == FOLLOW_TASK_TYPE)) {
             List<FbRepostResultDO> repostResults = repostResultMapper.selectListByTaskId(task.getId());
             List<FbRepostResultRespVO> repostResultItems = BeanUtils.toBean(repostResults, FbRepostResultRespVO.class);
             enrichRepostResultFbAccount(repostResultItems);
@@ -617,6 +695,11 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
         repostResultMapper.insertBatch(results);
 
+        results.stream()
+                .filter(r -> r.getActionType() != null && r.getActionType() == FOLLOW_ACTION_TYPE)
+                .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
+                .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.FOLLOW));
+
         // actualCount = 成功数（含待审核）；任务完结 = 全部执行项已回报（成败都算执行完）
         int successCount = (int) results.stream()
                 .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
@@ -840,6 +923,22 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         }
         addNormalizedPostUrl(normalized, actionConfig.getStr("postUrl"));
         return new ArrayList<>(normalized);
+    }
+
+    private String resolveFollowTargetUrl(FbOperationTaskSaveReqVO createReqVO, JSONObject actionConfig) {
+        if (StrUtil.isNotBlank(actionConfig.getStr("targetUrl"))) {
+            return actionConfig.getStr("targetUrl").trim();
+        }
+        if (StrUtil.isNotBlank(actionConfig.getStr("postUrl"))) {
+            return actionConfig.getStr("postUrl").trim();
+        }
+        if (StrUtil.isNotBlank(createReqVO.getPostUrl())) {
+            return createReqVO.getPostUrl().trim();
+        }
+        if (StrUtil.isNotBlank(createReqVO.getTargetUrls())) {
+            return createReqVO.getTargetUrls().split("\\r?\\n")[0].trim();
+        }
+        return "";
     }
 
     private void addNormalizedPostUrl(Set<String> target, String rawUrl) {

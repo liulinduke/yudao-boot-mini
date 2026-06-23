@@ -45,6 +45,16 @@
           <span class="ml-10px text-gray-500">每个账号每天最多可评论的数量</span>
         </el-form-item>
 
+        <el-form-item label="每日关注次数">
+          <el-input-number
+            v-model="formData.follow_daily_limit"
+            :min="1"
+            :max="5000"
+            class="!w-200px"
+          />
+          <span class="ml-10px text-gray-500">每个账号每天最多可关注的主页数量</span>
+        </el-form-item>
+
         <el-divider />
 
         <el-form-item label="指纹浏览器配置">
@@ -111,6 +121,7 @@ const formData = reactive({
   repost_daily_limit: 50,
   join_group_daily_limit: 30,
   comment_daily_limit: 200,
+  follow_daily_limit: 100,
   browser_disable_images: true,
   browser_disable_videos: true,
   browser_max_concurrent: getRecommendedConcurrent()  // 默认使用当前系统推荐值
@@ -194,6 +205,7 @@ const getConfigDescription = (key: string) => {
     repost_daily_limit: '每日转帖次数限制',
     join_group_daily_limit: '每日加组次数限制',
     comment_daily_limit: '每日评论次数限制',
+    follow_daily_limit: '每日关注次数限制',
     browser_disable_images: '指纹浏览器-不加载图片',
     browser_disable_videos: '指纹浏览器-不加载视频',
     browser_max_concurrent: '指纹浏览器-最大并发窗口数'
