@@ -36,6 +36,10 @@ public interface FbCollectPostMapper extends BaseMapperX<FbCollectPostDO> {
                 .eqIfPresent(FbCollectPostDO::getPostContent, reqVO.getPostContent())
                 .eqIfPresent(FbCollectPostDO::getFbAccount, reqVO.getFbAccount())
                 .betweenIfPresent(FbCollectPostDO::getPostCreateTime, reqVO.getPostCreateTime())
+                .likeIfPresent(FbCollectPostDO::getAiTags, reqVO.getAiTags())
+                .eqIfPresent(FbCollectPostDO::getIntentLevel, reqVO.getIntentLevel())
+                .eqIfPresent(FbCollectPostDO::getTouchStatus, reqVO.getTouchStatus())
+                .eqIfPresent(FbCollectPostDO::getCountry, reqVO.getCountry())
                 .orderByDesc(FbCollectPostDO::getId));
     }
 

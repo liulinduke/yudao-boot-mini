@@ -21,6 +21,18 @@ export interface FbCollectPost {
           postContent: string; // 帖子内容
           fbAccount: string; // FB账号
           postCreateTime: string | Dayjs; // 帖子创建时间
+          aiTags?: string; // AI标签
+          intentLevel?: string; // 意向等级
+          intentReason?: string; // 意向判断理由
+          sentiment?: string; // 情绪
+          leadType?: string; // 线索类型
+          country?: string; // 国家
+          language?: string; // 语言
+          productRelevanceScore?: number; // 产品相关度
+          aiSummary?: string; // AI摘要
+          lastAiAnalyzeTime?: string | Dayjs; // 最近AI分析时间
+          touchStatus?: string; // 触达状态
+          lastTouchTime?: string | Dayjs; // 最近触达时间
   }
 
 // FB帖子采集结果 API

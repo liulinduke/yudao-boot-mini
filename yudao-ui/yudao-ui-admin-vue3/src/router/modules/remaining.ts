@@ -234,6 +234,27 @@ const remainingRouter: AppRouteRecordRaw[] = [
     }
   },
   {
+    path: '/facebook',
+    component: Layout,
+    name: 'FacebookHidden',
+    meta: {
+      hidden: true
+    },
+    children: [
+      {
+        path: 'ai-agent',
+        component: () => import('@/views/facebook/agent/index.vue'),
+        name: 'FacebookAiAgent',
+        meta: {
+          title: 'AI获客Agent',
+          hidden: true,
+          canTo: true,
+          activeMenu: '/facebook/agent'
+        }
+      }
+    ]
+  },
+  {
     path: '/:pathMatch(.*)*',
     component: () => import('@/views/Error/404.vue'),
     name: '',

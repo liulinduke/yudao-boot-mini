@@ -52,6 +52,10 @@ public interface FbCollectUserMapper extends BaseMapperX<FbCollectUserDO> {
                 .eqIfPresent(FbCollectUserDO::getFromResource, reqVO.getFromResource())
                 .eqIfPresent(FbCollectUserDO::getConfig, reqVO.getConfig())
                 .betweenIfPresent(FbCollectUserDO::getSyncTime, reqVO.getSyncTime())
+                .likeIfPresent(FbCollectUserDO::getAiTags, reqVO.getAiTags())
+                .eqIfPresent(FbCollectUserDO::getIntentLevel, reqVO.getIntentLevel())
+                .eqIfPresent(FbCollectUserDO::getTouchStatus, reqVO.getTouchStatus())
+                .eqIfPresent(FbCollectUserDO::getCountry, reqVO.getCountry())
                 .betweenIfPresent(FbCollectUserDO::getCreateTime, reqVO.getCreateTime())
                 .orderByDesc(FbCollectUserDO::getId));
     }

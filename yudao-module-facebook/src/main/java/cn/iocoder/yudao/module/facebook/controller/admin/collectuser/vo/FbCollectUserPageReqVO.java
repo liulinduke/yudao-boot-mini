@@ -118,4 +118,16 @@ public class FbCollectUserPageReqVO extends PageParam {
     @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
     private LocalDateTime[] createTime;
 
+    @Schema(description = "AI标签")
+    private String aiTags;
+
+    @Schema(description = "意向等级")
+    private String intentLevel;
+
+    @Schema(description = "触达状态")
+    private String touchStatus;
+
+    @Schema(description = "目标国家")
+    private String country;
+
 }

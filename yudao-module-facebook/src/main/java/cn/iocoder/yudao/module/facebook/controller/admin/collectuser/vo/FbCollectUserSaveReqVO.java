@@ -125,4 +125,37 @@ public class FbCollectUserSaveReqVO {
     @Schema(description = "同步时间")
     private LocalDateTime syncTime;
 
+    @Schema(description = "AI标签")
+    private String aiTags;
+
+    @Schema(description = "意向等级")
+    private String intentLevel;
+
+    @Schema(description = "意向判断理由")
+    private String intentReason;
+
+    @Schema(description = "情绪")
+    private String sentiment;
+
+    @Schema(description = "线索类型")
+    private String leadType;
+
+    @Schema(description = "国家")
+    private String country;
+
+    @Schema(description = "产品相关度")
+    private Integer productRelevanceScore;
+
+    @Schema(description = "AI摘要")
+    private String aiSummary;
+
+    @Schema(description = "最近AI分析时间")
+    private LocalDateTime lastAiAnalyzeTime;
+
+    @Schema(description = "触达状态")
+    private String touchStatus;
+
+    @Schema(description = "最近触达时间")
+    private LocalDateTime lastTouchTime;
+
 }

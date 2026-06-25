@@ -172,5 +172,50 @@ public class FbCollectUserDO extends BaseDO {
      */
     private LocalDateTime syncTime;
 
+    /**
+     * AI标签，逗号分隔
+     */
+    private String aiTags;
+    /**
+     * 意向等级：high/medium/low/unknown
+     */
+    private String intentLevel;
+    /**
+     * 意向判断理由
+     */
+    private String intentReason;
+    /**
+     * 情绪：positive/neutral/negative
+     */
+    private String sentiment;
+    /**
+     * 线索类型
+     */
+    private String leadType;
+    /**
+     * 国家
+     */
+    private String country;
+    /**
+     * 产品相关度 0-100
+     */
+    private Integer productRelevanceScore;
+    /**
+     * AI摘要
+     */
+    private String aiSummary;
+    /**
+     * 最近AI分析时间
+     */
+    private LocalDateTime lastAiAnalyzeTime;
+    /**
+     * 触达状态：not_touched/touched/replied/done
+     */
+    private String touchStatus;
+    /**
+     * 最近触达时间
+     */
+    private LocalDateTime lastTouchTime;
+
 
 }

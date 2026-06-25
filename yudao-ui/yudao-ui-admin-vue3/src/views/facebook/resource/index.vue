@@ -47,6 +47,27 @@
               <el-option label="未采集" :value="false" />
             </el-select>
           </el-form-item>
+          <el-form-item label="AI标签" prop="aiTags">
+            <el-select v-model="userQueryParams.aiTags" placeholder="请选择AI标签" clearable class="!w-160px">
+              <el-option v-for="tag in aiTagOptions" :key="tag" :label="tag" :value="tag" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="意向等级" prop="intentLevel">
+            <el-select v-model="userQueryParams.intentLevel" placeholder="请选择意向" clearable class="!w-140px">
+              <el-option label="高" value="high" />
+              <el-option label="中" value="medium" />
+              <el-option label="低" value="low" />
+              <el-option label="未知" value="unknown" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="触达状态" prop="touchStatus">
+            <el-select v-model="userQueryParams.touchStatus" placeholder="请选择状态" clearable class="!w-150px">
+              <el-option label="未触达" value="not_touched" />
+              <el-option label="已触达" value="touched" />
+              <el-option label="已回复" value="replied" />
+              <el-option label="已完成" value="done" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="同步时间" prop="syncTime">
             <el-date-picker
               v-model="userQueryParams.syncTime"
@@ -140,6 +161,35 @@
               </el-tag>
             </template>
           </el-table-column>
+          <el-table-column label="AI标签" align="center" prop="aiTags" width="180">
+            <template #default="scope">
+              <div class="tag-list" v-if="splitTags(scope.row.aiTags).length">
+                <el-tag v-for="tag in splitTags(scope.row.aiTags)" :key="tag" size="small" class="mr-4px">
+                  {{ tag }}
+                </el-tag>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="意向" align="center" prop="intentLevel" width="90">
+            <template #default="scope">
+              <el-tag :type="getIntentTagType(scope.row.intentLevel)">
+                {{ getIntentLabel(scope.row.intentLevel) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="相关度" align="center" prop="productRelevanceScore" width="90">
+            <template #default="scope">
+              {{ scope.row.productRelevanceScore ?? '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="触达" align="center" prop="touchStatus" width="100">
+            <template #default="scope">
+              <el-tag :type="getTouchTagType(scope.row.touchStatus)">
+                {{ getTouchLabel(scope.row.touchStatus) }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="电话" align="center" prop="phonenumber" width="130" />
           <el-table-column label="WhatsApp" align="center" prop="whatsapp" width="130" />
           <el-table-column label="Line" align="center" prop="line" width="120" />
@@ -151,6 +201,7 @@
           <el-table-column label="居住地" align="center" prop="location" width="120" />
           <el-table-column label="性别" align="center" prop="gender" width="90" />
           <el-table-column label="最近帖子摘要" align="center" prop="lastPostSummary" width="220" show-overflow-tooltip />
+          <el-table-column label="AI摘要" align="center" prop="aiSummary" width="220" show-overflow-tooltip />
           <el-table-column label="最近发帖" align="center" prop="lastPostTime" width="160">
             <template #default="scope">
               {{ formatDate(scope.row.lastPostTime) }}
@@ -369,6 +420,27 @@
               class="!w-200px"
             />
           </el-form-item>
+          <el-form-item label="AI标签" prop="aiTags">
+            <el-select v-model="postQueryParams.aiTags" placeholder="请选择AI标签" clearable class="!w-160px">
+              <el-option v-for="tag in aiTagOptions" :key="tag" :label="tag" :value="tag" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="意向等级" prop="intentLevel">
+            <el-select v-model="postQueryParams.intentLevel" placeholder="请选择意向" clearable class="!w-140px">
+              <el-option label="高" value="high" />
+              <el-option label="中" value="medium" />
+              <el-option label="低" value="low" />
+              <el-option label="未知" value="unknown" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="触达状态" prop="touchStatus">
+            <el-select v-model="postQueryParams.touchStatus" placeholder="请选择状态" clearable class="!w-150px">
+              <el-option label="未触达" value="not_touched" />
+              <el-option label="已触达" value="touched" />
+              <el-option label="已回复" value="replied" />
+              <el-option label="已完成" value="done" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="互动数据" prop="reactionCount">
             <el-input-number
               v-model="postQueryParams.minReactionCount"
@@ -464,6 +536,36 @@
           <el-table-column label="评论数" align="center" prop="commentCount" width="100" />
           <el-table-column label="转发数" align="center" prop="reshareCount" width="100" />
           <el-table-column label="截流次数" align="center" prop="usedCount" width="100" />
+          <el-table-column label="AI标签" align="center" prop="aiTags" width="180">
+            <template #default="scope">
+              <div class="tag-list" v-if="splitTags(scope.row.aiTags).length">
+                <el-tag v-for="tag in splitTags(scope.row.aiTags)" :key="tag" size="small" class="mr-4px">
+                  {{ tag }}
+                </el-tag>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="意向" align="center" prop="intentLevel" width="90">
+            <template #default="scope">
+              <el-tag :type="getIntentTagType(scope.row.intentLevel)">
+                {{ getIntentLabel(scope.row.intentLevel) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="相关度" align="center" prop="productRelevanceScore" width="90">
+            <template #default="scope">
+              {{ scope.row.productRelevanceScore ?? '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="触达" align="center" prop="touchStatus" width="100">
+            <template #default="scope">
+              <el-tag :type="getTouchTagType(scope.row.touchStatus)">
+                {{ getTouchLabel(scope.row.touchStatus) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="AI摘要" align="center" prop="aiSummary" width="220" show-overflow-tooltip />
           <el-table-column label="帖子创建时间" align="center" prop="postCreateTime" width="160">
             <template #default="scope">
               {{ formatDateTime(scope.row.postCreateTime) }}
@@ -510,6 +612,17 @@ import PostImportForm from './components/PostImportForm.vue'
 
 const message = useMessage()
 
+const aiTagOptions = [
+  '高意向询价',
+  '潜在经销商',
+  '普通消费者',
+  '竞品抱怨',
+  '寻找供应商',
+  '待人工确认',
+  '已触达',
+  '已完成'
+]
+
 // 当前激活的Tab
 const activeTab = ref('user')
 
@@ -529,6 +642,9 @@ const userQueryParams = reactive({
   userName: undefined,
   fromResource: undefined,
   deepCollected: undefined,
+  aiTags: undefined,
+  intentLevel: undefined,
+  touchStatus: undefined,
   syncTime: []
 })
 
@@ -678,6 +794,9 @@ const postQueryParams = reactive({
   postUser: undefined,
   groupName: undefined,
   postContent: undefined,
+  aiTags: undefined,
+  intentLevel: undefined,
+  touchStatus: undefined,
   minReactionCount: undefined,
   minCommentCount: undefined,
   minReshareCount: undefined
@@ -760,6 +879,54 @@ const formatDateTime = (date: any) => {
   return dateFormatter(date)
 }
 
+const splitTags = (tags?: string) => {
+  if (!tags) return []
+  return tags
+    .split(/[,，]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
+const getIntentLabel = (level?: string) => {
+  const map: Record<string, string> = {
+    high: '高',
+    medium: '中',
+    low: '低',
+    unknown: '未知'
+  }
+  return level ? map[level] || level : '-'
+}
+
+const getIntentTagType = (level?: string) => {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'danger'> = {
+    high: 'danger',
+    medium: 'warning',
+    low: 'info',
+    unknown: 'info'
+  }
+  return level ? map[level] || 'info' : 'info'
+}
+
+const getTouchLabel = (status?: string) => {
+  const map: Record<string, string> = {
+    not_touched: '未触达',
+    touched: '已触达',
+    replied: '已回复',
+    done: '已完成'
+  }
+  return status ? map[status] || status : '未触达'
+}
+
+const getTouchTagType = (status?: string) => {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'danger'> = {
+    not_touched: 'info',
+    touched: 'warning',
+    replied: 'success',
+    done: 'success'
+  }
+  return status ? map[status] || 'info' : 'info'
+}
+
 /** 初始化 */
 onMounted(() => {
   getUserList()
@@ -789,5 +956,12 @@ watch(activeTab, (newTab) => {
   :deep(.el-form-item) {
     margin-bottom: 12px;
   }
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
 }
 </style>
