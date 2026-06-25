@@ -7,8 +7,12 @@
       "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:windows\\browsermatrixwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\controls\\browsermatrixcontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:controls\\browsermatrixcontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\socialmatrix.wpfhost.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:socialmatrix.wpfhost.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\helpers\\jsscripthelper.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -17,10 +21,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\services\\jsbridgeservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:services\\jsbridgeservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|solutionrelative:helpers\\fingerprintconfig.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{D4407276-1C4E-530A-C601-295724A94157}|SocialMatrix.WpfHost.csproj|d:\\work\\yudao-boot-mini\\socialmatrix.wpfhost\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -38,36 +38,8 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 3,
+          "SelectedChildIndex": 0,
           "Children": [
-            {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "FingerprintConfig.cs",
-              "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\FingerprintConfig.cs",
-              "RelativeDocumentMoniker": "Helpers\\FingerprintConfig.cs",
-              "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\FingerprintConfig.cs",
-              "RelativeToolTip": "Helpers\\FingerprintConfig.cs",
-              "ViewState": "AgIAAEUAAAAAAAAAAAAQwF4AAAAnAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-15T05:54:28.994Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "BrowserMatrixControl.xaml.cs",
-              "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Controls\\BrowserMatrixControl.xaml.cs",
-              "RelativeDocumentMoniker": "Controls\\BrowserMatrixControl.xaml.cs",
-              "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Controls\\BrowserMatrixControl.xaml.cs",
-              "RelativeToolTip": "Controls\\BrowserMatrixControl.xaml.cs",
-              "ViewState": "AgIAAAkAAAAAAAAAAAAAACoAAAAWAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-14T11:58:01.945Z"
-            },
             {
               "$type": "Document",
               "DocumentIndex": 0,
@@ -76,14 +48,43 @@
               "RelativeDocumentMoniker": "Windows\\BrowserMatrixWindow.xaml.cs",
               "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Windows\\BrowserMatrixWindow.xaml.cs",
               "RelativeToolTip": "Windows\\BrowserMatrixWindow.xaml.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAACYAAABKAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACQAAAApAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-14T11:57:07.559Z",
+              "WhenOpened": "2026-06-25T06:46:09.582Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "SocialMatrix.WpfHost.csproj",
+              "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\SocialMatrix.WpfHost.csproj",
+              "RelativeDocumentMoniker": "SocialMatrix.WpfHost.csproj",
+              "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\SocialMatrix.WpfHost.csproj",
+              "RelativeToolTip": "SocialMatrix.WpfHost.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-06-25T06:09:42.634Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
+              "Title": "FingerprintConfig.cs",
+              "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\FingerprintConfig.cs",
+              "RelativeDocumentMoniker": "Helpers\\FingerprintConfig.cs",
+              "ToolTip": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\FingerprintConfig.cs",
+              "RelativeToolTip": "Helpers\\FingerprintConfig.cs",
+              "ViewState": "AgIAAEUAAAAAAAAAAAAQwFYAAAA8AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-15T05:54:28.994Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
               "Title": "JsBridgeService.cs",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Services\\JsBridgeService.cs",
               "RelativeDocumentMoniker": "Services\\JsBridgeService.cs",
@@ -95,7 +96,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "JsScriptHelper.cs",
               "DocumentMoniker": "D:\\Work\\yudao-boot-mini\\SocialMatrix.WpfHost\\Helpers\\JsScriptHelper.cs",
               "RelativeDocumentMoniker": "Helpers\\JsScriptHelper.cs",
