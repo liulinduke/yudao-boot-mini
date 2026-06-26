@@ -6,11 +6,17 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.module.ai.controller.admin.workflow.vo.AiWorkflowTestReqVO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.workflow.AiWorkflowDO;
+import cn.iocoder.yudao.module.ai.dal.mysql.workflow.AiWorkflowMapper;
+import cn.iocoder.yudao.module.ai.service.workflow.AiWorkflowService;
 import cn.iocoder.yudao.module.facebook.controller.admin.agent.vo.*;
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskSaveReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationTaskSaveReqVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentConfigDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentDiscoveryLogDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentRunLogDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
@@ -18,6 +24,8 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUser
 import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentConfigMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentDiscoveryLogMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentRunLogMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
@@ -28,14 +36,13 @@ import cn.iocoder.yudao.module.facebook.service.operation.FbOperationTaskService
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
-import java.lang.reflect.Method;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
@@ -53,15 +60,27 @@ import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionU
 public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private static final String AUTO_COLLECT_REMARK = "AI_AGENT_AUTO_COLLECT";
+    private static final String AUTO_PAGE_COLLECT_REMARK = "AI_AGENT_PAGE_LEAD";
+    private static final String AUTO_DEEP_COLLECT_REMARK = "AI_AGENT_DEEP_COLLECT";
     private static final String AUTO_GROUP_COLLECT_REMARK = "AI_AGENT_GROUP_MONITOR";
+    private static final String AGENT_TYPE_PAGE_LEAD = "page_lead";
+    private static final int PAGE_COLLECT_TASK_TYPE = 1;
     private static final int POST_COLLECT_TASK_TYPE = 2;
+    private static final int DEEP_COLLECT_TASK_TYPE = 12;
     private static final int DEFAULT_COLLECT_EXPECTED_COUNT = 20;
-    private static final int MAX_ANALYZE_PER_RUN = 30;
+    private static final int MAX_ANALYZE_PER_RUN = 50;
+    private static final int AI_ANALYZE_BATCH_SIZE = 50;
     private static final int MAX_TOUCH_QUEUE_PER_RUN = 20;
     private static final int POST_COMMENT_TASK_TYPE = 15;
+    private static final String DEFAULT_KEYWORD_WORKFLOW_CODE = "fb_ai_keyword_expand_v1";
+    private static final String DEFAULT_LEAD_ANALYZE_WORKFLOW_CODE = "fb_ai_page_lead_scoring_v1";
 
     @Resource
     private FbAiAgentConfigMapper agentConfigMapper;
+    @Resource
+    private FbAiAgentDiscoveryLogMapper discoveryLogMapper;
+    @Resource
+    private FbAiAgentRunLogMapper runLogMapper;
     @Resource
     private FbAiTouchRecordMapper touchRecordMapper;
     @Resource
@@ -79,7 +98,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     @Resource
     private FbDmTaskService dmTaskService;
     @Resource
-    private ApplicationContext applicationContext;
+    private AiWorkflowService aiWorkflowService;
+    @Resource
+    private AiWorkflowMapper aiWorkflowMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -87,25 +108,120 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         normalizeDefaults(saveReqVO);
         validateConfig(saveReqVO);
 
-        FbAiAgentConfigDO existing = getConfig();
         FbAiAgentConfigDO config = BeanUtils.toBean(saveReqVO, FbAiAgentConfigDO.class);
-        if (existing == null) {
+        if (config.getId() == null) {
             agentConfigMapper.insert(config);
+            addRunLog(config.getId(), "Agent创建完成", "已创建AI主页获客Agent：" + config.getAgentName(), "success");
             return config.getId();
         }
-        config.setId(existing.getId());
         agentConfigMapper.updateById(config);
-        return existing.getId();
+        addRunLog(config.getId(), "Agent配置已更新", "已保存Agent配置", "info");
+        return config.getId();
+    }
+
+    @Override
+    public PageResult<FbAiAgentConfigDO> getConfigPage(FbAiAgentConfigPageReqVO pageReqVO) {
+        PageResult<FbAiAgentConfigDO> pageResult = agentConfigMapper.selectPage(pageReqVO);
+        if (CollUtil.isEmpty(pageResult.getList())) {
+            return pageResult;
+        }
+        pageResult.getList().forEach(this::fillAgentSummary);
+        return pageResult;
+    }
+
+    @Override
+    public FbAiAgentConfigDO getConfig(Long id) {
+        FbAiAgentConfigDO config = agentConfigMapper.selectById(id);
+        if (config != null) {
+            fillAgentSummary(config);
+        }
+        return config;
     }
 
     @Override
     public FbAiAgentConfigDO getConfig() {
-        return agentConfigMapper.selectOne(FbAiAgentConfigDO::getDeleted, false);
+        FbAiAgentConfigDO config = agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
+                .orderByDesc(FbAiAgentConfigDO::getId)
+                .last("LIMIT 1")).stream().findFirst().orElse(null);
+        if (config != null) {
+            fillAgentSummary(config);
+        }
+        return config;
     }
 
     @Override
     public FbAiAgentConfigDO getEnabledConfig() {
-        return agentConfigMapper.selectOne(FbAiAgentConfigDO::getStatus, 1);
+        return agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
+                .eq(FbAiAgentConfigDO::getStatus, 1)
+                .eq(FbAiAgentConfigDO::getAgentType, AGENT_TYPE_PAGE_LEAD)
+                .orderByAsc(FbAiAgentConfigDO::getId)
+                .last("LIMIT 1")).stream().findFirst().orElse(null);
+    }
+
+    @Override
+    public void updateStatus(FbAiAgentStatusUpdateReqVO reqVO) {
+        FbAiAgentConfigDO updateObj = new FbAiAgentConfigDO();
+        updateObj.setId(reqVO.getId());
+        updateObj.setStatus(reqVO.getStatus());
+        agentConfigMapper.updateById(updateObj);
+        addRunLog(reqVO.getId(), "Agent状态已更新", "当前状态：" + reqVO.getStatus(), "info");
+    }
+
+    @Override
+    public void deleteConfig(Long id) {
+        agentConfigMapper.deleteById(id);
+    }
+
+    @Override
+    public FbAiKeywordGenerateRespVO generateKeywords(FbAiKeywordGenerateReqVO reqVO) {
+        List<String> seeds = reqVO.getSeedKeywords() == null ? Collections.emptyList() : reqVO.getSeedKeywords();
+        int count = Optional.ofNullable(reqVO.getExpandCount()).orElse(20);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("type", "keyword_expand");
+        params.put("seedKeywords", seeds);
+        params.put("targetCountries", reqVO.getTargetCountries());
+        params.put("productDescription", reqVO.getProductDescription());
+        params.put("expandCount", count);
+        Object result = invokeDefaultAiWorkflow(DEFAULT_KEYWORD_WORKFLOW_CODE, params);
+        List<String> keywords = parseKeywordWorkflowResult(result);
+        if (CollUtil.isEmpty(keywords)) {
+            keywords = buildFallbackKeywords(seeds, count);
+        }
+        return new FbAiKeywordGenerateRespVO(keywords.stream().distinct().limit(count).collect(Collectors.toList()));
+    }
+
+    @Override
+    public PageResult<FbAiAgentDiscoveryLogDO> getDiscoveryLogPage(FbAiAgentDiscoveryLogPageReqVO pageReqVO) {
+        return discoveryLogMapper.selectPage(pageReqVO);
+    }
+
+    @Override
+    public PageResult<FbAiAgentRunLogDO> getRunLogPage(FbAiAgentRunLogPageReqVO pageReqVO) {
+        return runLogMapper.selectPage(pageReqVO);
+    }
+
+    @Override
+    public PageResult<FbCollectUserDO> getLeadPage(FbAiAgentLeadPageReqVO pageReqVO) {
+        List<Long> taskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, pageReqVO.getAgentConfigId())
+                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
+                .stream()
+                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(taskIds)) {
+            return new PageResult<>(Collections.emptyList(), 0L);
+        }
+        List<FbCollectUserDO> records = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, taskIds)
+                .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
+                .orderByDesc(FbCollectUserDO::getId));
+        int pageNo = Math.max(pageReqVO.getPageNo(), 1);
+        int pageSize = Math.max(pageReqVO.getPageSize(), 10);
+        int fromIndex = Math.min((pageNo - 1) * pageSize, records.size());
+        int toIndex = Math.min(fromIndex + pageSize, records.size());
+        return new PageResult<>(records.subList(fromIndex, toIndex), (long) records.size());
     }
 
     @Override
@@ -176,27 +292,40 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FbAiAgentDispatchRespVO dispatchOnce() {
-        FbAiAgentConfigDO config = getEnabledConfig();
-        if (config == null) {
-            return new FbAiAgentDispatchRespVO(false, "AI获客Agent未启用");
+        List<FbAiAgentConfigDO> configs = agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
+                .eq(FbAiAgentConfigDO::getStatus, 1)
+                .eq(FbAiAgentConfigDO::getAgentType, AGENT_TYPE_PAGE_LEAD)
+                .orderByAsc(FbAiAgentConfigDO::getId));
+        if (CollUtil.isEmpty(configs)) {
+            return new FbAiAgentDispatchRespVO(false, "暂无运行中的AI主页获客Agent");
         }
         AgentDispatchStats stats = new AgentDispatchStats();
-        List<String> seedKeywords = parseJsonStringList(config.getSeedKeywords());
-        List<String> accountIds = parseCsvStringList(config.getAccountIds());
-        List<String> monitorGroupIds = parseCsvStringList(config.getMonitorGroupIds());
-        List<String> targetCountries = parseJsonStringList(config.getTargetCountries());
-        List<String> targetLanguages = parseJsonStringList(config.getTargetLanguages());
 
-        stats.createdCollectTasks = createKeywordCollectTasks(config, seedKeywords, accountIds);
-        stats.createdCollectTasks += createMonitorGroupCollectTasks(config, monitorGroupIds, accountIds);
-        stats.analyzedPosts = analyzePendingPosts(config, seedKeywords, targetCountries, targetLanguages);
-        stats.analyzedUsers = analyzePendingUsers(config, seedKeywords, targetCountries, targetLanguages);
-        stats.queuedTouches = queueHighIntentTouches(config, accountIds);
-        stats.activatedTouches = activateDueTouchRecords(config);
+        for (FbAiAgentConfigDO config : configs) {
+            addRunLog(config.getId(), "开始执行任务", "开始执行AI主页获客：" + config.getAgentName(), "info");
+            List<String> accountIds = parseCsvStringList(config.getAccountIds());
+            List<String> targetCountries = parseJsonStringList(config.getTargetCountries());
+            List<String> targetLanguages = parseJsonStringList(config.getTargetLanguages());
+            List<String> runKeywords = pickRunKeywords(config);
 
-        String message = String.format("Agent调度完成：新建采集任务%s个，分析帖子%s条，分析潜客%s条，排队触达%s条，转执行任务%s条",
-                stats.createdCollectTasks, stats.analyzedPosts, stats.analyzedUsers, stats.queuedTouches, stats.activatedTouches);
-        log.info("[dispatchOnce][configId={}, {}]", config.getId(), message);
+            int created = createPageLeadCollectTasks(config, runKeywords, accountIds);
+            int deepCreated = createDeepCollectTasks(config, accountIds);
+            int analyzedUsers = analyzePendingUsers(config, runKeywords, targetCountries, targetLanguages);
+            int queuedTouches = queueHighIntentTouches(config, accountIds);
+            int activatedTouches = activateDueTouchRecords(config);
+            stats.createdCollectTasks += created;
+            stats.createdDeepCollectTasks += deepCreated;
+            stats.analyzedUsers += analyzedUsers;
+            stats.queuedTouches += queuedTouches;
+            stats.activatedTouches += activatedTouches;
+            advanceKeywordCursor(config, runKeywords.size());
+            addRunLog(config.getId(), "任务结束", String.format("本轮关键词%s个，新建主页采集%s个，深度采集%s个，分析线索%s条，排队触达%s条，转执行%s条",
+                    runKeywords.size(), created, deepCreated, analyzedUsers, queuedTouches, activatedTouches), "success");
+        }
+
+        String message = String.format("Agent调度完成：运行Agent%s个，新建主页采集%s个，新建深度采集%s个，分析潜客%s条，排队触达%s条，转执行任务%s条",
+                configs.size(), stats.createdCollectTasks, stats.createdDeepCollectTasks, stats.analyzedUsers, stats.queuedTouches, stats.activatedTouches);
+        log.info("[dispatchOnce][{}]", message);
         return new FbAiAgentDispatchRespVO(true, message);
     }
 
@@ -259,6 +388,182 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             created++;
         }
         return created;
+    }
+
+    private List<String> pickRunKeywords(FbAiAgentConfigDO config) {
+        List<String> keywordPool = parseJsonStringList(config.getKeywordPool());
+        if (CollUtil.isEmpty(keywordPool)) {
+            keywordPool = parseJsonStringList(config.getSeedKeywords());
+        }
+        if (CollUtil.isEmpty(keywordPool)) {
+            return Collections.emptyList();
+        }
+        int perRun = Optional.ofNullable(config.getKeywordsPerRun()).orElse(5);
+        perRun = Math.max(1, Math.min(perRun, keywordPool.size()));
+        int cursor = Math.floorMod(Optional.ofNullable(config.getKeywordCursor()).orElse(0), keywordPool.size());
+        List<String> result = new ArrayList<>();
+        for (int i = 0; i < perRun; i++) {
+            result.add(keywordPool.get((cursor + i) % keywordPool.size()));
+        }
+        return result.stream().filter(StrUtil::isNotBlank).distinct().collect(Collectors.toList());
+    }
+
+    private void advanceKeywordCursor(FbAiAgentConfigDO config, int step) {
+        List<String> keywordPool = parseJsonStringList(config.getKeywordPool());
+        if (CollUtil.isEmpty(keywordPool) || step <= 0) {
+            return;
+        }
+        int nextCursor = Math.floorMod(Optional.ofNullable(config.getKeywordCursor()).orElse(0) + step, keywordPool.size());
+        FbAiAgentConfigDO updateObj = new FbAiAgentConfigDO();
+        updateObj.setId(config.getId());
+        updateObj.setKeywordCursor(nextCursor);
+        agentConfigMapper.updateById(updateObj);
+    }
+
+    private int createPageLeadCollectTasks(FbAiAgentConfigDO config, List<String> keywords, List<String> accountIds) {
+        if (CollUtil.isEmpty(keywords) || CollUtil.isEmpty(accountIds)) {
+            addRunLog(config.getId(), "主页发现跳过", "关键词池或账号池为空", "warning");
+            return 0;
+        }
+        Map<Long, String> accountMap = resolveAccountMap(accountIds);
+        if (accountMap.isEmpty()) {
+            addRunLog(config.getId(), "主页发现跳过", "未找到可用账号", "warning");
+            return 0;
+        }
+        List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
+        int created = 0;
+        for (int i = 0; i < keywords.size(); i++) {
+            String keyword = StrUtil.trim(keywords.get(i));
+            if (StrUtil.isBlank(keyword)) {
+                continue;
+            }
+            Long accountId = accountIdLongs.get(i % accountIdLongs.size());
+            String searchUrl = buildSearchPagesUrl(keyword);
+            if (existsTodayAgentCollect(config.getId(), searchUrl, AUTO_PAGE_COLLECT_REMARK)) {
+                continue;
+            }
+            FbCollectDO task = createCollectTask(PAGE_COLLECT_TASK_TYPE, searchUrl, 1,
+                    AUTO_PAGE_COLLECT_REMARK + ":" + config.getId() + ":" + keyword,
+                    Collections.singletonList(accountId), accountMap);
+            createCollectDetail(task.getId(), accountId, accountMap.get(accountId), searchUrl, DEFAULT_COLLECT_EXPECTED_COUNT);
+            createDiscoveryLog(config.getId(), keyword, task.getId());
+            addRunLog(config.getId(), "发现主页", "关键词：" + keyword + "，账号：" + accountMap.get(accountId), "info");
+            created++;
+        }
+        return created;
+    }
+
+    private int createDeepCollectTasks(FbAiAgentConfigDO config, List<String> accountIds) {
+        if (CollUtil.isEmpty(accountIds)) {
+            return 0;
+        }
+        Map<Long, String> accountMap = resolveAccountMap(accountIds);
+        if (accountMap.isEmpty()) {
+            return 0;
+        }
+        List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
+        List<Long> discoveryTaskIds = getAgentDiscoveryTaskIds(config.getId());
+        if (CollUtil.isEmpty(discoveryTaskIds)) {
+            return 0;
+        }
+        List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .eq(FbCollectUserDO::getDataType, 1)
+                .and(wrapper -> wrapper.isNull(FbCollectUserDO::getDeepCollected).or().eq(FbCollectUserDO::getDeepCollected, false))
+                .isNotNull(FbCollectUserDO::getUrl)
+                .orderByDesc(FbCollectUserDO::getId)
+                .last("LIMIT " + Optional.ofNullable(config.getKeywordsPerRun()).orElse(5) * 5));
+        if (CollUtil.isEmpty(users)) {
+            return 0;
+        }
+        int created = 0;
+        for (FbCollectUserDO user : users) {
+            if (StrUtil.isBlank(user.getUrl()) || existsTodayAgentCollect(config.getId(), user.getUrl(), AUTO_DEEP_COLLECT_REMARK)) {
+                continue;
+            }
+            Long accountId = accountIdLongs.get(created % accountIdLongs.size());
+            FbCollectDO task = createCollectTask(DEEP_COLLECT_TASK_TYPE, user.getUrl(), 0,
+                    AUTO_DEEP_COLLECT_REMARK + ":" + config.getId() + ":" + user.getId(),
+                    Collections.singletonList(accountId), accountMap);
+            createCollectDetail(task.getId(), accountId, accountMap.get(accountId), user.getUrl(), 1);
+            created++;
+        }
+        if (created > 0) {
+            addRunLog(config.getId(), "深度采集排队", "已创建深度采集任务：" + created + "个", "info");
+        }
+        return created;
+    }
+
+    private Map<Long, String> resolveAccountMap(List<String> accountIds) {
+        List<Long> accountIdLongs = accountIds.stream()
+                .map(this::parseLongOrNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(accountIdLongs)) {
+            return Collections.emptyMap();
+        }
+        List<FbAccountDO> accounts = accountMapper.selectBatchIds(accountIdLongs);
+        if (CollUtil.isEmpty(accounts)) {
+            return Collections.emptyMap();
+        }
+        return accounts.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a, LinkedHashMap::new));
+    }
+
+    private FbCollectDO createCollectTask(Integer taskType, String searchUrl, Integer searchType, String remark,
+                                          List<Long> accountIds, Map<Long, String> accountMap) {
+        FbCollectDO task = new FbCollectDO();
+        task.setTaskType(taskType);
+        task.setSearchType(searchType);
+        task.setSearchUrl(searchUrl);
+        task.setExpectedCount(taskType == DEEP_COLLECT_TASK_TYPE ? 1 : DEFAULT_COLLECT_EXPECTED_COUNT);
+        task.setIntervalSeconds(5);
+        task.setStatus(1);
+        task.setStartTime(LocalDateTime.now());
+        task.setRemark(remark);
+        task.setTotalExpectedCount(accountIds.size() * task.getExpectedCount());
+        task.setTotalCollectedCount(0);
+        task.setAccountCount(accountIds.size());
+        task.setUrlCount(1);
+        task.setFbAccount(accountMap.get(accountIds.get(0)));
+        collectMapper.insert(task);
+        return task;
+    }
+
+    private void createCollectDetail(Long taskId, Long accountId, String fbAccount, String searchUrl, Integer expectedCount) {
+        FbCollectDetailDO detail = new FbCollectDetailDO();
+        detail.setTaskId(taskId);
+        detail.setFbAccount(StrUtil.blankToDefault(fbAccount, "account_" + accountId));
+        detail.setSearchUrl(searchUrl);
+        detail.setExpectedCount(expectedCount);
+        detail.setCollectedCount(0);
+        detail.setStatus(0);
+        collectDetailMapper.insert(detail);
+    }
+
+    private void createDiscoveryLog(Long agentConfigId, String keyword, Long collectTaskId) {
+        FbAiAgentDiscoveryLogDO logDO = new FbAiAgentDiscoveryLogDO();
+        logDO.setAgentConfigId(agentConfigId);
+        logDO.setKeyword(keyword);
+        logDO.setSourceType("page");
+        logDO.setDiscoveredCount(0);
+        logDO.setHighIntentCount(0);
+        logDO.setPageCollectCount(0);
+        logDO.setAiAnalyzeCount(0);
+        logDO.setFilteredCount(0);
+        logDO.setFinalLeadCount(0);
+        logDO.setCollectTaskId(collectTaskId);
+        discoveryLogMapper.insert(logDO);
+    }
+
+    private boolean existsTodayAgentCollect(Long agentConfigId, String searchUrl, String remarkPrefix) {
+        LocalDateTime startOfDay = LocalDateTime.now().with(LocalTime.MIN);
+        Long count = collectMapper.selectCount(new LambdaQueryWrapper<FbCollectDO>()
+                .eq(FbCollectDO::getSearchUrl, searchUrl)
+                .like(FbCollectDO::getRemark, remarkPrefix + ":" + agentConfigId)
+                .ge(FbCollectDO::getCreateTime, startOfDay));
+        return count != null && count > 0;
     }
 
     private int createMonitorGroupCollectTasks(FbAiAgentConfigDO config, List<String> monitorGroupIds, List<String> accountIds) {
@@ -337,52 +642,36 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return count != null && count > 0;
     }
 
-    private int analyzePendingPosts(FbAiAgentConfigDO config, List<String> seedKeywords,
-                                    List<String> targetCountries, List<String> targetLanguages) {
-        List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
-                .isNull(FbCollectPostDO::getLastAiAnalyzeTime)
-                .orderByDesc(FbCollectPostDO::getId)
-                .last("LIMIT " + MAX_ANALYZE_PER_RUN));
-        if (CollUtil.isEmpty(posts)) {
-            return 0;
-        }
-        for (FbCollectPostDO post : posts) {
-            String sourceText = joinText(post.getPostContent(), post.getPostUser(), post.getGroupName());
-            LeadAnalysisResult result = analyzeLeadByWorkflow(config, "post", post.getId(), sourceText,
-                    seedKeywords, targetCountries, targetLanguages);
-            if (result == null) {
-                result = analyzeText(sourceText, seedKeywords, targetCountries, targetLanguages, true);
-            }
-            FbCollectPostDO updateObj = new FbCollectPostDO();
-            updateObj.setId(post.getId());
-            fillPostAnalysis(updateObj, result);
-            collectPostMapper.updateById(updateObj);
-        }
-        return posts.size();
-    }
-
     private int analyzePendingUsers(FbAiAgentConfigDO config, List<String> seedKeywords,
                                     List<String> targetCountries, List<String> targetLanguages) {
+        List<Long> discoveryTaskIds = getAgentDiscoveryTaskIds(config.getId());
+        if (CollUtil.isEmpty(discoveryTaskIds)) {
+            return 0;
+        }
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .isNull(FbCollectUserDO::getLastAiAnalyzeTime)
-                .orderByDesc(FbCollectUserDO::getId)
+                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .eq(FbCollectUserDO::getDataType, 1)
+                .eq(FbCollectUserDO::getDeepCollected, true)
+                .and(wrapper -> wrapper.isNull(FbCollectUserDO::getLastAiAnalyzeTime)
+                        .or().isNull(FbCollectUserDO::getProductRelevanceScore))
+                .orderByAsc(FbCollectUserDO::getId)
                 .last("LIMIT " + MAX_ANALYZE_PER_RUN));
         if (CollUtil.isEmpty(users)) {
             return 0;
         }
+        Map<Long, LeadAnalysisResult> workflowResults = analyzeUsersByWorkflow(config, seedKeywords, users);
         for (FbCollectUserDO user : users) {
-            String sourceText = joinText(user.getUserName(), user.getCategory(), user.getProfileStatus(), user.getLastPostSummary(),
-                    user.getWebsite(), user.getCity(), user.getLocation());
-            LeadAnalysisResult result = analyzeLeadByWorkflow(config, "user", user.getId(), sourceText,
-                    seedKeywords, targetCountries, targetLanguages);
+            LeadAnalysisResult result = workflowResults.get(user.getId());
             if (result == null) {
-                result = analyzeText(sourceText, seedKeywords, targetCountries, targetLanguages, false);
+                result = buildAiMissingResult();
             }
             FbCollectUserDO updateObj = new FbCollectUserDO();
             updateObj.setId(user.getId());
             fillUserAnalysis(updateObj, result);
             collectUserMapper.updateById(updateObj);
         }
+        refreshDiscoveryStats(config.getId());
+        addRunLog(config.getId(), "AI分析完成", "本轮AI分析主页客户：" + users.size() + "个", "success");
         return users.size();
     }
 
@@ -390,14 +679,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(accountIds)) {
             return 0;
         }
+        List<Long> discoveryTaskIds = getAgentDiscoveryTaskIds(config.getId());
+        if (CollUtil.isEmpty(discoveryTaskIds)) {
+            return 0;
+        }
         int queued = 0;
         if (Boolean.TRUE.equals(config.getAutoCommentEnabled())) {
             int remaining = Math.min(MAX_TOUCH_QUEUE_PER_RUN - queued, remainingDailyTouchLimit(config.getDailyCommentLimit(), "comment"));
-            queued += queuePostCommentTouches(config, accountIds, remaining);
+            queued += queuePageCommentTouches(config, accountIds, discoveryTaskIds, remaining);
         }
         if (queued < MAX_TOUCH_QUEUE_PER_RUN && Boolean.TRUE.equals(config.getAutoDmEnabled())) {
             int remaining = Math.min(MAX_TOUCH_QUEUE_PER_RUN - queued, remainingDailyTouchLimit(config.getDailyDmLimit(), "dm"));
-            queued += queueUserDmTouches(config, accountIds, remaining);
+            queued += queueUserDmTouches(config, accountIds, discoveryTaskIds, remaining);
         }
         return queued;
     }
@@ -482,41 +775,14 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         touchRecordMapper.updateById(updateObj);
     }
 
-    private int queuePostCommentTouches(FbAiAgentConfigDO config, List<String> accountIds, int limit) {
+    private int queueUserDmTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> discoveryTaskIds, int limit) {
         if (limit <= 0) {
             return 0;
         }
-        List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
-                .eq(FbCollectPostDO::getIntentLevel, "high")
-                .and(wrapper -> wrapper.isNull(FbCollectPostDO::getTouchStatus)
-                        .or().eq(FbCollectPostDO::getTouchStatus, "not_touched"))
-                .orderByDesc(FbCollectPostDO::getProductRelevanceScore)
-                .orderByDesc(FbCollectPostDO::getId)
-                .last("LIMIT " + limit));
-        if (CollUtil.isEmpty(posts)) {
-            return 0;
-        }
-        int queued = 0;
-        for (FbCollectPostDO post : posts) {
-            if (StrUtil.isBlank(post.getUrl()) || existsTouchRecord("post", post.getId(), "comment")) {
-                continue;
-            }
-            String accountId = pickAccount(accountIds, queued);
-            FbAiTouchRecordDO record = buildTouchRecord(config, "post", post.getId(), post.getUrl(),
-                    null, accountId, "comment", buildCommentContent(config, post));
-            createTouchRecord(record);
-            markPostTouched(post.getId());
-            queued++;
-        }
-        return queued;
-    }
-
-    private int queueUserDmTouches(FbAiAgentConfigDO config, List<String> accountIds, int limit) {
-        if (limit <= 0) {
-            return 0;
-        }
+        int minScore = mapIntentToScore(resolveTouchIntentLevel(config.getTouchScoreThreshold()));
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .eq(FbCollectUserDO::getIntentLevel, "high")
+                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .ge(FbCollectUserDO::getProductRelevanceScore, minScore)
                 .isNotNull(FbCollectUserDO::getFbUserId)
                 .and(wrapper -> wrapper.isNull(FbCollectUserDO::getTouchStatus)
                         .or().eq(FbCollectUserDO::getTouchStatus, "not_touched"))
@@ -537,6 +803,40 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             createTouchRecord(record);
             markUserTouched(user.getId());
             queued++;
+        }
+        return queued;
+    }
+
+    private int queuePageCommentTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> discoveryTaskIds, int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        int minScore = mapIntentToScore(resolveTouchIntentLevel(config.getTouchScoreThreshold()));
+        List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .ge(FbCollectUserDO::getProductRelevanceScore, minScore)
+                .and(wrapper -> wrapper.isNull(FbCollectUserDO::getTouchStatus)
+                        .or().eq(FbCollectUserDO::getTouchStatus, "not_touched"))
+                .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
+                .orderByDesc(FbCollectUserDO::getId)
+                .last("LIMIT " + limit));
+        if (CollUtil.isEmpty(users)) {
+            return 0;
+        }
+        int queued = 0;
+        for (FbCollectUserDO user : users) {
+            if (StrUtil.isBlank(user.getUrl()) || !isCommentablePostUrl(user.getUrl()) || existsTouchRecord("user", user.getId(), "comment")) {
+                continue;
+            }
+            String accountId = pickAccount(accountIds, queued);
+            FbAiTouchRecordDO record = buildTouchRecord(config, "user", user.getId(), user.getUrl(),
+                    user.getFbUserId(), accountId, "comment", buildCommentContent(config, user));
+            createTouchRecord(record);
+            markUserTouched(user.getId());
+            queued++;
+        }
+        if (queued == 0 && Boolean.TRUE.equals(config.getAutoCommentEnabled())) {
+            addRunLog(config.getId(), "自动评论跳过", "当前主页深度采集结果缺少可直接评论的帖子URL，暂未生成评论任务", "warning");
         }
         return queued;
     }
@@ -586,56 +886,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         collectUserMapper.updateById(updateObj);
     }
 
-    private LeadAnalysisResult analyzeText(String text, List<String> seedKeywords,
-                                           List<String> targetCountries, List<String> targetLanguages,
-                                           boolean postLead) {
-        String source = StrUtil.nullToEmpty(text);
-        String lower = source.toLowerCase(Locale.ROOT);
-        int score = 0;
-        List<String> tags = new ArrayList<>();
-
-        int seedHits = 0;
-        for (String keyword : seedKeywords) {
-            if (StrUtil.isNotBlank(keyword) && lower.contains(keyword.toLowerCase(Locale.ROOT))) {
-                seedHits++;
-            }
-        }
-        score += Math.min(seedHits * 25, 50);
-
-        if (containsAny(lower, "buy", "purchase", "looking for", "need supplier", "supplier", "quote", "quotation",
-                "price", "bulk", "wholesale", "distributor", "采购", "供应商", "报价", "批发", "经销", "代理")) {
-            score += 35;
-            tags.add("寻找供应商");
-            tags.add("高意向询价");
-        }
-        if (containsAny(lower, "distributor", "dealer", "reseller", "wholesale", "经销", "代理", "批发")) {
-            score += 20;
-            tags.add("潜在经销商");
-        }
-        if (containsAny(lower, "bad quality", "broken", "not working", "complaint", "expensive", "slow delivery",
-                "质量差", "坏了", "太贵", "投诉", "发货慢")) {
-            score += 15;
-            tags.add("竞品抱怨");
-        }
-        if (tags.isEmpty()) {
-            tags.add(score >= 45 ? "待人工确认" : "普通消费者");
-        }
-
-        LeadAnalysisResult result = new LeadAnalysisResult();
-        result.aiTags = tags.stream().distinct().collect(Collectors.joining(","));
-        result.productRelevanceScore = Math.min(score, 100);
-        result.intentLevel = score >= 60 ? "high" : score >= 35 ? "medium" : "low";
-        result.intentReason = buildIntentReason(seedHits, tags, score);
-        result.sentiment = containsAny(lower, "bad", "broken", "complaint", "angry", "质量差", "投诉", "坏了")
-                ? "negative" : "neutral";
-        result.leadType = postLead ? "post" : inferUserLeadType(lower);
-        result.country = inferFirstMatched(source, targetCountries);
-        result.language = inferFirstMatched(source, targetLanguages);
-        result.aiSummary = StrUtil.maxLength(source.replaceAll("\\s+", " ").trim(), 240);
-        result.touchStatus = "not_touched";
-        return result;
-    }
-
     private void fillPostAnalysis(FbCollectPostDO updateObj, LeadAnalysisResult result) {
         updateObj.setAiTags(result.aiTags);
         updateObj.setIntentLevel(result.intentLevel);
@@ -667,6 +917,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return "https://www.facebook.com/search/top?q=" + URLEncoder.encode(keyword, StandardCharsets.UTF_8);
     }
 
+    private String buildSearchPagesUrl(String keyword) {
+        return "https://www.facebook.com/search/pages?q=" + URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+    }
+
     private String normalizeGroupMonitorUrl(String groupIdOrUrl) {
         if (StrUtil.isBlank(groupIdOrUrl)) {
             return "";
@@ -695,24 +949,38 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private String buildCommentContent(FbAiAgentConfigDO config, FbCollectPostDO post) {
-        String workflowContent = generateContentByWorkflow(config.getCommentWorkflowId(), "comment",
-                joinText(post.getPostContent(), post.getPostUser(), post.getGroupName()), post.getUrl());
-        if (StrUtil.isNotBlank(workflowContent)) {
-            return workflowContent;
-        }
         String topic = StrUtil.blankToDefault(post.getPostUser(), "there");
         return "Hi " + topic + ", this looks relevant. I can share more details if you're comparing suppliers.";
     }
 
+    private String buildCommentContent(FbAiAgentConfigDO config, FbCollectUserDO user) {
+        String aiMessage = extractAiSummaryMessage(user.getAiSummary(), "comment_message");
+        if (StrUtil.isNotBlank(aiMessage)) {
+            return aiMessage;
+        }
+        String topic = StrUtil.blankToDefault(user.getUserName(), "there");
+        return "Hi " + topic + ", your page looks relevant to our product line.";
+    }
+
     private String buildDmContent(FbAiAgentConfigDO config, FbCollectUserDO user) {
-        String workflowContent = generateContentByWorkflow(config.getDmWorkflowId(), "dm",
-                joinText(user.getUserName(), user.getCategory(), user.getProfileStatus(), user.getLastPostSummary(),
-                        user.getWebsite(), user.getCity(), user.getLocation()), user.getUrl());
-        if (StrUtil.isNotBlank(workflowContent)) {
-            return workflowContent;
+        String aiMessage = extractAiSummaryMessage(user.getAiSummary(), "dm_message");
+        if (StrUtil.isNotBlank(aiMessage)) {
+            return aiMessage;
         }
         String name = StrUtil.blankToDefault(user.getUserName(), "there");
         return "Hi " + name + ", noticed your recent activity and thought our product info might be useful. Happy to share details if needed.";
+    }
+
+    private String extractAiSummaryMessage(String aiSummary, String field) {
+        if (StrUtil.isBlank(aiSummary)) {
+            return "";
+        }
+        try {
+            JSONObject json = JSONUtil.parseObj(aiSummary);
+            return StrUtil.blankToDefault(json.getStr(field), "");
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private int remainingDailyTouchLimit(Integer dailyLimit, String touchType) {
@@ -727,94 +995,19 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return Math.max(0, dailyLimit - (used == null ? 0 : used.intValue()));
     }
 
-    private LeadAnalysisResult analyzeLeadByWorkflow(FbAiAgentConfigDO config, String leadType, Long leadId, String sourceText,
-                                                     List<String> seedKeywords, List<String> targetCountries,
-                                                     List<String> targetLanguages) {
-        if (config.getLeadScoreWorkflowId() == null) {
-            return null;
-        }
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("leadType", leadType);
-        params.put("leadId", leadId);
-        params.put("text", sourceText);
-        params.put("seedKeywords", seedKeywords);
-        params.put("targetCountries", targetCountries);
-        params.put("targetLanguages", targetLanguages);
-        params.put("knowledgeIds", parseCsvStringList(config.getKnowledgeIds()));
-        params.put("personaConfig", config.getPersonaConfig());
-
-        Object result = invokeAiWorkflow(config.getLeadScoreWorkflowId(), params);
-        return parseLeadAnalysisResult(result);
-    }
-
-    private String generateContentByWorkflow(Long workflowId, String touchType, String sourceText, String targetUrl) {
-        if (workflowId == null) {
-            return "";
-        }
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("touchType", touchType);
-        params.put("text", sourceText);
-        params.put("targetUrl", targetUrl);
-        Object result = invokeAiWorkflow(workflowId, params);
-        return parseGeneratedContent(result);
-    }
-
     private Object invokeAiWorkflow(Long workflowId, Map<String, Object> params) {
         try {
-            if (!applicationContext.containsBean("aiWorkflowServiceImpl")) {
+            if (workflowId == null) {
                 return null;
             }
-            Object workflowService = applicationContext.getBean("aiWorkflowServiceImpl");
-            Class<?> reqClass = Class.forName("cn.iocoder.yudao.module.ai.controller.admin.workflow.vo.AiWorkflowTestReqVO");
-            Object req = reqClass.getDeclaredConstructor().newInstance();
-            reqClass.getMethod("setId", Long.class).invoke(req, workflowId);
-            reqClass.getMethod("setParams", Map.class).invoke(req, params);
-            Method testWorkflow = workflowService.getClass().getMethod("testWorkflow", reqClass);
-            return testWorkflow.invoke(workflowService, req);
+            AiWorkflowTestReqVO reqVO = new AiWorkflowTestReqVO();
+            reqVO.setId(workflowId);
+            reqVO.setParams(params);
+            return aiWorkflowService.testWorkflow(reqVO);
         } catch (Exception ex) {
             log.warn("调用AI工作流失败，workflowId={}, reason={}", workflowId, ex.getMessage());
             return null;
         }
-    }
-
-    private LeadAnalysisResult parseLeadAnalysisResult(Object rawResult) {
-        if (rawResult == null) {
-            return null;
-        }
-        JSONObject json = parseWorkflowResultObject(rawResult);
-        if (json == null || json.isEmpty()) {
-            return null;
-        }
-        LeadAnalysisResult result = new LeadAnalysisResult();
-        result.aiTags = normalizeTags(json.get("aiTags"));
-        result.intentLevel = StrUtil.blankToDefault(json.getStr("intentLevel"), "medium");
-        result.intentReason = json.getStr("intentReason");
-        result.sentiment = StrUtil.blankToDefault(json.getStr("sentiment"), "neutral");
-        result.leadType = json.getStr("leadType");
-        result.country = json.getStr("country");
-        result.language = json.getStr("language");
-        result.productRelevanceScore = Optional.ofNullable(json.getInt("productRelevanceScore")).orElse(50);
-        result.aiSummary = StrUtil.maxLength(StrUtil.blankToDefault(json.getStr("aiSummary"), json.toString()), 240);
-        result.touchStatus = "not_touched";
-        return result;
-    }
-
-    private String parseGeneratedContent(Object rawResult) {
-        if (rawResult == null) {
-            return "";
-        }
-        if (rawResult instanceof CharSequence) {
-            String text = rawResult.toString().trim();
-            if (!JSONUtil.isTypeJSON(text)) {
-                return text;
-            }
-        }
-        JSONObject json = parseWorkflowResultObject(rawResult);
-        if (json == null) {
-            return "";
-        }
-        return StrUtil.blankToDefault(json.getStr("content"),
-                StrUtil.blankToDefault(json.getStr("reply"), json.getStr("message")));
     }
 
     private JSONObject parseWorkflowResultObject(Object rawResult) {
@@ -835,18 +1028,354 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return null;
     }
 
-    private String normalizeTags(Object tags) {
-        if (tags == null) {
-            return "待人工确认";
+    private Object invokeDefaultAiWorkflow(String workflowCode, Map<String, Object> params) {
+        Long workflowId = resolveWorkflowIdByCode(workflowCode);
+        if (workflowId == null) {
+            return null;
         }
-        if (tags instanceof Collection) {
-            return ((Collection<?>) tags).stream()
+        return invokeAiWorkflow(workflowId, params);
+    }
+
+    private List<String> parseKeywordWorkflowResult(Object rawResult) {
+        JSONObject json = parseWorkflowResultObject(rawResult);
+        if (json == null) {
+            return Collections.emptyList();
+        }
+        Object keywords = json.get("keywords");
+        if (keywords instanceof Collection) {
+            return ((Collection<?>) keywords).stream()
                     .map(String::valueOf)
+                    .map(String::trim)
                     .filter(StrUtil::isNotBlank)
                     .distinct()
-                    .collect(Collectors.joining(","));
+                    .collect(Collectors.toList());
         }
-        return String.valueOf(tags);
+        String text = json.getStr("keywords");
+        if (StrUtil.isBlank(text)) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(text.split("[,\\n]"))
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> buildFallbackKeywords(List<String> seeds, int count) {
+        List<String> result = new ArrayList<>();
+        List<String> suffixes = Arrays.asList("supplier", "manufacturer", "wholesaler", "distributor", "factory");
+        for (String seed : seeds) {
+            if (StrUtil.isBlank(seed)) {
+                continue;
+            }
+            result.add(seed.trim());
+            for (String suffix : suffixes) {
+                result.add(seed.trim() + " " + suffix);
+            }
+        }
+        return result.stream().distinct().limit(count).collect(Collectors.toList());
+    }
+
+    private void fillAgentSummary(FbAiAgentConfigDO config) {
+        List<Long> taskIds = getAgentDiscoveryTaskIds(config.getId());
+        if (CollUtil.isEmpty(taskIds)) {
+            config.setLeadCount(0L);
+            config.setPendingCount(0L);
+            return;
+        }
+        List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, taskIds)
+                .eq(FbCollectUserDO::getDataType, 1));
+        long leadCount = users.stream()
+                .filter(item -> item.getProductRelevanceScore() != null)
+                .count();
+        long pendingCount = users.stream()
+                .filter(item -> item.getProductRelevanceScore() != null)
+                .filter(item -> StrUtil.equalsAny(StrUtil.blankToDefault(item.getTouchStatus(), "not_touched"),
+                        "not_touched", "pending"))
+                .count();
+        config.setLeadCount(leadCount);
+        config.setPendingCount(pendingCount);
+    }
+
+    private Map<Long, LeadAnalysisResult> analyzeUsersByWorkflow(FbAiAgentConfigDO config, List<String> seedKeywords,
+                                                                 List<FbCollectUserDO> users) {
+        if (CollUtil.isEmpty(users)) {
+            return Collections.emptyMap();
+        }
+        Map<Long, LeadAnalysisResult> resultMap = new HashMap<>();
+        for (int fromIndex = 0; fromIndex < users.size(); fromIndex += AI_ANALYZE_BATCH_SIZE) {
+            List<FbCollectUserDO> batch = users.subList(fromIndex, Math.min(fromIndex + AI_ANALYZE_BATCH_SIZE, users.size()));
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("exportProduct", resolveExportProduct(config, seedKeywords));
+            params.put("persona", StrUtil.blankToDefault(config.getPersonaType(), "professional_sales"));
+            params.put("needComment", Boolean.TRUE.equals(config.getAutoCommentEnabled()));
+            params.put("needDm", Boolean.TRUE.equals(config.getAutoDmEnabled()));
+            params.put("customers", batch.stream().map(this::buildCustomerPayload).collect(Collectors.toList()));
+            Object rawResult = invokeDefaultAiWorkflow(DEFAULT_LEAD_ANALYZE_WORKFLOW_CODE, params);
+            resultMap.putAll(parseLeadWorkflowResults(rawResult, config.getTouchScoreThreshold()));
+        }
+        return resultMap;
+    }
+
+    private Map<String, Object> buildCustomerPayload(FbCollectUserDO user) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", user.getId());
+        item.put("name", user.getUserName());
+        item.put("category", user.getCategory());
+        item.put("country", user.getCountry());
+        item.put("description", user.getProfileStatus());
+        item.put("recent_posts", user.getLastPostSummary());
+        item.put("last_post_days", calculateLastPostDays(user.getLastPostTime()));
+        return item;
+    }
+
+    private String resolveExportProduct(FbAiAgentConfigDO config, List<String> seedKeywords) {
+        if (StrUtil.isNotBlank(config.getExportProduct())) {
+            return config.getExportProduct().trim();
+        }
+        List<String> keywordPool = parseJsonStringList(config.getKeywordPool());
+        if (CollUtil.isNotEmpty(keywordPool)) {
+            return keywordPool.get(0);
+        }
+        return CollUtil.isNotEmpty(seedKeywords) ? seedKeywords.get(0) : "";
+    }
+
+    private Map<Long, LeadAnalysisResult> parseLeadWorkflowResults(Object rawResult, Integer threshold) {
+        if (rawResult == null) {
+            return Collections.emptyMap();
+        }
+        List<Object> rows = new ArrayList<>();
+        if (rawResult instanceof Collection<?>) {
+            rows.addAll((Collection<?>) rawResult);
+        } else if (rawResult instanceof CharSequence && JSONUtil.isTypeJSONArray(String.valueOf(rawResult))) {
+            rows.addAll(JSONUtil.parseArray(String.valueOf(rawResult)));
+        } else {
+            JSONObject object = parseWorkflowResultObject(rawResult);
+            if (object != null) {
+                Object customers = object.get("customers");
+                if (customers instanceof Collection<?>) {
+                    rows.addAll((Collection<?>) customers);
+                } else if (object.containsKey("results") && object.get("results") instanceof Collection<?>) {
+                    rows.addAll((Collection<?>) object.get("results"));
+                }
+            }
+        }
+        if (rows.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, LeadAnalysisResult> resultMap = new HashMap<>();
+        for (Object row : rows) {
+            JSONObject json = row instanceof JSONObject ? (JSONObject) row : JSONUtil.parseObj(row);
+            Long id = json.getLong("id");
+            if (id == null) {
+                continue;
+            }
+            LeadAnalysisResult result = new LeadAnalysisResult();
+            String intent = normalizeIntent(json.getStr("intent"));
+            int score = mapIntentToScore(intent);
+            result.intentCode = intent;
+            result.productRelevanceScore = score;
+            result.leadType = "page_lead";
+            result.intentReason = limitReason(StrUtil.blankToDefault(json.getStr("reason"), "AI已完成意向判断"));
+            result.intentLevel = buildIntentLevelByIntent(intent);
+            result.sentiment = "neutral";
+            result.aiTags = buildTagsByIntent(intent, result.leadType, result.intentReason);
+            result.touchStatus = "not_touched";
+            boolean touchable = isIntentReachThreshold(intent, threshold);
+            result.commentMessage = touchable ? json.getStr("comment_message") : null;
+            result.dmMessage = touchable ? json.getStr("dm_message") : null;
+            result.aiSummary = buildAiSummary(result, touchable);
+            resultMap.put(id, result);
+        }
+        return resultMap;
+    }
+
+    private LeadAnalysisResult buildAiMissingResult() {
+        LeadAnalysisResult result = new LeadAnalysisResult();
+        result.intentCode = "D";
+        result.productRelevanceScore = mapIntentToScore(result.intentCode);
+        result.intentLevel = buildIntentLevelByIntent(result.intentCode);
+        result.leadType = "page_lead";
+        result.intentReason = "AI分析失败";
+        result.sentiment = "neutral";
+        result.aiTags = buildTagsByIntent(result.intentCode, result.leadType, result.intentReason);
+        result.touchStatus = "not_touched";
+        result.aiSummary = buildAiSummary(result, false);
+        return result;
+    }
+
+    private Integer calculateLastPostDays(LocalDateTime lastPostTime) {
+        if (lastPostTime == null) {
+            return null;
+        }
+        return (int) Math.max(Duration.between(lastPostTime, LocalDateTime.now()).toDays(), 0);
+    }
+
+    private String buildIntentLevelByIntent(String intent) {
+        if ("A".equals(intent)) {
+            return "high";
+        }
+        if ("B".equals(intent) || "C".equals(intent)) {
+            return "medium";
+        }
+        return "low";
+    }
+
+    private String buildTagsByIntent(String intent, String customerType, String reason) {
+        List<String> tags = new ArrayList<>();
+        if ("A".equals(intent)) {
+            tags.add("高意向询价");
+        } else if ("B".equals(intent)) {
+            tags.add("寻找供应商");
+        } else if ("C".equals(intent)) {
+            tags.add("待人工确认");
+        } else {
+            tags.add("普通消费者");
+        }
+        if (StrUtil.containsIgnoreCase(StrUtil.nullToEmpty(customerType), "Distributor")) {
+            tags.add("潜在经销商");
+        }
+        if (StrUtil.containsIgnoreCase(StrUtil.nullToEmpty(reason), "supplier")) {
+            tags.add("寻找供应商");
+        }
+        return tags.stream().distinct().collect(Collectors.joining(","));
+    }
+
+    private String buildAiSummary(LeadAnalysisResult result, boolean touchable) {
+        JSONObject json = JSONUtil.createObj()
+                .set("intent", result.intentCode)
+                .set("score", result.productRelevanceScore)
+                .set("reason", result.intentReason);
+        if (touchable && StrUtil.isNotBlank(result.commentMessage)) {
+            json.set("comment_message", result.commentMessage);
+        }
+        if (touchable && StrUtil.isNotBlank(result.dmMessage)) {
+            json.set("dm_message", result.dmMessage);
+        }
+        return json.toString();
+    }
+
+    private String normalizeIntent(String intent) {
+        if (StrUtil.isBlank(intent)) {
+            return "D";
+        }
+        String value = intent.trim().toUpperCase(Locale.ROOT);
+        if (StrUtil.startWithAny(value, "A", "B", "C", "D")) {
+            return value.substring(0, 1);
+        }
+        return "D";
+    }
+
+    private String limitReason(String reason) {
+        return StrUtil.maxLength(StrUtil.blankToDefault(reason, ""), 20);
+    }
+
+    private int mapIntentToScore(String intent) {
+        switch (normalizeIntent(intent)) {
+            case "A":
+                return 95;
+            case "B":
+                return 85;
+            case "C":
+                return 70;
+            default:
+                return 50;
+        }
+    }
+
+    private String mapScoreToIntent(Integer score) {
+        int value = Optional.ofNullable(score).orElse(0);
+        if (value >= 95) {
+            return "A";
+        }
+        if (value >= 80) {
+            return "B";
+        }
+        if (value >= 60) {
+            return "C";
+        }
+        return "D";
+    }
+
+    private String resolveTouchIntentLevel(Integer touchScoreThreshold) {
+        return mapScoreToIntent(Optional.ofNullable(touchScoreThreshold).orElse(95));
+    }
+
+    private boolean isIntentReachThreshold(String intent, Integer touchScoreThreshold) {
+        return mapIntentToScore(intent) >= mapIntentToScore(resolveTouchIntentLevel(touchScoreThreshold));
+    }
+
+    private List<Long> getAgentDiscoveryTaskIds(Long agentConfigId) {
+        return discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
+                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
+                .stream()
+                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private void refreshDiscoveryStats(Long agentConfigId) {
+        List<FbAiAgentDiscoveryLogDO> logs = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId));
+        if (CollUtil.isEmpty(logs)) {
+            return;
+        }
+        for (FbAiAgentDiscoveryLogDO logDO : logs) {
+            if (logDO.getCollectTaskId() == null) {
+                continue;
+            }
+            List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                    .eq(FbCollectUserDO::getTaskId, logDO.getCollectTaskId()));
+            FbAiAgentDiscoveryLogDO updateObj = new FbAiAgentDiscoveryLogDO();
+            updateObj.setId(logDO.getId());
+            updateObj.setDiscoveredCount(users.size());
+            updateObj.setPageCollectCount(users.size());
+            long analyzed = users.stream().filter(item -> item.getLastAiAnalyzeTime() != null).count();
+            long highIntent = users.stream().filter(item -> StrUtil.equals(item.getIntentLevel(), "high")).count();
+            updateObj.setAiAnalyzeCount((int) analyzed);
+            updateObj.setHighIntentCount((int) highIntent);
+            updateObj.setFilteredCount((int) Math.max(users.size() - highIntent, 0));
+            updateObj.setFinalLeadCount((int) highIntent);
+            discoveryLogMapper.updateById(updateObj);
+        }
+    }
+
+    private boolean isCommentablePostUrl(String url) {
+        if (StrUtil.isBlank(url)) {
+            return false;
+        }
+        return StrUtil.containsAnyIgnoreCase(url, "/posts/", "/permalink/", "permalink.php", "multi_permalinks=");
+    }
+
+    private Long resolveWorkflowIdByCode(String workflowCode) {
+        if (StrUtil.isBlank(workflowCode)) {
+            return null;
+        }
+        try {
+            AiWorkflowDO workflow = aiWorkflowMapper.selectByCode(workflowCode);
+            if (workflow == null) {
+                return null;
+            }
+            return workflow.getId();
+        } catch (Exception ex) {
+            log.warn("根据 code 读取 AI 工作流失败，code={}, reason={}", workflowCode, ex.getMessage());
+            return null;
+        }
+    }
+
+    private void addRunLog(Long agentConfigId, String title, String content, String logLevel) {
+        if (agentConfigId == null) {
+            return;
+        }
+        FbAiAgentRunLogDO logDO = new FbAiAgentRunLogDO();
+        logDO.setAgentConfigId(agentConfigId);
+        logDO.setTitle(title);
+        logDO.setContent(content);
+        logDO.setLogLevel(logLevel);
+        runLogMapper.insert(logDO);
     }
 
     private String resolveFbAccount(String accountId) {
@@ -925,44 +1454,36 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .collect(Collectors.joining("\n"));
     }
 
-    private boolean containsAny(String text, String... keywords) {
-        for (String keyword : keywords) {
-            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String inferFirstMatched(String text, List<String> candidates) {
-        if (CollUtil.isEmpty(candidates) || StrUtil.isBlank(text)) {
-            return null;
-        }
-        String lower = text.toLowerCase(Locale.ROOT);
-        return candidates.stream()
-                .filter(StrUtil::isNotBlank)
-                .filter(item -> lower.contains(item.toLowerCase(Locale.ROOT)))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private String inferUserLeadType(String lower) {
-        if (containsAny(lower, "distributor", "dealer", "reseller", "wholesale", "经销", "代理", "批发")) {
-            return "distributor";
-        }
-        if (containsAny(lower, "company", "factory", "import", "export", "manufacturer", "公司", "工厂", "进口", "出口")) {
-            return "business";
-        }
-        return "consumer";
-    }
-
-    private String buildIntentReason(int seedHits, List<String> tags, int score) {
-        return String.format("关键词命中%s个，标签=%s，综合分=%s", seedHits, String.join("/", tags), Math.min(score, 100));
-    }
-
     private void normalizeDefaults(FbAiAgentConfigSaveReqVO reqVO) {
         if (reqVO.getStatus() == null) {
             reqVO.setStatus(0);
+        }
+        if (StrUtil.isBlank(reqVO.getAgentType())) {
+            reqVO.setAgentType(AGENT_TYPE_PAGE_LEAD);
+        }
+        if (StrUtil.isBlank(reqVO.getSearchMode())) {
+            reqVO.setSearchMode("keyword");
+        }
+        if (reqVO.getKeywordCursor() == null) {
+            reqVO.setKeywordCursor(0);
+        }
+        if (reqVO.getKeywordsPerRun() == null) {
+            reqVO.setKeywordsPerRun(5);
+        }
+        if (reqVO.getAiKeywordExpandEnabled() == null) {
+            reqVO.setAiKeywordExpandEnabled(false);
+        }
+        if (reqVO.getAiKeywordExpandCount() == null) {
+            reqVO.setAiKeywordExpandCount(20);
+        }
+        if (reqVO.getTargetCustomerCount() == null) {
+            reqVO.setTargetCustomerCount(1000);
+        }
+        if (StrUtil.isBlank(reqVO.getExecuteFrequency())) {
+            reqVO.setExecuteFrequency("daily");
+        }
+        if (reqVO.getTouchScoreThreshold() == null) {
+            reqVO.setTouchScoreThreshold(90);
         }
         if (reqVO.getAutoCommentEnabled() == null) {
             reqVO.setAutoCommentEnabled(false);
@@ -979,28 +1500,48 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (StrUtil.isBlank(reqVO.getReplyDelayRange())) {
             reqVO.setReplyDelayRange("[180,600]");
         }
+        if (StrUtil.isBlank(reqVO.getPersonaType())) {
+            reqVO.setPersonaType("professional_sales");
+        }
+        if (StrUtil.isBlank(reqVO.getKeywordPool())) {
+            reqVO.setKeywordPool(reqVO.getSeedKeywords());
+        }
+        if (StrUtil.isBlank(reqVO.getExportProduct())) {
+            List<String> keywordPool = parseJsonStringList(reqVO.getKeywordPool());
+            if (CollUtil.isNotEmpty(keywordPool)) {
+                reqVO.setExportProduct(keywordPool.get(0));
+            }
+        }
     }
 
     private void validateConfig(FbAiAgentConfigSaveReqVO reqVO) {
         if (!Integer.valueOf(1).equals(reqVO.getStatus())) {
             return;
         }
-        if (StrUtil.isBlank(reqVO.getKnowledgeIds())) {
-            throw exception0(2_011_000_001, "启用Agent前请选择产品知识库");
+        if (!AGENT_TYPE_PAGE_LEAD.equals(reqVO.getAgentType())) {
+            throw exception0(2_011_000_001, "当前版本仅支持AI主页获客");
         }
-        if (StrUtil.isBlank(reqVO.getSeedKeywords())) {
-            throw exception0(2_011_000_002, "启用Agent前请配置3-5个核心关键词种子");
+        if (StrUtil.isBlank(reqVO.getSeedKeywords()) && StrUtil.isBlank(reqVO.getKeywordPool())) {
+            throw exception0(2_011_000_002, "启用Agent前请配置关键词");
         }
         if (StrUtil.isBlank(reqVO.getAccountIds())) {
             throw exception0(2_011_000_003, "启用Agent前请选择执行账号池");
         }
-        if (!Boolean.TRUE.equals(reqVO.getAutoCommentEnabled()) && !Boolean.TRUE.equals(reqVO.getAutoDmEnabled())) {
-            throw exception0(2_011_000_004, "启用Agent前至少开启自动评论或自动私信");
+        List<String> keywordPool = parseJsonStringList(reqVO.getKeywordPool());
+        if (CollUtil.isEmpty(keywordPool)) {
+            throw exception0(2_011_000_004, "关键词池不能为空");
+        }
+        if (StrUtil.isBlank(reqVO.getExportProduct())) {
+            throw exception0(2_011_000_006, "启用Agent前请配置主营/出口产品");
+        }
+        if (reqVO.getKeywordsPerRun() != null && reqVO.getKeywordsPerRun() > keywordPool.size()) {
+            throw exception0(2_011_000_005, "每轮执行关键词数量不能大于关键词池总数");
         }
     }
 
     private static class AgentDispatchStats {
         private int createdCollectTasks;
+        private int createdDeepCollectTasks;
         private int analyzedPosts;
         private int analyzedUsers;
         private int queuedTouches;
@@ -1009,6 +1550,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private static class LeadAnalysisResult {
         private String aiTags;
+        private String intentCode;
         private String intentLevel;
         private String intentReason;
         private String sentiment;
@@ -1018,6 +1560,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         private Integer productRelevanceScore;
         private String aiSummary;
         private String touchStatus;
+        private String commentMessage;
+        private String dmMessage;
     }
 
 }

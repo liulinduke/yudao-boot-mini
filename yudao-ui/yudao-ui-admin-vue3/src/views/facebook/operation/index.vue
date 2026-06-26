@@ -194,10 +194,7 @@ defineOptions({ name: 'FbOperation' })
 
 const message = useMessage()
 const { t } = useI18n()
-const { push } = useRouter()
-
 const operationTools = [
-  { type: 'ai-agent', title: 'AI获客Agent', icon: 'ep:cpu', disabled: false },
   { type: 'add-group', title: '链接加组', icon: 'ep:user-filled', disabled: false },
   { type: 'repost', title: '转帖', icon: 'ep:share', disabled: false },
   { type: 'post-comment', title: '帖子评论', icon: 'ep:chat-dot-round', disabled: false },
@@ -240,10 +237,6 @@ const getList = async () => {
 const selectTool = (type: string) => {
   if (operationTools.find((f) => f.type === type)?.disabled) {
     message.warning('该功能开发中')
-    return
-  }
-  if (type === 'ai-agent') {
-    push({ name: 'FacebookAiAgent' })
     return
   }
   activeTool.value = type

@@ -4,6 +4,7 @@ import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.KeySequence;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.*;
 
 /**
@@ -28,6 +29,21 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private String agentName;
 
     /**
+     * Agent类型：page_lead/group_post/group_comment/competitor_buyer
+     */
+    private String agentType;
+
+    /**
+     * 搜索方式：keyword/link
+     */
+    private String searchMode;
+
+    /**
+     * 用户主营/出口产品
+     */
+    private String exportProduct;
+
+    /**
      * 知识库ID列表，逗号分隔
      */
     private String knowledgeIds;
@@ -36,6 +52,41 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
      * 关键词种子，JSON数组
      */
     private String seedKeywords;
+
+    /**
+     * 最终关键词池，JSON数组
+     */
+    private String keywordPool;
+
+    /**
+     * 关键词轮询游标
+     */
+    private Integer keywordCursor;
+
+    /**
+     * 每轮执行关键词数量
+     */
+    private Integer keywordsPerRun;
+
+    /**
+     * 是否启用AI扩展关键词
+     */
+    private Boolean aiKeywordExpandEnabled;
+
+    /**
+     * AI扩展关键词数量
+     */
+    private Integer aiKeywordExpandCount;
+
+    /**
+     * 目标客户数量
+     */
+    private Integer targetCustomerCount;
+
+    /**
+     * 执行频率：daily
+     */
+    private String executeFrequency;
 
     /**
      * 目标国家，JSON数组
@@ -56,6 +107,11 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
      * 监控群组ID列表，逗号分隔
      */
     private String monitorGroupIds;
+
+    /**
+     * 触达评分阈值
+     */
+    private Integer touchScoreThreshold;
 
     /**
      * 线索评分工作流ID
@@ -103,8 +159,25 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private String personaConfig;
 
     /**
-     * 状态：0-停用 1-启用
+     * AI业务员人设类型
+     */
+    private String personaType;
+
+    /**
+     * 状态：0草稿 1运行中 2暂停 3停止
      */
     private Integer status;
+
+    /**
+     * 线索数（非持久化）
+     */
+    @TableField(exist = false)
+    private Long leadCount;
+
+    /**
+     * 待处理数（非持久化）
+     */
+    @TableField(exist = false)
+    private Long pendingCount;
 
 }

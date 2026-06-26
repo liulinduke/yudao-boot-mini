@@ -1,12 +1,23 @@
 CREATE TABLE IF NOT EXISTS fb_ai_agent_config (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '编号',
     agent_name VARCHAR(128) NOT NULL COMMENT 'Agent名称',
+    agent_type VARCHAR(64) NULL COMMENT 'Agent类型',
+    search_mode VARCHAR(32) NULL COMMENT '搜索方式',
+    export_product VARCHAR(255) NULL COMMENT '用户主营/出口产品',
     knowledge_ids VARCHAR(512) NULL COMMENT '知识库ID列表',
     seed_keywords TEXT NULL COMMENT '关键词种子JSON',
+    keyword_pool TEXT NULL COMMENT '关键词池JSON',
+    keyword_cursor INT NOT NULL DEFAULT 0 COMMENT '关键词轮询游标',
+    keywords_per_run INT NOT NULL DEFAULT 5 COMMENT '每轮执行关键词数量',
+    ai_keyword_expand_enabled BIT(1) NOT NULL DEFAULT b'0' COMMENT '是否启用AI扩展关键词',
+    ai_keyword_expand_count INT NOT NULL DEFAULT 20 COMMENT 'AI扩展关键词数量',
+    target_customer_count INT NOT NULL DEFAULT 1000 COMMENT '目标客户数量',
+    execute_frequency VARCHAR(32) NULL COMMENT '执行频率',
     target_countries TEXT NULL COMMENT '目标国家JSON',
     target_languages TEXT NULL COMMENT '目标语言JSON',
     account_ids TEXT NULL COMMENT '账号ID列表',
     monitor_group_ids TEXT NULL COMMENT '监控群组ID列表',
+    touch_score_threshold INT NOT NULL DEFAULT 90 COMMENT '触达评分阈值',
     lead_score_workflow_id BIGINT NULL COMMENT '线索评分工作流ID',
     comment_workflow_id BIGINT NULL COMMENT '评论生成工作流ID',
     dm_workflow_id BIGINT NULL COMMENT '私信生成工作流ID',
@@ -15,8 +26,9 @@ CREATE TABLE IF NOT EXISTS fb_ai_agent_config (
     daily_comment_limit INT NOT NULL DEFAULT 50 COMMENT '每日评论上限',
     daily_dm_limit INT NOT NULL DEFAULT 30 COMMENT '每日私信上限',
     reply_delay_range VARCHAR(128) NULL COMMENT '回复延迟范围JSON',
+    persona_type VARCHAR(64) NULL COMMENT 'AI业务员人设类型',
     persona_config TEXT NULL COMMENT '人设配置JSON',
-    status TINYINT NOT NULL DEFAULT 0 COMMENT '状态：0停用 1启用',
+    status TINYINT NOT NULL DEFAULT 0 COMMENT '状态：0草稿 1运行中 2暂停 3停止',
     creator VARCHAR(64) NULL DEFAULT '' COMMENT '创建者',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updater VARCHAR(64) NULL DEFAULT '' COMMENT '更新者',
@@ -26,6 +38,44 @@ CREATE TABLE IF NOT EXISTS fb_ai_agent_config (
     PRIMARY KEY (id),
     KEY idx_fb_ai_agent_config_tenant (tenant_id, deleted)
 ) COMMENT='Facebook AI获客Agent配置';
+
+CREATE TABLE IF NOT EXISTS fb_ai_agent_discovery_log (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '编号',
+    agent_config_id BIGINT NOT NULL COMMENT 'Agent配置ID',
+    keyword VARCHAR(255) NULL COMMENT '关键词',
+    source_type VARCHAR(32) NULL COMMENT '发现来源',
+    discovered_count INT NOT NULL DEFAULT 0 COMMENT '发现客户数',
+    high_intent_count INT NOT NULL DEFAULT 0 COMMENT '高意向客户数',
+    page_collect_count INT NOT NULL DEFAULT 0 COMMENT '主页采集数',
+    ai_analyze_count INT NOT NULL DEFAULT 0 COMMENT 'AI分析数',
+    filtered_count INT NOT NULL DEFAULT 0 COMMENT '过滤数',
+    final_lead_count INT NOT NULL DEFAULT 0 COMMENT '最终线索数',
+    collect_task_id BIGINT NULL COMMENT '关联采集任务ID',
+    creator VARCHAR(64) NULL DEFAULT '' COMMENT '创建者',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updater VARCHAR(64) NULL DEFAULT '' COMMENT '更新者',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted BIT(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+    tenant_id BIGINT NOT NULL DEFAULT 0 COMMENT '租户编号',
+    PRIMARY KEY (id),
+    KEY idx_fb_ai_agent_discovery_agent (tenant_id, agent_config_id, deleted)
+) COMMENT='Facebook AI获客Agent客户发现日志';
+
+CREATE TABLE IF NOT EXISTS fb_ai_agent_run_log (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '编号',
+    agent_config_id BIGINT NOT NULL COMMENT 'Agent配置ID',
+    title VARCHAR(255) NULL COMMENT '日志标题',
+    content TEXT NULL COMMENT '日志内容',
+    log_level VARCHAR(32) NULL COMMENT '日志级别',
+    creator VARCHAR(64) NULL DEFAULT '' COMMENT '创建者',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updater VARCHAR(64) NULL DEFAULT '' COMMENT '更新者',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted BIT(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+    tenant_id BIGINT NOT NULL DEFAULT 0 COMMENT '租户编号',
+    PRIMARY KEY (id),
+    KEY idx_fb_ai_agent_run_log_agent (tenant_id, agent_config_id, deleted)
+) COMMENT='Facebook AI获客Agent运行日志';
 
 CREATE TABLE IF NOT EXISTS fb_ai_touch_record (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '编号',

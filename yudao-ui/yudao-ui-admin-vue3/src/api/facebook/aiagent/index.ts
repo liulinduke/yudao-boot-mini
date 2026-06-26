@@ -4,22 +4,57 @@ import type { Dayjs } from 'dayjs'
 export interface FbAiAgentConfig {
   id?: number
   agentName: string
+  agentType?: string
+  searchMode?: string
+  exportProduct?: string
   knowledgeIds?: string
   seedKeywords?: string
+  keywordPool?: string
+  keywordCursor?: number
+  keywordsPerRun?: number
+  aiKeywordExpandEnabled?: boolean
+  aiKeywordExpandCount?: number
+  targetCustomerCount?: number
+  executeFrequency?: string
   targetCountries?: string
   targetLanguages?: string
   accountIds?: string
   monitorGroupIds?: string
-  leadScoreWorkflowId?: number
-  commentWorkflowId?: number
-  dmWorkflowId?: number
+  touchScoreThreshold?: number
   autoCommentEnabled?: boolean
   autoDmEnabled?: boolean
   dailyCommentLimit?: number
   dailyDmLimit?: number
   replyDelayRange?: string
   personaConfig?: string
+  personaType?: string
   status?: number
+  leadCount?: number
+  pendingCount?: number
+  createTime?: string | Dayjs
+}
+
+export interface FbAiAgentDiscoveryLog {
+  id: number
+  agentConfigId?: number
+  keyword?: string
+  sourceType?: string
+  discoveredCount?: number
+  highIntentCount?: number
+  pageCollectCount?: number
+  aiAnalyzeCount?: number
+  filteredCount?: number
+  finalLeadCount?: number
+  collectTaskId?: number
+  createTime?: string | Dayjs
+}
+
+export interface FbAiAgentRunLog {
+  id: number
+  agentConfigId?: number
+  title?: string
+  content?: string
+  logLevel?: string
   createTime?: string | Dayjs
 }
 
@@ -78,7 +113,26 @@ export interface FbAiTouchRecordSaveReq {
   operationDetailId?: number
 }
 
+export interface FbAiKeywordGenerateReq {
+  seedKeywords?: string[]
+  targetCountries?: string[]
+  productDescription?: string
+  expandCount?: number
+}
+
+export interface FbAiKeywordGenerateResp {
+  keywords: string[]
+}
+
 export const FbAiAgentApi = {
+  getConfigPage: async (params: any) => {
+    return await request.get({ url: '/facebook/ai-agent/page', params })
+  },
+
+  getConfigById: async (id: number) => {
+    return await request.get<FbAiAgentConfig>({ url: '/facebook/ai-agent/get', params: { id } })
+  },
+
   getConfig: async () => {
     return await request.get<FbAiAgentConfig>({ url: '/facebook/ai-agent/config' })
   },
@@ -87,8 +141,32 @@ export const FbAiAgentApi = {
     return await request.post<number>({ url: '/facebook/ai-agent/config/save', data })
   },
 
+  updateStatus: async (data: { id: number; status: number }) => {
+    return await request.put<boolean>({ url: '/facebook/ai-agent/update-status', data })
+  },
+
+  deleteConfig: async (id: number) => {
+    return await request.delete<boolean>({ url: '/facebook/ai-agent/delete', params: { id } })
+  },
+
+  generateKeywords: async (data: FbAiKeywordGenerateReq) => {
+    return await request.post<FbAiKeywordGenerateResp>({ url: '/facebook/ai-agent/generate-keywords', data })
+  },
+
+  getDiscoveryLogPage: async (params: any) => {
+    return await request.get({ url: '/facebook/ai-agent/discovery-log/page', params })
+  },
+
   getTouchRecordPage: async (params: any) => {
     return await request.get({ url: '/facebook/ai-agent/touch-record/page', params })
+  },
+
+  getLeadPage: async (params: any) => {
+    return await request.get({ url: '/facebook/ai-agent/lead/page', params })
+  },
+
+  getRunLogPage: async (params: any) => {
+    return await request.get({ url: '/facebook/ai-agent/run-log/page', params })
   },
 
   createTouchRecord: async (data: FbAiTouchRecordSaveReq) => {
