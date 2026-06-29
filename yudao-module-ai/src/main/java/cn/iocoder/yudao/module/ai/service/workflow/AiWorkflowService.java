@@ -7,6 +7,8 @@ import cn.iocoder.yudao.module.ai.controller.admin.workflow.vo.AiWorkflowTestReq
 import cn.iocoder.yudao.module.ai.dal.dataobject.workflow.AiWorkflowDO;
 import jakarta.validation.Valid;
 
+import java.util.Map;
+
 /**
  * AI 工作流 Service 接口
  *
@@ -58,5 +60,14 @@ public interface AiWorkflowService {
      * @param testReqVO 测试数据
      */
     Object testWorkflow(AiWorkflowTestReqVO testReqVO);
+
+    /**
+     * 执行 AI 工作流
+     *
+     * @param id 工作流编号
+     * @param params 执行参数
+     * @return 执行结果
+     */
+    Object executeWorkflow(Long id, Map<String, Object> params);
 
 }

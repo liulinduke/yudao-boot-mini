@@ -12,12 +12,19 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReq
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.model.AiChatMapper;
+import com.agentsflex.llm.deepseek.DeepseekConfig;
+import com.agentsflex.llm.deepseek.DeepseekLlm;
+import com.agentsflex.llm.deepseek.DeepseekLlmUtil;
+import com.agentsflex.core.llm.ChatOptions;
+import com.agentsflex.core.llm.response.AiMessageResponse;
+import com.agentsflex.core.prompt.Prompt;
 import com.agentsflex.llm.ollama.OllamaLlm;
 import com.agentsflex.llm.ollama.OllamaLlmConfig;
 import com.agentsflex.llm.qwen.QwenLlm;
 import com.agentsflex.llm.qwen.QwenLlmConfig;
 import dev.tinyflow.core.Tinyflow;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.image.ImageModel;
@@ -26,9 +33,11 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
 
@@ -39,6 +48,7 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
  */
 @Service
 @Validated
+@Slf4j
 public class AiModelServiceImpl implements AiModelService {
 
     @Resource
@@ -176,6 +186,9 @@ public class AiModelServiceImpl implements AiModelService {
     // TODO @lesan：是不是返回 Llm 对象会好点哈？
     @Override
     public void getLLmProvider4Tinyflow(Tinyflow tinyflow, Long modelId) {
+        if (modelId == null) {
+            throw exception0(MODEL_NOT_EXISTS.getCode(), "AI 工作流大模型节点未配置模型");
+        }
         AiModelDO model = validateModel(modelId);
         AiApiKeyDO apiKey = apiKeyService.validateApiKey(model.getKeyId());
         AiPlatformEnum platform = AiPlatformEnum.validatePlatform(apiKey.getPlatform());
@@ -189,12 +202,57 @@ public class AiModelServiceImpl implements AiModelService {
                 // TODO @lesan：这个有点奇怪。。。如果一个链式里，有多个模型，咋整呀。。。
                 tinyflow.setLlmProvider(id -> new QwenLlm(qwenLlmConfig));
                 break;
+            case DEEP_SEEK:
+                DeepseekConfig deepseekConfig = new DeepseekConfig();
+                deepseekConfig.setApiKey(apiKey.getApiKey());
+                deepseekConfig.setModel(model.getModel());
+                if (apiKey.getUrl() != null && !apiKey.getUrl().isBlank()) {
+                    deepseekConfig.setEndpoint(apiKey.getUrl());
+                }
+                tinyflow.setLlmProvider(id -> new LoggingDeepseekLlm(deepseekConfig));
+                break;
             case OLLAMA:
                 OllamaLlmConfig ollamaLlmConfig = new OllamaLlmConfig();
                 ollamaLlmConfig.setEndpoint(apiKey.getUrl());
                 ollamaLlmConfig.setModel(model.getModel());
                 tinyflow.setLlmProvider(id -> new OllamaLlm(ollamaLlmConfig));
                 break;
+            default:
+                throw exception0(MODEL_USE_TYPE_ERROR.getCode(),
+                        "AI 工作流暂不支持 {} 平台，请在工作流大模型节点选择通义千问、DeepSeek 或 Ollama 模型", platform.getName());
+        }
+    }
+
+    private static class LoggingDeepseekLlm extends DeepseekLlm {
+
+        private final DeepseekConfig config;
+
+        private LoggingDeepseekLlm(DeepseekConfig config) {
+            super(config);
+            this.config = config;
+        }
+
+        @Override
+        public AiMessageResponse chat(Prompt prompt, ChatOptions options) {
+            String payload = DeepseekLlmUtil.promptToPayload(prompt, config, options, false);
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Content-Type", "application/json");
+            headers.put("Accept", "application/json");
+            headers.put("Authorization", "Bearer " + maskApiKey(config.getApiKey()));
+            log.info("DeepSeek最终HTTP请求, url={}, headers={}, body={}",
+                    config.getEndpoint() + "/chat/completions", headers, payload);
+            AiMessageResponse response = super.chat(prompt, options);
+            log.info("DeepSeek最终HTTP响应, isError={}, errorCode={}, errorType={}, errorMessage={}, raw={}",
+                    response.isError(), response.getErrorCode(), response.getErrorType(),
+                    response.getErrorMessage(), response.getResponse());
+            return response;
+        }
+
+        private static String maskApiKey(String apiKey) {
+            if (apiKey == null || apiKey.length() <= 8) {
+                return "****";
+            }
+            return apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4);
         }
     }
 

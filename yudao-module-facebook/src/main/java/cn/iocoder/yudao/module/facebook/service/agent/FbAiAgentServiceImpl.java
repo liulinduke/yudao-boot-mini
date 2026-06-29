@@ -6,7 +6,6 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
-import cn.iocoder.yudao.module.ai.controller.admin.workflow.vo.AiWorkflowTestReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.workflow.AiWorkflowDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.workflow.AiWorkflowMapper;
 import cn.iocoder.yudao.module.ai.service.workflow.AiWorkflowService;
@@ -1000,13 +999,26 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (workflowId == null) {
                 return null;
             }
-            AiWorkflowTestReqVO reqVO = new AiWorkflowTestReqVO();
-            reqVO.setId(workflowId);
-            reqVO.setParams(params);
-            return aiWorkflowService.testWorkflow(reqVO);
+            log.info("调用AI工作流开始, workflowId={}, params={}", workflowId, JSONUtil.toJsonStr(params));
+            Object result = aiWorkflowService.executeWorkflow(workflowId, params);
+            log.info("调用AI工作流完成, workflowId={}, resultType={}, result={}",
+                    workflowId, result == null ? "null" : result.getClass().getName(), stringifyAiWorkflowResult(result));
+            return result;
         } catch (Exception ex) {
-            log.warn("调用AI工作流失败，workflowId={}, reason={}", workflowId, ex.getMessage());
+            log.warn("调用AI工作流失败, workflowId={}, params={}, reason={}",
+                    workflowId, JSONUtil.toJsonStr(params), ex.getMessage(), ex);
             return null;
+        }
+    }
+
+    private String stringifyAiWorkflowResult(Object result) {
+        if (result == null) {
+            return "";
+        }
+        try {
+            return JSONUtil.toJsonStr(result);
+        } catch (Exception ignored) {
+            return String.valueOf(result);
         }
     }
 
@@ -1031,34 +1043,49 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private Object invokeDefaultAiWorkflow(String workflowCode, Map<String, Object> params) {
         Long workflowId = resolveWorkflowIdByCode(workflowCode);
         if (workflowId == null) {
+            log.warn("默认AI工作流不存在, workflowCode={}, params={}", workflowCode, JSONUtil.toJsonStr(params));
             return null;
         }
+        log.info("准备调用默认AI工作流, workflowCode={}, workflowId={}", workflowCode, workflowId);
         return invokeAiWorkflow(workflowId, params);
     }
 
     private List<String> parseKeywordWorkflowResult(Object rawResult) {
         JSONObject json = parseWorkflowResultObject(rawResult);
         if (json == null) {
+            log.info("AI关键词扩展解析为空, rawType={}, rawResult={}",
+                    rawResult == null ? "null" : rawResult.getClass().getName(), stringifyAiWorkflowResult(rawResult));
             return Collections.emptyList();
         }
         Object keywords = json.get("keywords");
+        if (!(keywords instanceof Collection) && keywords == null) {
+            JSONObject nested = findFirstJsonObjectWithKey(json, "keywords");
+            if (nested != null) {
+                keywords = nested.get("keywords");
+            }
+        }
         if (keywords instanceof Collection) {
-            return ((Collection<?>) keywords).stream()
+            List<String> result = ((Collection<?>) keywords).stream()
                     .map(String::valueOf)
                     .map(String::trim)
                     .filter(StrUtil::isNotBlank)
                     .distinct()
                     .collect(Collectors.toList());
+            log.info("AI关键词扩展解析完成, count={}, keywords={}", result.size(), result);
+            return result;
         }
         String text = json.getStr("keywords");
         if (StrUtil.isBlank(text)) {
+            log.info("AI关键词扩展未找到keywords字段, rawResult={}", stringifyAiWorkflowResult(rawResult));
             return Collections.emptyList();
         }
-        return Arrays.stream(text.split("[,\\n]"))
+        List<String> result = Arrays.stream(text.split("[,\\n]"))
                 .map(String::trim)
                 .filter(StrUtil::isNotBlank)
                 .distinct()
                 .collect(Collectors.toList());
+        log.info("AI关键词扩展解析完成, count={}, keywords={}", result.size(), result);
+        return result;
     }
 
     private List<String> buildFallbackKeywords(List<String> seeds, int count) {
@@ -1113,7 +1140,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             params.put("needDm", Boolean.TRUE.equals(config.getAutoDmEnabled()));
             params.put("customers", batch.stream().map(this::buildCustomerPayload).collect(Collectors.toList()));
             Object rawResult = invokeDefaultAiWorkflow(DEFAULT_LEAD_ANALYZE_WORKFLOW_CODE, params);
-            resultMap.putAll(parseLeadWorkflowResults(rawResult, config.getTouchScoreThreshold()));
+            Map<Long, LeadAnalysisResult> parsed = parseLeadWorkflowResults(rawResult, config.getTouchScoreThreshold());
+            log.info("AI主页客户分析批次完成, agentId={}, fromIndex={}, batchSize={}, parsedCount={}",
+                    config.getId(), fromIndex, batch.size(), parsed.size());
+            resultMap.putAll(parsed);
         }
         return resultMap;
     }
@@ -1143,6 +1173,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private Map<Long, LeadAnalysisResult> parseLeadWorkflowResults(Object rawResult, Integer threshold) {
         if (rawResult == null) {
+            log.info("AI主页客户分析结果为空");
             return Collections.emptyMap();
         }
         List<Object> rows = new ArrayList<>();
@@ -1153,6 +1184,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         } else {
             JSONObject object = parseWorkflowResultObject(rawResult);
             if (object != null) {
+                Object arrayResult = findFirstJsonArray(object);
+                if (arrayResult instanceof Collection<?>) {
+                    rows.addAll((Collection<?>) arrayResult);
+                }
                 Object customers = object.get("customers");
                 if (customers instanceof Collection<?>) {
                     rows.addAll((Collection<?>) customers);
@@ -1162,6 +1197,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             }
         }
         if (rows.isEmpty()) {
+            log.info("AI主页客户分析未解析到数组结果, rawType={}, rawResult={}",
+                    rawResult.getClass().getName(), stringifyAiWorkflowResult(rawResult));
             return Collections.emptyMap();
         }
         Map<Long, LeadAnalysisResult> resultMap = new HashMap<>();
@@ -1188,6 +1225,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             result.aiSummary = buildAiSummary(result, touchable);
             resultMap.put(id, result);
         }
+        log.info("AI主页客户分析解析完成, rawRows={}, validRows={}, ids={}",
+                rows.size(), resultMap.size(), resultMap.keySet());
         return resultMap;
     }
 
@@ -1203,6 +1242,57 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         result.touchStatus = "not_touched";
         result.aiSummary = buildAiSummary(result, false);
         return result;
+    }
+
+    private JSONObject findFirstJsonObjectWithKey(JSONObject object, String key) {
+        if (object == null) {
+            return null;
+        }
+        if (object.containsKey(key)) {
+            return object;
+        }
+        for (String itemKey : object.keySet()) {
+            Object value = object.get(itemKey);
+            JSONObject found = null;
+            if (value instanceof JSONObject) {
+                found = findFirstJsonObjectWithKey((JSONObject) value, key);
+            } else if (value instanceof Map) {
+                found = findFirstJsonObjectWithKey(JSONUtil.parseObj(value), key);
+            } else if (value instanceof CharSequence && JSONUtil.isTypeJSON(String.valueOf(value))) {
+                found = findFirstJsonObjectWithKey(JSONUtil.parseObj(String.valueOf(value)), key);
+            }
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private Object findFirstJsonArray(JSONObject object) {
+        if (object == null) {
+            return null;
+        }
+        for (String itemKey : object.keySet()) {
+            Object value = object.get(itemKey);
+            Object found = null;
+            if (value instanceof Collection<?>) {
+                return value;
+            }
+            if (value instanceof CharSequence && JSONUtil.isTypeJSONArray(String.valueOf(value))) {
+                return JSONUtil.parseArray(String.valueOf(value));
+            }
+            if (value instanceof JSONObject) {
+                found = findFirstJsonArray((JSONObject) value);
+            } else if (value instanceof Map) {
+                found = findFirstJsonArray(JSONUtil.parseObj(value));
+            } else if (value instanceof CharSequence && JSONUtil.isTypeJSON(String.valueOf(value))) {
+                found = findFirstJsonArray(JSONUtil.parseObj(String.valueOf(value)));
+            }
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     private Integer calculateLastPostDays(LocalDateTime lastPostTime) {
