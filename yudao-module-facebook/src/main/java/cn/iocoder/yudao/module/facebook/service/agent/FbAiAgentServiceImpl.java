@@ -201,19 +201,12 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     @Override
     public PageResult<FbCollectUserDO> getLeadPage(FbAiAgentLeadPageReqVO pageReqVO) {
-        List<Long> taskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
-                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, pageReqVO.getAgentConfigId())
-                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
-                .stream()
-                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-        if (CollUtil.isEmpty(taskIds)) {
+        List<Long> leadIds = getAgentLeadIds(pageReqVO.getAgentConfigId());
+        if (CollUtil.isEmpty(leadIds)) {
             return new PageResult<>(Collections.emptyList(), 0L);
         }
         List<FbCollectUserDO> records = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .in(FbCollectUserDO::getTaskId, taskIds)
+                .in(FbCollectUserDO::getId, leadIds)
                 .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
                 .orderByDesc(FbCollectUserDO::getId));
         int pageNo = Math.max(pageReqVO.getPageNo(), 1);
@@ -774,8 +767,12 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(discoveryTaskIds)) {
             return 0;
         }
+        List<Long> leadIds = getAgentLeadIds(config.getId());
+        if (CollUtil.isEmpty(leadIds)) {
+            return 0;
+        }
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .in(FbCollectUserDO::getId, leadIds)
                 .eq(FbCollectUserDO::getDeepCollected, true)
                 .and(wrapper -> wrapper.isNull(FbCollectUserDO::getLastAiAnalyzeTime)
                         .or().isNull(FbCollectUserDO::getProductRelevanceScore))
@@ -808,14 +805,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(discoveryTaskIds)) {
             return 0;
         }
+        List<Long> leadIds = getAgentLeadIds(config.getId());
+        if (CollUtil.isEmpty(leadIds)) {
+            return 0;
+        }
         int queued = 0;
         if (Boolean.TRUE.equals(config.getAutoCommentEnabled())) {
             int remaining = Math.min(MAX_TOUCH_QUEUE_PER_RUN - queued, remainingDailyTouchLimit(config.getDailyCommentLimit(), "comment"));
-            queued += queuePageCommentTouches(config, accountIds, discoveryTaskIds, remaining);
+            queued += queuePageCommentTouches(config, accountIds, leadIds, remaining);
         }
         if (queued < MAX_TOUCH_QUEUE_PER_RUN && Boolean.TRUE.equals(config.getAutoDmEnabled())) {
             int remaining = Math.min(MAX_TOUCH_QUEUE_PER_RUN - queued, remainingDailyTouchLimit(config.getDailyDmLimit(), "dm"));
-            queued += queueUserDmTouches(config, accountIds, discoveryTaskIds, remaining);
+            queued += queueUserDmTouches(config, accountIds, leadIds, remaining);
         }
         return queued;
     }
@@ -904,13 +905,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         touchRecordMapper.updateById(updateObj);
     }
 
-    private int queueUserDmTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> discoveryTaskIds, int limit) {
+    private int queueUserDmTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> leadIds, int limit) {
         if (limit <= 0) {
             return 0;
         }
         int minScore = mapIntentToScore(resolveTouchIntentLevel(config.getTouchScoreThreshold()));
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .in(FbCollectUserDO::getId, leadIds)
                 .ge(FbCollectUserDO::getProductRelevanceScore, minScore)
                 .isNotNull(FbCollectUserDO::getFbUserId)
                 .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
@@ -933,13 +934,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return queued;
     }
 
-    private int queuePageCommentTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> discoveryTaskIds, int limit) {
+    private int queuePageCommentTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> leadIds, int limit) {
         if (limit <= 0) {
             return 0;
         }
         int minScore = mapIntentToScore(resolveTouchIntentLevel(config.getTouchScoreThreshold()));
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .in(FbCollectUserDO::getTaskId, discoveryTaskIds)
+                .in(FbCollectUserDO::getId, leadIds)
                 .ge(FbCollectUserDO::getProductRelevanceScore, minScore)
                 .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
                 .orderByDesc(FbCollectUserDO::getId)
@@ -1245,8 +1246,14 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             config.setPendingCount(0L);
             return;
         }
+        List<Long> leadIds = getAgentLeadIds(config.getId());
+        if (CollUtil.isEmpty(leadIds)) {
+            config.setLeadCount(0L);
+            config.setPendingCount(0L);
+            return;
+        }
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                .in(FbCollectUserDO::getTaskId, taskIds));
+                .in(FbCollectUserDO::getId, leadIds));
         long leadCount = users.stream()
                 .filter(item -> item.getProductRelevanceScore() != null)
                 .count();
@@ -1539,6 +1546,28 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    private List<Long> getAgentLeadIds(Long agentConfigId) {
+        List<Long> taskIds = getAgentDiscoveryTaskIds(agentConfigId);
+        if (CollUtil.isEmpty(taskIds)) {
+            return Collections.emptyList();
+        }
+        Set<Long> leadIds = new LinkedHashSet<>();
+        List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, taskIds)
+                .select(FbCollectUserDO::getId));
+        if (CollUtil.isNotEmpty(users)) {
+            users.stream().map(FbCollectUserDO::getId).filter(Objects::nonNull).forEach(leadIds::add);
+        }
+        List<FbCollectDetailDO> details = collectDetailMapper.selectList(new LambdaQueryWrapper<FbCollectDetailDO>()
+                .in(FbCollectDetailDO::getTaskId, taskIds)
+                .isNotNull(FbCollectDetailDO::getSourceUserId)
+                .select(FbCollectDetailDO::getSourceUserId));
+        if (CollUtil.isNotEmpty(details)) {
+            details.stream().map(FbCollectDetailDO::getSourceUserId).filter(Objects::nonNull).forEach(leadIds::add);
+        }
+        return new ArrayList<>(leadIds);
     }
 
     private FbAiAgentConfigDO findAgentConfigByCollectTaskId(Long collectTaskId) {

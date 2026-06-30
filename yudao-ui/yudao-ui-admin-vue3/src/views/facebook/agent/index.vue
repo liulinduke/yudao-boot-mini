@@ -827,9 +827,21 @@ const loadDetailTabs = async () => {
   }
 }
 
+const handleAiAgentCollectSaved = async () => {
+  await getList()
+  if (detailVisible.value && detailAgent.value?.id) {
+    await loadDetailTabs()
+  }
+}
+
 onMounted(async () => {
   await getBaseOptions()
   await getList()
+  window.addEventListener('fb:ai-agent:collect:saved', handleAiAgentCollectSaved)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('fb:ai-agent:collect:saved', handleAiAgentCollectSaved)
 })
 </script>
 

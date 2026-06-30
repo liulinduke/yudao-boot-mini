@@ -187,6 +187,7 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
             return;
         }
         incoming.setId(existing.getId());
+        incoming.setTaskId(existing.getTaskId());
         if (StrUtil.isBlank(incoming.getFbUserId())) {
             incoming.setFbUserId(existing.getFbUserId());
         }
