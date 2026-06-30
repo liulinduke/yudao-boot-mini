@@ -14,6 +14,7 @@ namespace SocialMatrix.WpfHost
     public partial class MainWindow : Window
     {
         private JsBridgeService? _jsBridge;
+        private CollectTaskPollingService? _collectTaskPollingService;
         private BrowserMatrixWindow? _browserMatrixWindow;
         private readonly Dictionary<string, BrowserMatrixWindow> _browserMatrixWindows = new();
 
@@ -51,11 +52,18 @@ namespace SocialMatrix.WpfHost
 #endif
 
                 System.Diagnostics.Debug.WriteLine("✅ WebView2 初始化成功");
+                StartCollectTaskPolling();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"WebView2 初始化失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void StartCollectTaskPolling()
+        {
+            _collectTaskPollingService ??= new CollectTaskPollingService(this);
+            UpdateStatus("WPF采集任务轮询器已启动");
         }
 
         /// <summary>
@@ -93,6 +101,11 @@ namespace SocialMatrix.WpfHost
                 : null;
         }
 
+        public int GetBrowserWindowCount()
+        {
+            return _browserMatrixWindows.Count;
+        }
+
         private BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)
         {
             if (_browserMatrixWindows.TryGetValue(accountId, out var existingWindow) && existingWindow.IsWindowAvailable)
@@ -122,6 +135,7 @@ namespace SocialMatrix.WpfHost
             browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
             {
                 System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
+                _collectTaskPollingService?.MarkDetailFinished(dId);
                 
                 // 将数据回传给 Vue
                 Dispatcher.Invoke(() =>
@@ -209,6 +223,12 @@ namespace SocialMatrix.WpfHost
         public void UpdateStatus(string message)
         {
             System.Diagnostics.Debug.WriteLine($"[Status] {message}");
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _collectTaskPollingService?.Dispose();
+            base.OnClosed(e);
         }
     }
 }

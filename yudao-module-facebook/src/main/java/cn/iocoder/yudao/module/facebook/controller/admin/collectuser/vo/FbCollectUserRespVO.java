@@ -61,7 +61,7 @@ public class FbCollectUserRespVO {
 
     @Schema(description = "粉丝数")
     @ExcelProperty("粉丝数")
-    private Integer followers;
+    private Long followers;
 
     @Schema(description = "所在地")
     @ExcelProperty("所在地")

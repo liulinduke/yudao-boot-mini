@@ -44,4 +44,6 @@ public interface FbAiAgentService {
 
     FbAiAgentDispatchRespVO dispatchOnce();
 
+    FbAiAgentDispatchRespVO dispatchScheduled();
+
 }

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.collectdetail;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+import cn.iocoder.yudao.module.facebook.controller.admin.collectdetail.vo.FbCollectPendingDetailRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectDetailService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -50,5 +51,13 @@ public class FbCollectDetailController {
         Long taskIdLong = Long.parseLong(taskId);
         List<FbCollectDetailDO> list = fbCollectDetailService.getDetailListByTaskId(taskIdLong);
         return success(list);
+    }
+
+    @GetMapping("/claim-pending")
+    @Operation(summary = "WPF领取待执行采集明细")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
+    public CommonResult<List<FbCollectPendingDetailRespVO>> claimPendingDetails(
+            @RequestParam(value = "limit", defaultValue = "3") Integer limit) {
+        return success(fbCollectDetailService.claimPendingDetails(limit));
     }
 }

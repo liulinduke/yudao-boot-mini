@@ -1,7 +1,14 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.collectuser.vo;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
+import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.*;
 import jakarta.validation.constraints.*;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -45,7 +52,37 @@ public class FbCollectUserSaveReqVO {
     private Integer dataType;
 
     @Schema(description = "粉丝数")
-    private Integer followers;
+    @JsonDeserialize(using = FollowersDeserializer.class)
+    private Long followers;
+
+    public static class FollowersDeserializer extends JsonDeserializer<Long> {
+
+        @Override
+        public Long deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+            JsonToken token = p.currentToken();
+            if (token == JsonToken.VALUE_NULL) {
+                return null;
+            }
+            if (token == JsonToken.VALUE_NUMBER_INT || token == JsonToken.VALUE_NUMBER_FLOAT) {
+                long value = p.getLongValue();
+                return value > 0 ? value : null;
+            }
+            if (token == JsonToken.VALUE_STRING) {
+                String raw = p.getValueAsString();
+                if (raw == null || raw.trim().isEmpty()) {
+                    return null;
+                }
+                String normalized = raw.trim().replace(",", "");
+                try {
+                    long value = new BigDecimal(normalized).longValue();
+                    return value > 0 ? value : null;
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
 
     @Schema(description = "所在地")
     private String city;

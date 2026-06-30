@@ -83,8 +83,12 @@
       let num = parseFloat(match[1].replace(/,/g, ''));
       if (!Number.isFinite(num)) return null;
       if (raw.includes('k') || raw.includes('千') || raw.includes('rb')) num *= 1000;
-      else if (raw.includes('m') || raw.includes('万') || raw.includes('jt')) num *= 1000000;
-      return Math.floor(num);
+      else if (raw.includes('千万')) num *= 10000000;
+      else if (raw.includes('亿') || raw.includes('億') || raw.includes('억')) num *= 100000000;
+      else if (raw.includes('m') || raw.includes('百万') || raw.includes('jt')) num *= 1000000;
+      else if (raw.includes('万') || raw.includes('만')) num *= 10000;
+      const normalized = Math.floor(num);
+      return normalized > 0 && normalized <= 1000000000 ? normalized : null;
     };
 
     const getIntroRoot = () => {

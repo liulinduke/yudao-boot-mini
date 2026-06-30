@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail;
 
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.KeySequence;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -26,7 +27,7 @@ public class FbCollectDetailDO extends BaseDO {
     /**
      * 明细ID
      */
-    @TableId
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     
     /**

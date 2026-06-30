@@ -57,6 +57,9 @@ public class FbAiAgentConfigSaveReqVO {
     @Schema(description = "执行频率：daily")
     private String executeFrequency;
 
+    @Schema(description = "每日执行时间，格式 HH:mm")
+    private String executeTime;
+
     @Schema(description = "目标国家，JSON数组")
     private String targetCountries;
 

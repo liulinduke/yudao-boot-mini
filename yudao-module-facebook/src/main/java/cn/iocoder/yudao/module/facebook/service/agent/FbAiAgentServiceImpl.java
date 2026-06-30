@@ -291,6 +291,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FbAiAgentDispatchRespVO dispatchOnce() {
+        return dispatchInternal(false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FbAiAgentDispatchRespVO dispatchScheduled() {
+        return dispatchInternal(true);
+    }
+
+    private FbAiAgentDispatchRespVO dispatchInternal(boolean scheduledOnly) {
         List<FbAiAgentConfigDO> configs = agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
                 .eq(FbAiAgentConfigDO::getStatus, 1)
                 .eq(FbAiAgentConfigDO::getAgentType, AGENT_TYPE_PAGE_LEAD)
@@ -299,16 +309,23 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             return new FbAiAgentDispatchRespVO(false, "暂无运行中的AI主页获客Agent");
         }
         AgentDispatchStats stats = new AgentDispatchStats();
+        List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails = new ArrayList<>();
+        int skipped = 0;
 
         for (FbAiAgentConfigDO config : configs) {
+            if (scheduledOnly && !isAgentDue(config)) {
+                skipped++;
+                continue;
+            }
+            stats.executedAgents++;
             addRunLog(config.getId(), "开始执行任务", "开始执行AI主页获客：" + config.getAgentName(), "info");
             List<String> accountIds = parseCsvStringList(config.getAccountIds());
             List<String> targetCountries = parseJsonStringList(config.getTargetCountries());
             List<String> targetLanguages = parseJsonStringList(config.getTargetLanguages());
             List<String> runKeywords = pickRunKeywords(config);
 
-            int created = createPageLeadCollectTasks(config, runKeywords, accountIds);
-            int deepCreated = createDeepCollectTasks(config, accountIds);
+            int created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails);
+            int deepCreated = createDeepCollectTasks(config, accountIds, launchDetails);
             int analyzedUsers = analyzePendingUsers(config, runKeywords, targetCountries, targetLanguages);
             int queuedTouches = queueHighIntentTouches(config, accountIds);
             int activatedTouches = activateDueTouchRecords(config);
@@ -318,14 +335,54 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             stats.queuedTouches += queuedTouches;
             stats.activatedTouches += activatedTouches;
             advanceKeywordCursor(config, runKeywords.size());
-            addRunLog(config.getId(), "任务结束", String.format("本轮关键词%s个，新建主页采集%s个，深度采集%s个，分析线索%s条，排队触达%s条，转执行%s条",
+            if (scheduledOnly) {
+                markAgentExecuted(config.getId());
+            }
+            addRunLog(config.getId(), "调度结束", String.format("本轮关键词%s个，新建主页采集%s个，深度采集%s个，分析线索%s条，排队触达%s条，转执行%s条",
                     runKeywords.size(), created, deepCreated, analyzedUsers, queuedTouches, activatedTouches), "success");
         }
 
+        if (stats.executedAgents == 0) {
+            return new FbAiAgentDispatchRespVO(false, scheduledOnly
+                    ? String.format("暂无到达执行时间的AI主页获客Agent，已跳过%s个", skipped)
+                    : "暂无可执行的AI主页获客Agent");
+        }
         String message = String.format("Agent调度完成：运行Agent%s个，新建主页采集%s个，新建深度采集%s个，分析潜客%s条，排队触达%s条，转执行任务%s条",
-                configs.size(), stats.createdCollectTasks, stats.createdDeepCollectTasks, stats.analyzedUsers, stats.queuedTouches, stats.activatedTouches);
+                stats.executedAgents, stats.createdCollectTasks, stats.createdDeepCollectTasks, stats.analyzedUsers, stats.queuedTouches, stats.activatedTouches);
         log.info("[dispatchOnce][{}]", message);
-        return new FbAiAgentDispatchRespVO(true, message);
+        FbAiAgentDispatchRespVO respVO = new FbAiAgentDispatchRespVO(true, message);
+        respVO.setDetails(launchDetails);
+        return respVO;
+    }
+
+    private boolean isAgentDue(FbAiAgentConfigDO config) {
+        if (!"daily".equals(StrUtil.blankToDefault(config.getExecuteFrequency(), "daily"))) {
+            return false;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (config.getLastExecuteTime() != null && config.getLastExecuteTime().toLocalDate().isEqual(now.toLocalDate())) {
+            return false;
+        }
+        LocalTime executeTime = parseExecuteTime(config.getExecuteTime());
+        return !now.toLocalTime().isBefore(executeTime);
+    }
+
+    private LocalTime parseExecuteTime(String executeTime) {
+        if (StrUtil.isBlank(executeTime)) {
+            return LocalTime.of(9, 0);
+        }
+        try {
+            return LocalTime.parse(executeTime.trim());
+        } catch (Exception ex) {
+            return LocalTime.of(9, 0);
+        }
+    }
+
+    private void markAgentExecuted(Long agentId) {
+        FbAiAgentConfigDO updateObj = new FbAiAgentConfigDO();
+        updateObj.setId(agentId);
+        updateObj.setLastExecuteTime(LocalDateTime.now());
+        agentConfigMapper.updateById(updateObj);
     }
 
     private int createKeywordCollectTasks(FbAiAgentConfigDO config, List<String> seedKeywords, List<String> accountIds) {
@@ -419,7 +476,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         agentConfigMapper.updateById(updateObj);
     }
 
-    private int createPageLeadCollectTasks(FbAiAgentConfigDO config, List<String> keywords, List<String> accountIds) {
+    private int createPageLeadCollectTasks(FbAiAgentConfigDO config, List<String> keywords, List<String> accountIds,
+                                           List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails) {
         if (CollUtil.isEmpty(keywords) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "主页发现跳过", "关键词池或账号池为空", "warning");
             return 0;
@@ -444,7 +502,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             FbCollectDO task = createCollectTask(PAGE_COLLECT_TASK_TYPE, searchUrl, 1,
                     AUTO_PAGE_COLLECT_REMARK + ":" + config.getId() + ":" + keyword,
                     Collections.singletonList(accountId), accountMap);
-            createCollectDetail(task.getId(), accountId, accountMap.get(accountId), searchUrl, DEFAULT_COLLECT_EXPECTED_COUNT);
+            FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), searchUrl, DEFAULT_COLLECT_EXPECTED_COUNT);
+            addLaunchDetail(launchDetails, task, detail, accountId);
             createDiscoveryLog(config.getId(), keyword, task.getId());
             addRunLog(config.getId(), "发现主页", "关键词：" + keyword + "，账号：" + accountMap.get(accountId), "info");
             created++;
@@ -452,7 +511,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return created;
     }
 
-    private int createDeepCollectTasks(FbAiAgentConfigDO config, List<String> accountIds) {
+    private int createDeepCollectTasks(FbAiAgentConfigDO config, List<String> accountIds,
+                                       List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails) {
         if (CollUtil.isEmpty(accountIds)) {
             return 0;
         }
@@ -484,7 +544,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             FbCollectDO task = createCollectTask(DEEP_COLLECT_TASK_TYPE, user.getUrl(), 0,
                     AUTO_DEEP_COLLECT_REMARK + ":" + config.getId() + ":" + user.getId(),
                     Collections.singletonList(accountId), accountMap);
-            createCollectDetail(task.getId(), accountId, accountMap.get(accountId), user.getUrl(), 1);
+            FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), user.getUrl(), 1);
+            addLaunchDetail(launchDetails, task, detail, accountId);
             created++;
         }
         if (created > 0) {
@@ -530,7 +591,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return task;
     }
 
-    private void createCollectDetail(Long taskId, Long accountId, String fbAccount, String searchUrl, Integer expectedCount) {
+    private FbCollectDetailDO createCollectDetail(Long taskId, Long accountId, String fbAccount, String searchUrl, Integer expectedCount) {
         FbCollectDetailDO detail = new FbCollectDetailDO();
         detail.setTaskId(taskId);
         detail.setFbAccount(StrUtil.blankToDefault(fbAccount, "account_" + accountId));
@@ -539,6 +600,24 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         detail.setCollectedCount(0);
         detail.setStatus(0);
         collectDetailMapper.insert(detail);
+        return detail;
+    }
+
+    private void addLaunchDetail(List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails, FbCollectDO task,
+                                 FbCollectDetailDO detail, Long accountId) {
+        if (launchDetails == null || task == null || detail == null) {
+            return;
+        }
+        FbAccountDO account = accountMapper.selectById(accountId);
+        launchDetails.add(new FbAiAgentDispatchRespVO.CollectDetail(
+                task.getId(),
+                detail.getId(),
+                detail.getFbAccount(),
+                account == null ? null : account.getCookie(),
+                detail.getSearchUrl(),
+                detail.getExpectedCount(),
+                task.getTaskType()
+        ));
     }
 
     private void createDiscoveryLog(Long agentConfigId, String keyword, Long collectTaskId) {
@@ -1572,6 +1651,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (StrUtil.isBlank(reqVO.getExecuteFrequency())) {
             reqVO.setExecuteFrequency("daily");
         }
+        if (StrUtil.isBlank(reqVO.getExecuteTime())) {
+            reqVO.setExecuteTime("09:00");
+        }
         if (reqVO.getTouchScoreThreshold() == null) {
             reqVO.setTouchScoreThreshold(90);
         }
@@ -1624,12 +1706,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (StrUtil.isBlank(reqVO.getExportProduct())) {
             throw exception0(2_011_000_006, "启用Agent前请配置主营/出口产品");
         }
+        if (!isValidExecuteTime(reqVO.getExecuteTime())) {
+            throw exception0(2_011_000_007, "执行时间格式不正确，请使用 HH:mm");
+        }
         if (reqVO.getKeywordsPerRun() != null && reqVO.getKeywordsPerRun() > keywordPool.size()) {
             throw exception0(2_011_000_005, "每轮执行关键词数量不能大于关键词池总数");
         }
     }
 
+    private boolean isValidExecuteTime(String executeTime) {
+        try {
+            LocalTime.parse(executeTime);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private static class AgentDispatchStats {
+        private int executedAgents;
         private int createdCollectTasks;
         private int createdDeepCollectTasks;
         private int analyzedPosts;

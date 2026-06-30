@@ -38,7 +38,7 @@ public class FbCollectUserPageReqVO extends PageParam {
     private Integer dataType;
 
     @Schema(description = "粉丝数")
-    private Integer followers;
+    private Long followers;
 
     @Schema(description = "所在地")
     private String city;

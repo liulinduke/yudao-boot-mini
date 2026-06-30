@@ -27,7 +27,7 @@ public class FbCollectDO extends BaseDO {
     /**
      * 任务ID
      */
-    @TableId
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     /**
      * FB账号
@@ -102,4 +102,4 @@ public class FbCollectDO extends BaseDO {
      */
     private Integer urlCount;
 
-}
+}

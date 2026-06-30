@@ -269,7 +269,8 @@ const parseFollowers = (followersRaw: string): number | null => {
       number *= 1000000000000
     }
 
-    return Math.floor(number)
+    const normalized = Math.floor(number)
+    return normalized > 0 && normalized <= 1000000000 ? normalized : null
   } catch (e) {
     return null
   }

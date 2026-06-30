@@ -16,6 +16,8 @@ export interface FbAiAgentConfig {
   aiKeywordExpandCount?: number
   targetCustomerCount?: number
   executeFrequency?: string
+  executeTime?: string
+  lastExecuteTime?: string | Dayjs
   targetCountries?: string
   targetLanguages?: string
   accountIds?: string
@@ -124,6 +126,16 @@ export interface FbAiKeywordGenerateResp {
   keywords: string[]
 }
 
+export interface FbAiAgentDispatchDetail {
+  taskId?: number
+  detailId: number
+  fbAccount: string
+  cookie?: string
+  searchUrl: string
+  expectedCount?: number
+  taskType?: number
+}
+
 export const FbAiAgentApi = {
   getConfigPage: async (params: any) => {
     return await request.get({ url: '/facebook/ai-agent/page', params })
@@ -178,7 +190,7 @@ export const FbAiAgentApi = {
   },
 
   dispatchOnce: async () => {
-    return await request.post<{ dispatched: boolean; message: string }>({
+    return await request.post<{ dispatched: boolean; message: string; details?: FbAiAgentDispatchDetail[] }>({
       url: '/facebook/ai-agent/dispatch-once'
     })
   },

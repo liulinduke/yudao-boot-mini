@@ -13,7 +13,7 @@ export interface FbCollectUser {
   avatar?: string // 头像URL
   url: string // 主页链接
   dataType: number // 数据类型(0个人 1公共)
-  followers?: number // 粉丝数
+  followers?: number | null // 粉丝数
   city: string // 所在地
   location: string // 居住地
   hometown: string // 家乡

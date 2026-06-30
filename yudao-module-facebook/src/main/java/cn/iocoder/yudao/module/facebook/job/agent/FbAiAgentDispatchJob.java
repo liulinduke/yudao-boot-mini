@@ -19,7 +19,7 @@ public class FbAiAgentDispatchJob implements JobHandler {
 
     @Override
     public String execute(String param) {
-        FbAiAgentDispatchRespVO result = aiAgentService.dispatchOnce();
+        FbAiAgentDispatchRespVO result = aiAgentService.dispatchScheduled();
         log.info("[execute][Facebook AI获客Agent调度结果: {}]", result.getMessage());
         return result.getMessage();
     }

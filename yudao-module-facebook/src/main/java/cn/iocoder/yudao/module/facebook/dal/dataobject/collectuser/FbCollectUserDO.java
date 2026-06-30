@@ -27,7 +27,7 @@ public class FbCollectUserDO extends BaseDO {
     /**
      * 结果ID
      */
-    @TableId
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     /**
      * 任务ID
@@ -74,7 +74,7 @@ public class FbCollectUserDO extends BaseDO {
     /**
      * 粉丝数
      */
-    private Integer followers;
+    private Long followers;
     /**
      * 所在地
      */

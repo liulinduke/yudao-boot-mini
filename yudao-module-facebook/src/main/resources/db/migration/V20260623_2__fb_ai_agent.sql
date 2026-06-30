@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS fb_ai_agent_config (
     ai_keyword_expand_count INT NOT NULL DEFAULT 20 COMMENT 'AI扩展关键词数量',
     target_customer_count INT NOT NULL DEFAULT 1000 COMMENT '目标客户数量',
     execute_frequency VARCHAR(32) NULL COMMENT '执行频率',
+    execute_time VARCHAR(8) NOT NULL DEFAULT '09:00' COMMENT '每日执行时间',
+    last_execute_time DATETIME NULL COMMENT '最近一次自动调度执行时间',
     target_countries TEXT NULL COMMENT '目标国家JSON',
     target_languages TEXT NULL COMMENT '目标语言JSON',
     account_ids TEXT NULL COMMENT '账号ID列表',

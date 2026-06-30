@@ -51,6 +51,12 @@ public class FbAiAgentConfigRespVO {
     @Schema(description = "执行频率")
     private String executeFrequency;
 
+    @Schema(description = "每日执行时间，格式 HH:mm")
+    private String executeTime;
+
+    @Schema(description = "最近一次自动调度执行时间")
+    private LocalDateTime lastExecuteTime;
+
     @Schema(description = "目标国家，JSON数组")
     private String targetCountries;
 

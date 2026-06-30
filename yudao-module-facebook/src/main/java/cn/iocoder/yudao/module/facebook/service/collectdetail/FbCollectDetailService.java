@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.collectdetail;
 
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.controller.admin.collectdetail.vo.FbCollectPendingDetailRespVO;
 
 import java.util.List;
 
@@ -26,4 +27,12 @@ public interface FbCollectDetailService {
      * @return 明细列表
      */
     List<FbCollectDetailDO> getDetailListByTaskId(Long taskId);
+
+    /**
+     * WPF 拉取待执行采集明细，并将返回的明细锁定为采集中。
+     *
+     * @param limit 拉取数量
+     * @return 可执行明细列表
+     */
+    List<FbCollectPendingDetailRespVO> claimPendingDetails(Integer limit);
 }

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.dal.dataobject.agent;
 
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.KeySequence;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -20,7 +21,7 @@ import lombok.*;
 @AllArgsConstructor
 public class FbAiAgentConfigDO extends TenantBaseDO {
 
-    @TableId
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
     /**
@@ -87,6 +88,16 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
      * 执行频率：daily
      */
     private String executeFrequency;
+
+    /**
+     * 每日执行时间，格式 HH:mm
+     */
+    private String executeTime;
+
+    /**
+     * 最近一次自动调度执行时间
+     */
+    private java.time.LocalDateTime lastExecuteTime;
 
     /**
      * 目标国家，JSON数组

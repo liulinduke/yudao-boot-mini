@@ -1415,22 +1415,49 @@ namespace SocialMatrix.WpfHost.Windows
                 const allSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
                 let followers = '', category = '', snippet = '';
 
+                const normalizeFollowers = (numberPart, unit) => {
+                    if (!numberPart) return '';
+                    const normalizedNumber = numberPart.replace(',', '.');
+                    if (!/^\d+(?:\.\d+)?$/.test(normalizedNumber)) return '';
+                    let value = Number(normalizedNumber);
+                    if (!Number.isFinite(value) || value <= 0) return '';
+                    const lowerUnit = (unit || '').toLowerCase();
+                    if (['rb', 'rbu', 'ribu', 'k', '千', '천'].includes(lowerUnit)) value *= 1000;
+                    else if (['万'].includes(lowerUnit)) value *= 10000;
+                    else if (['jt', 'juta', 'm', '百万', '만', '백만'].includes(lowerUnit)) value *= 1000000;
+                    else if (['千万'].includes(lowerUnit)) value *= 10000000;
+                    else if (['亿', '億', '억'].includes(lowerUnit)) value *= 100000000;
+                    else if (['b'].includes(lowerUnit)) value *= 1000000000;
+                    else if (['t', '万亿'].includes(lowerUnit)) value *= 1000000000000;
+                    const rounded = Math.floor(value);
+                    if (rounded > 1000000000) return '';
+                    return String(rounded);
+                };
+
+                const hasFollowerKeyword = (text) => {
+                    const lower = (text || '').toLowerCase();
+                    return FOLLOWER_KEYWORDS.some(k => k && lower.includes(String(k).toLowerCase()));
+                };
+
+                const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
                 for (const span of allSpans) {
                     const text = span.textContent.trim();
                     if (!text) continue;
+                    if (!hasFollowerKeyword(text)) continue;
 
-                    const keywordsPattern = FOLLOWER_KEYWORDS.join('|');
-                    const unitsPattern = FOLLOWER_UNITS.join('|');
-                    const followerRegex = new RegExp('([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?[\\s]*(?:' + keywordsPattern + ')|(?:' + keywordsPattern + ')[\\s:]*([\\d]+[\\.,]?\\d*)[\\s]*(?:' + unitsPattern + ')?', 'i');
+                    const keywordsPattern = FOLLOWER_KEYWORDS.map(escapeRegex).join('|');
+                    const unitsPattern = FOLLOWER_UNITS.map(escapeRegex).join('|');
+                    const followerRegex = new RegExp('([\\d]+[\\.,]?\\d*)[\\s]*(?:(' + unitsPattern + '))?[\\s]*(?:' + keywordsPattern + ')|(?:' + keywordsPattern + ')[\\s:]*([\\d]+[\\.,]?\\d*)[\\s]*(?:(' + unitsPattern + '))?', 'i');
                     const followerMatch = text.match(followerRegex);
 
                     if (followerMatch) {
-                        let numberPart = followerMatch[1] || followerMatch[2] || '';
+                        let numberPart = followerMatch[1] || followerMatch[3] || '';
                         if (numberPart && /^\d+[\.,]?\d*$/.test(numberPart)) {
                             const fullMatch = followerMatch[0];
-                            const unitRegex = new RegExp('(?:^|[\s])(' + unitsPattern + ')(?:[\s]|$)', 'i');
-                            const unitMatch = fullMatch.match(unitRegex);
-                            followers = numberPart + (unitMatch ? unitMatch[1] : '');
+                            const unit = followerMatch[2] || followerMatch[4] || '';
+                            followers = normalizeFollowers(numberPart, unit);
+                            if (!followers) continue;
                             const beforeFollowers = text.substring(0, text.indexOf(followerMatch[0])).trim();
                             if (beforeFollowers) category = beforeFollowers.split('·')[0].trim();
                             break;
@@ -2515,7 +2542,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         private string GetDefaultKeywords()
         {
-            return "['followers', 'follower', 'pengikut', 'abonnes', 'seguidores', 'fans', 'rb', 'jt', 'k', 'K', 'm', 'M', 'b', 'B', 't', 'T']";
+            return "['followers', 'follower', 'pengikut', 'abonnes', 'seguidores', 'fans', '粉丝', '粉絲', '关注者', '關注者', 'フォロワー', '팔로워']";
         }
 
         /// <summary>

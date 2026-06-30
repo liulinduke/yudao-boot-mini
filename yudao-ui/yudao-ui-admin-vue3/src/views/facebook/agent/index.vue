@@ -85,6 +85,12 @@
                 {{ parseJsonArray<string>(scope.row.keywordPool).slice(0, 4).join(' / ') || '-' }}
               </template>
             </el-table-column>
+            <el-table-column label="执行时间" width="100">
+              <template #default="scope">{{ scope.row.executeTime || '09:00' }}</template>
+            </el-table-column>
+            <el-table-column label="上次执行" width="160">
+              <template #default="scope">{{ formatDateTime(scope.row.lastExecuteTime) }}</template>
+            </el-table-column>
             <el-table-column label="创建时间" width="160">
               <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
             </el-table-column>
@@ -182,6 +188,15 @@
             <el-select v-model="wizardForm.executeFrequency" class="!w-180px">
               <el-option label="每天" value="daily" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="执行时间" prop="executeTime">
+            <el-time-picker
+              v-model="wizardForm.executeTime"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="选择每天执行时间"
+              class="!w-180px"
+            />
           </el-form-item>
           <el-form-item label="种子关键词" prop="seedKeywords">
             <el-input
@@ -382,6 +397,7 @@ import {
   type FbAiAgentRunLog,
   type FbAiTouchRecord
 } from '@/api/facebook/aiagent'
+import { startBrowserCollect } from '@/utils/wpfBridge'
 
 const message = useMessage()
 
@@ -464,6 +480,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
   aiKeywordExpandCount: 20,
   targetCustomerCount: 1000,
   executeFrequency: 'daily',
+  executeTime: '09:00',
   targetCountries: '[]',
   autoCommentEnabled: true,
   autoDmEnabled: true,
@@ -559,6 +576,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     aiKeywordExpandCount: 20,
     targetCustomerCount: 1000,
     executeFrequency: 'daily',
+    executeTime: '09:00',
     targetCountries: '[]',
     autoCommentEnabled: true,
     autoDmEnabled: true,
@@ -613,6 +631,10 @@ const validateWizard = () => {
   }
   if (!wizardState.keywordPoolList.length) {
     message.warning('关键词池不能为空')
+    return false
+  }
+  if (!wizardForm.executeTime) {
+    message.warning('请选择每天执行时间')
     return false
   }
   if ((wizardForm.keywordsPerRun || 1) > wizardState.keywordPoolList.length) {
@@ -684,6 +706,20 @@ const handleDispatch = async () => {
   try {
     const result = await FbAiAgentApi.dispatchOnce()
     result.dispatched ? message.success(result.message) : message.warning(result.message)
+    const details = result.details || []
+    details.forEach((detail) => {
+      startBrowserCollect(
+        String(detail.detailId),
+        detail.fbAccount,
+        detail.cookie || null,
+        detail.searchUrl,
+        detail.expectedCount || 1,
+        detail.taskType || 1
+      )
+    })
+    if (details.length > 0) {
+      message.info(`已提交 ${details.length} 个采集明细到WPF浏览器`)
+    }
     if (detailVisible.value) {
       await loadDetailTabs()
     }
