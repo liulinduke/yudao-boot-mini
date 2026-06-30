@@ -37,9 +37,19 @@ public class FbCollectDetailController {
     @Operation(summary = "查询账号的待执行明细")
     @Parameter(name = "fbAccount", description = "FB账号", required = true, example = "29913")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
-    public CommonResult<List<FbCollectDetailDO>> getPendingDetails(@RequestParam("fbAccount") String fbAccount) {
-        List<FbCollectDetailDO> details = fbCollectDetailService.getPendingDetailsByAccount(fbAccount);
+    public CommonResult<List<FbCollectDetailDO>> getPendingDetails(@RequestParam("fbAccount") String fbAccount,
+                                                                   @RequestParam(value = "taskId", required = false) String taskId) {
+        List<FbCollectDetailDO> details = fbCollectDetailService.getPendingDetailsByAccount(fbAccount,
+                taskId == null ? null : Long.parseLong(taskId));
         return success(details);
+    }
+
+    @GetMapping("/get")
+    @Operation(summary = "查询采集明细")
+    @Parameter(name = "id", description = "明细ID", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
+    public CommonResult<FbCollectDetailDO> getDetail(@RequestParam("id") String id) {
+        return success(fbCollectDetailService.getDetail(Long.parseLong(id)));
     }
 
     @GetMapping("/list-by-task")

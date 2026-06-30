@@ -2,7 +2,7 @@ import request from '@/config/axios'
 import type { Dayjs } from 'dayjs'
 
 export interface FbAiAgentConfig {
-  id?: number
+  id?: string
   agentName: string
   agentType?: string
   searchMode?: string
@@ -37,8 +37,8 @@ export interface FbAiAgentConfig {
 }
 
 export interface FbAiAgentDiscoveryLog {
-  id: number
-  agentConfigId?: number
+  id: string | number
+  agentConfigId?: string | number
   keyword?: string
   sourceType?: string
   discoveredCount?: number
@@ -47,13 +47,13 @@ export interface FbAiAgentDiscoveryLog {
   aiAnalyzeCount?: number
   filteredCount?: number
   finalLeadCount?: number
-  collectTaskId?: number
+  collectTaskId?: string | number
   createTime?: string | Dayjs
 }
 
 export interface FbAiAgentRunLog {
-  id: number
-  agentConfigId?: number
+  id: string | number
+  agentConfigId?: string | number
   title?: string
   content?: string
   logLevel?: string
@@ -61,13 +61,13 @@ export interface FbAiAgentRunLog {
 }
 
 export interface FbAiTouchRecord {
-  id: number
-  agentConfigId?: number
+  id: string | number
+  agentConfigId?: string | number
   leadType?: string
-  leadId?: number
+  leadId?: string | number
   targetUserId?: string
   targetUrl?: string
-  accountDbId?: number
+  accountDbId?: string | number
   accountId?: string
   fbAccount?: string
   touchType?: string
@@ -77,14 +77,14 @@ export interface FbAiTouchRecord {
   failReason?: string
   scheduledTime?: string | Dayjs
   sentTime?: string | Dayjs
-  operationTaskId?: number
-  operationDetailId?: number
+  operationTaskId?: string | number
+  operationDetailId?: string | number
   createTime?: string | Dayjs
 }
 
 export interface FbAiLeadAnalysisSaveReq {
   leadType: 'user' | 'post'
-  leadId: number
+  leadId: string | number
   aiTags?: string
   intentLevel?: string
   intentReason?: string
@@ -98,12 +98,12 @@ export interface FbAiLeadAnalysisSaveReq {
 }
 
 export interface FbAiTouchRecordSaveReq {
-  agentConfigId?: number
+  agentConfigId?: string | number
   leadType?: string
-  leadId?: number
+  leadId?: string | number
   targetUserId?: string
   targetUrl?: string
-  accountDbId?: number
+  accountDbId?: string | number
   accountId?: string
   fbAccount?: string
   touchType?: string
@@ -111,8 +111,8 @@ export interface FbAiTouchRecordSaveReq {
   aiReason?: string
   status?: number
   scheduledTime?: string | Dayjs
-  operationTaskId?: number
-  operationDetailId?: number
+  operationTaskId?: string | number
+  operationDetailId?: string | number
 }
 
 export interface FbAiKeywordGenerateReq {
@@ -127,11 +127,12 @@ export interface FbAiKeywordGenerateResp {
 }
 
 export interface FbAiAgentDispatchDetail {
-  taskId?: number
-  detailId: number
+  taskId?: string | number
+  detailId: string | number
   fbAccount: string
   cookie?: string
   searchUrl: string
+  sourceUserId?: string | number
   expectedCount?: number
   taskType?: number
 }
@@ -141,7 +142,7 @@ export const FbAiAgentApi = {
     return await request.get({ url: '/facebook/ai-agent/page', params })
   },
 
-  getConfigById: async (id: number) => {
+  getConfigById: async (id: string | number) => {
     return await request.get<FbAiAgentConfig>({ url: '/facebook/ai-agent/get', params: { id } })
   },
 
@@ -153,11 +154,11 @@ export const FbAiAgentApi = {
     return await request.post<number>({ url: '/facebook/ai-agent/config/save', data })
   },
 
-  updateStatus: async (data: { id: number; status: number }) => {
+  updateStatus: async (data: { id: string | number; status: number }) => {
     return await request.put<boolean>({ url: '/facebook/ai-agent/update-status', data })
   },
 
-  deleteConfig: async (id: number) => {
+  deleteConfig: async (id: string | number) => {
     return await request.delete<boolean>({ url: '/facebook/ai-agent/delete', params: { id } })
   },
 
@@ -185,13 +186,20 @@ export const FbAiAgentApi = {
     return await request.post<number>({ url: '/facebook/ai-agent/touch-record/create', data })
   },
 
-  updateTouchRecordResult: async (data: { id: number; status: number; failReason?: string }) => {
+  updateTouchRecordResult: async (data: { id: string | number; status: number; failReason?: string }) => {
     return await request.put<boolean>({ url: '/facebook/ai-agent/touch-record/update-result', data })
   },
 
   dispatchOnce: async () => {
     return await request.post<{ dispatched: boolean; message: string; details?: FbAiAgentDispatchDetail[] }>({
       url: '/facebook/ai-agent/dispatch-once'
+    })
+  },
+
+  claimPendingCollectDetails: async (limit: number) => {
+    return await request.get<FbAiAgentDispatchDetail[]>({
+      url: '/facebook/fb-collect-detail/claim-pending',
+      params: { limit }
     })
   },
 

@@ -1097,8 +1097,12 @@ const submitForm = async () => {
 __CONFIG__:${JSON.stringify(config)}`
     }
 
+    if (data.taskType === 12 && deepInputMode.value === 'select') {
+      taskData.sourceUserIds = selectedDeepUsers.value.map((user) => user.id)
+    }
+
     // 一次性创建任务和所有明细
-    let details: Array<{ detailId: number; fbAccount: string; searchUrl: string }> = []
+    let details: Array<{ detailId: number; fbAccount: string; searchUrl: string; sourceUserId?: number | string }> = []
     if (formType.value === 'create') {
       const result = await FbCollectApi.createFbCollect(taskData)
       // 后端返回 FbCollectCreateRespVO，包含 taskId 和 details 列表
@@ -1145,6 +1149,8 @@ __CONFIG__:${JSON.stringify(config)}`
             likeExpectedCount: formData.value.likeExpectedCount || 100
           })
           console.log('📋 帖子评论点赞采集配置:', configJson)
+        } else if (data.taskType === 12 && firstDetail.sourceUserId) {
+          configJson = JSON.stringify({ sourceUserId: String(firstDetail.sourceUserId) })
         }
 
         startBrowserCollect(

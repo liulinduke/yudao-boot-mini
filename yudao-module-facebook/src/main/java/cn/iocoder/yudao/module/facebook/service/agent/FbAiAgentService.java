@@ -46,4 +46,6 @@ public interface FbAiAgentService {
 
     FbAiAgentDispatchRespVO dispatchScheduled();
 
+    void continueAfterCollectTaskFinished(Long collectTaskId);
+
 }

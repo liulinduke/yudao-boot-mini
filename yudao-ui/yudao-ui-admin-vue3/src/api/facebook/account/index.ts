@@ -3,7 +3,7 @@ import type { Dayjs } from 'dayjs';
 
 /** FB账号信息 */
 export interface FbAccount {
-          id: number; // id
+          id: string | number; // id
           fbAccount?: string; // FB账号
           password: string; // 密码
           area: string; // 地区
@@ -64,9 +64,9 @@ export const FbAccountApi = {
 
   // 更新FB账号语言设置
   updateFbAccountLanguage: async (id: number, language: number) => {
-    return await request.put({ 
-      url: `/facebook/fb-account/update-language`, 
+    return await request.put({
+      url: `/facebook/fb-account/update-language`,
       params: { id, language }
     })
   },
-}
+}

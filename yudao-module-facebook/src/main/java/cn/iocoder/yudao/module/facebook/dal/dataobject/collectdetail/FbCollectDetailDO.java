@@ -44,6 +44,11 @@ public class FbCollectDetailDO extends BaseDO {
      * 采集链接
      */
     private String searchUrl;
+
+    /**
+     * 来源资源库用户ID。深度采集时用于回写原始资源记录。
+     */
+    private Long sourceUserId;
     
     /**
      * 期望采集数量

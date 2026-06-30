@@ -157,7 +157,7 @@
                 v-for="item in accountList"
                 :key="item.id"
                 :label="item.fbAccount || String(item.id)"
-                :value="item.id"
+                :value="String(item.id)"
               />
             </el-select>
           </el-form-item>
@@ -397,7 +397,10 @@ import {
   type FbAiAgentRunLog,
   type FbAiTouchRecord
 } from '@/api/facebook/aiagent'
-import { startBrowserCollect } from '@/utils/wpfBridge'
+import {
+  claimAndStartPendingAiAgentDetails,
+  startAiAgentCollectDetail
+} from '@/utils/wpfAiAgentTaskPoller'
 
 const message = useMessage()
 
@@ -494,7 +497,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
 })
 
 const wizardState = reactive({
-  accountIdList: [] as number[],
+  accountIdList: [] as string[],
   targetCountryList: [] as string[],
   seedKeywordsText: '',
   keywordPoolList: [] as string[],
@@ -591,8 +594,8 @@ const syncWizard = (config?: FbAiAgentConfig) => {
   })
   wizardState.accountIdList = (wizardForm.accountIds || '')
     .split(',')
-    .map((item) => Number(item.trim()))
-    .filter((item) => Number.isFinite(item))
+    .map((item) => item.trim())
+    .filter(Boolean)
   wizardState.targetCountryList = parseJsonArray<string>(wizardForm.targetCountries)
   wizardState.keywordPoolList = parseJsonArray<string>(wizardForm.keywordPool)
   wizardState.seedKeywordsText = parseJsonArray<string>(wizardForm.seedKeywords).join('\n')
@@ -681,7 +684,11 @@ const openCreateWizard = (item: any) => {
 }
 
 const handleEdit = async (row: FbAiAgentConfig) => {
-  const data = await FbAiAgentApi.getConfigById(Number(row.id))
+  const data = await FbAiAgentApi.getConfigById(row.id!)
+  if (!data) {
+    message.error('未找到Agent配置，请刷新列表后重试')
+    return
+  }
   wizardTitle.value = '编辑AI主页获客Agent'
   wizardStep.value = 0
   syncWizard(data)
@@ -689,14 +696,14 @@ const handleEdit = async (row: FbAiAgentConfig) => {
 }
 
 const handleStatus = async (row: FbAiAgentConfig, status: number) => {
-  await FbAiAgentApi.updateStatus({ id: Number(row.id), status })
+  await FbAiAgentApi.updateStatus({ id: row.id!, status })
   message.success('状态已更新')
   await getList()
 }
 
 const handleDelete = async (row: FbAiAgentConfig) => {
   await message.delConfirm(`确认删除 Agent「${row.agentName}」吗？`)
-  await FbAiAgentApi.deleteConfig(Number(row.id))
+  await FbAiAgentApi.deleteConfig(row.id!)
   message.success('删除成功')
   await getList()
 }
@@ -707,18 +714,11 @@ const handleDispatch = async () => {
     const result = await FbAiAgentApi.dispatchOnce()
     result.dispatched ? message.success(result.message) : message.warning(result.message)
     const details = result.details || []
-    details.forEach((detail) => {
-      startBrowserCollect(
-        String(detail.detailId),
-        detail.fbAccount,
-        detail.cookie || null,
-        detail.searchUrl,
-        detail.expectedCount || 1,
-        detail.taskType || 1
-      )
-    })
     if (details.length > 0) {
+      details.forEach(startAiAgentCollectDetail)
       message.info(`已提交 ${details.length} 个采集明细到WPF浏览器`)
+    } else {
+      await claimAndStartPendingAiAgentDetails()
     }
     if (detailVisible.value) {
       await loadDetailTabs()
@@ -791,7 +791,11 @@ const submitWizard = async () => {
 }
 
 const handleView = async (row: FbAiAgentConfig) => {
-  detailAgent.value = await FbAiAgentApi.getConfigById(Number(row.id))
+  detailAgent.value = await FbAiAgentApi.getConfigById(row.id!)
+  if (!detailAgent.value) {
+    message.error('未找到Agent配置，请刷新列表后重试')
+    return
+  }
   detailVisible.value = true
   detailTab.value = 'discovery'
   await loadDetailTabs()
@@ -799,7 +803,7 @@ const handleView = async (row: FbAiAgentConfig) => {
 
 const loadDetailTabs = async () => {
   if (!detailAgent.value?.id) return
-  const agentConfigId = Number(detailAgent.value.id)
+  const agentConfigId = detailAgent.value.id
   discoveryLoading.value = true
   leadLoading.value = true
   touchLoading.value = true

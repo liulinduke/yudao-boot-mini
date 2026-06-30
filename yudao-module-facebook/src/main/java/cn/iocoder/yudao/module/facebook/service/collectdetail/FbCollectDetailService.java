@@ -16,9 +16,18 @@ public interface FbCollectDetailService {
      * 查询账号的待执行明细(按ID升序,返回第一个)
      *
      * @param fbAccount FB账号
+     * @param taskId 任务ID，可为空。传入时只查询该任务下的待执行明细
      * @return 待执行明细列表(最多1个)
      */
-    List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount);
+    List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount, Long taskId);
+
+    /**
+     * 查询采集明细
+     *
+     * @param id 明细ID
+     * @return 明细
+     */
+    FbCollectDetailDO getDetail(Long id);
 
     /**
      * 根据任务ID查询明细列表
@@ -29,7 +38,7 @@ public interface FbCollectDetailService {
     List<FbCollectDetailDO> getDetailListByTaskId(Long taskId);
 
     /**
-     * WPF 拉取待执行采集明细，并将返回的明细锁定为采集中。
+     * 从 AI Agent 待启动队列领取采集明细，并将返回的明细锁定为采集中。
      *
      * @param limit 拉取数量
      * @return 可执行明细列表

@@ -1,7 +1,16 @@
 import { DmTaskApi } from '@/api/facebook/dmtask'
+import { FbCollectGroupApi } from '@/api/facebook/fbcollectgroup'
+import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
+import { FbCollectUserApi } from '@/api/facebook/collectuser'
 import { batchSaveAddGroupResult, batchSaveRepostResult } from '@/api/facebook/operation'
-import { onCollectionComplete } from '@/utils/wpfBridge'
+import {
+  claimNextAiAgentDetail,
+  isAiAgentClaimedDetail,
+  startAiAgentCollectDetail
+} from '@/utils/wpfAiAgentTaskPoller'
+import { closeBrowser, onCollectionComplete } from '@/utils/wpfBridge'
 
+const handledCollectDetailIds = new Set<string>()
 const handledDmDetailIds = new Set<string>()
 const handledGroupPublishDetailIds = new Set<string>()
 const handledRepostDetailIds = new Set<string>()
@@ -32,6 +41,10 @@ export function setupWpfOperationSync() {
   initialized = true
 
   onCollectionComplete(async (data) => {
+    if (isAiAgentClaimedDetail(data.detailId) && isCollectTaskType(data.taskType)) {
+      await saveCollectResult(data)
+      return
+    }
     if (data.taskType === 10 || data.taskType === 15 || data.taskType === 16) {
       await saveRepostResult(data)
       return
@@ -68,6 +81,92 @@ export function setupWpfOperationSync() {
       console.error('[私信结果] 上报失败:', error)
     }
   })
+}
+
+function isCollectTaskType(taskType?: number) {
+  return [1, 2, 3, 4, 6, 7, 8, 11, 12].includes(Number(taskType || 1))
+}
+
+function parseMetricNumber(raw: string): number | null {
+  if (!raw) return null
+  try {
+    const normalized = raw.replace(',', '.')
+    const numberPart = normalized.replace(/[^\d.]/g, '')
+    if (!numberPart) return null
+
+    let number = parseFloat(numberPart)
+    const lower = raw.toLowerCase()
+    if (lower.includes('rb') || lower.includes('ribu') || lower.includes('rbu') || lower.includes('천')) {
+      number *= 1000
+    } else if (lower.includes('jt') || lower.includes('juta') || lower.includes('만') || lower.includes('万')) {
+      number *= 10000
+    } else if (lower.includes('백만') || lower.includes('百万') || lower.includes('m')) {
+      number *= 1000000
+    } else if (lower.includes('b')) {
+      number *= 1000000000
+    } else if (lower.includes('k')) {
+      number *= 1000
+    }
+    const parsed = Math.floor(number)
+    return parsed > 0 && parsed <= 1000000000 ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function saveCollectResult(data: any) {
+  const detailId = String(data.detailId || '')
+  if (!detailId || handledCollectDetailIds.has(detailId)) {
+    return
+  }
+
+  const taskType = Number(data.taskType || 1)
+  const results = parseResultList(data.results)
+  handledCollectDetailIds.add(detailId)
+  try {
+    if (taskType === 2) {
+      await FbCollectPostApi.batchSaveFbCollectPost({
+        detailId: detailId as any,
+        results: results.map((item: any) => ({
+          ...item,
+          reshareCount:
+            typeof item.reshareCount === 'string' ? parseMetricNumber(item.reshareCount) : item.reshareCount,
+          commentCount:
+            typeof item.commentCount === 'string' ? parseMetricNumber(item.commentCount) : item.commentCount,
+          reactionCount:
+            typeof item.reactionCount === 'string' ? parseMetricNumber(item.reactionCount) : item.reactionCount
+        }))
+      })
+    } else if (taskType === 4) {
+      await FbCollectGroupApi.batchSaveFbCollectGroup({
+        detailId: detailId as any,
+        results: results.map((item: any) => ({
+          ...item,
+          memberQuantity:
+            typeof item.memberQuantity === 'string' ? parseMetricNumber(item.memberQuantity) : item.memberQuantity
+        }))
+      })
+    } else {
+      await FbCollectUserApi.batchSaveFbCollectUser({
+        detailId: detailId as any,
+        results: results.map((item: any) => ({
+          ...item,
+          followers: typeof item.followers === 'string' ? parseMetricNumber(item.followers) : item.followers
+        }))
+      })
+    }
+    const nextDetail = await claimNextAiAgentDetail()
+    if (data.accountId && (!nextDetail || String(nextDetail.fbAccount) !== String(data.accountId))) {
+      closeBrowser(String(data.accountId))
+    }
+    if (nextDetail) {
+      startAiAgentCollectDetail(nextDetail)
+    }
+    window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))
+  } catch (error) {
+    handledCollectDetailIds.delete(detailId)
+    console.error('[AI获客采集结果] 上报失败:', error)
+  }
 }
 
 async function saveGroupPublishResult(data: any) {

@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.account.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import java.util.*;
@@ -14,6 +16,7 @@ public class FbAccountRespVO {
 
     @Schema(description = "id", requiredMode = Schema.RequiredMode.REQUIRED, example = "9733")
     @ExcelProperty("id")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     @Schema(description = "FB账号", requiredMode = Schema.RequiredMode.REQUIRED, example = "17839")

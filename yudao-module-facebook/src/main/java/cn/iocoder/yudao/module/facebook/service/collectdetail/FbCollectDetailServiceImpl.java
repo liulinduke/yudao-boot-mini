@@ -1,7 +1,6 @@
 package cn.iocoder.yudao.module.facebook.service.collectdetail;
 
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.facebook.controller.admin.collectdetail.vo.FbCollectPendingDetailRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
@@ -9,6 +8,7 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDe
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -37,16 +37,24 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbCollectMapper fbCollectMapper;
     @Resource
     private FbAccountMapper fbAccountMapper;
+    @Resource
+    private FbAiAgentCollectQueueService aiAgentCollectQueueService;
 
     @Override
-    public List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount) {
-        return fbCollectDetailMapper.selectList(
-            new LambdaQueryWrapper<FbCollectDetailDO>()
+    public List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount, Long taskId) {
+        LambdaQueryWrapper<FbCollectDetailDO> wrapper = new LambdaQueryWrapper<FbCollectDetailDO>()
                 .eq(FbCollectDetailDO::getFbAccount, fbAccount)
-                .eq(FbCollectDetailDO::getStatus, 0) // 待执行
-                .orderByAsc(FbCollectDetailDO::getId)
-                .last("LIMIT 1")
-        );
+                .eq(FbCollectDetailDO::getStatus, 0);
+        if (taskId != null) {
+            wrapper.eq(FbCollectDetailDO::getTaskId, taskId);
+        }
+        wrapper.orderByAsc(FbCollectDetailDO::getId).last("LIMIT 1");
+        return fbCollectDetailMapper.selectList(wrapper);
+    }
+
+    @Override
+    public FbCollectDetailDO getDetail(Long id) {
+        return fbCollectDetailMapper.selectById(id);
     }
 
     @Override
@@ -60,35 +68,24 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
 
     @Override
     public List<FbCollectPendingDetailRespVO> claimPendingDetails(Integer limit) {
-        int size = Math.max(1, Math.min(limit == null ? 3 : limit, 10));
-        List<FbCollectDetailDO> candidates = fbCollectDetailMapper.selectList(
-                new LambdaQueryWrapper<FbCollectDetailDO>()
-                        .eq(FbCollectDetailDO::getStatus, 0)
-                        .orderByAsc(FbCollectDetailDO::getId)
-                        .last("LIMIT " + (size * 5))
-        );
-        if (CollUtil.isEmpty(candidates)) {
+        List<Long> detailIds = aiAgentCollectQueueService.pop(limit);
+        if (CollUtil.isEmpty(detailIds)) {
+            return List.of();
+        }
+        List<FbCollectDetailDO> details = fbCollectDetailMapper.selectBatchIds(detailIds).stream()
+                .filter(detail -> detail != null && Objects.equals(detail.getStatus(), 0))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(details)) {
             return List.of();
         }
 
-        List<Long> taskIds = candidates.stream()
+        List<Long> taskIds = details.stream()
                 .map(FbCollectDetailDO::getTaskId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
         Map<Long, FbCollectDO> taskMap = fbCollectMapper.selectBatchIds(taskIds).stream()
                 .collect(Collectors.toMap(FbCollectDO::getId, Function.identity(), (a, b) -> a));
-
-        List<FbCollectDetailDO> details = candidates.stream()
-                .filter(detail -> {
-                    FbCollectDO task = taskMap.get(detail.getTaskId());
-                    return task != null && StrUtil.startWith(task.getRemark(), "AI_AGENT_");
-                })
-                .limit(size)
-                .collect(Collectors.toList());
-        if (CollUtil.isEmpty(details)) {
-            return List.of();
-        }
 
         List<String> fbAccounts = details.stream()
                 .map(FbCollectDetailDO::getFbAccount)
@@ -117,6 +114,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
             item.setFbAccount(detail.getFbAccount());
             item.setCookie(account == null ? null : account.getCookie());
             item.setSearchUrl(detail.getSearchUrl());
+            item.setSourceUserId(detail.getSourceUserId());
             item.setExpectedCount(detail.getExpectedCount());
             item.setTaskType(task == null ? 1 : task.getTaskType());
             result.add(item);

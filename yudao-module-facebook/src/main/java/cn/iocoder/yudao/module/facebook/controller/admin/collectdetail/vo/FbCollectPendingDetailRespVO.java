@@ -22,6 +22,9 @@ public class FbCollectPendingDetailRespVO {
     @Schema(description = "采集链接")
     private String searchUrl;
 
+    @Schema(description = "来源资源库用户ID")
+    private Long sourceUserId;
+
     @Schema(description = "期望采集数量")
     private Integer expectedCount;
 

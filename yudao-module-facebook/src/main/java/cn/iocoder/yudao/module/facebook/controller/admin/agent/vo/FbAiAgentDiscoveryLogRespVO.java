@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.agent.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -10,9 +12,11 @@ import java.time.LocalDateTime;
 public class FbAiAgentDiscoveryLogRespVO {
 
     @Schema(description = "编号")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     @Schema(description = "Agent配置ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long agentConfigId;
 
     @Schema(description = "关键词")
@@ -40,6 +44,7 @@ public class FbAiAgentDiscoveryLogRespVO {
     private Integer finalLeadCount;
 
     @Schema(description = "关联采集任务ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long collectTaskId;
 
     @Schema(description = "创建时间")

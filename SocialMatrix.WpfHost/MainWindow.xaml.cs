@@ -52,7 +52,7 @@ namespace SocialMatrix.WpfHost
 #endif
 
                 System.Diagnostics.Debug.WriteLine("✅ WebView2 初始化成功");
-                StartCollectTaskPolling();
+                UpdateStatus("WPF已启动，等待Vue领取AI采集任务");
             }
             catch (Exception ex)
             {
@@ -135,8 +135,6 @@ namespace SocialMatrix.WpfHost
             browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
             {
                 System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
-                _collectTaskPollingService?.MarkDetailFinished(dId);
-                
                 // 将数据回传给 Vue
                 Dispatcher.Invoke(() =>
                 {

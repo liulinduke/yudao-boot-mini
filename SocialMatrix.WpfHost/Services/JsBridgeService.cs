@@ -90,6 +90,23 @@ namespace SocialMatrix.WpfHost.Services
         }
 
         /// <summary>
+        /// 获取当前还可启动的账号浏览器窗口数量，供 Vue 领取待执行采集明细时控制并发。
+        /// </summary>
+        public int GetAvailableBrowserSlots()
+        {
+            try
+            {
+                var current = _mainWindow.GetBrowserWindowCount();
+                return Math.Max(BrowserMatrixWindow.MaxConcurrentBrowsers - current, 0);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 获取浏览器空闲槽位失败: {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// 显示消息提示
         /// </summary>
         public void ShowMessage(string message)

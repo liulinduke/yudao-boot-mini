@@ -9,6 +9,7 @@
 
     const result = {
       id: '',
+      sourceUserId: config && config.sourceUserId ? String(config.sourceUserId) : '',
       fbUserId: '',
       userName: '',
       avatar: '',
@@ -69,10 +70,10 @@
     const extractProfileId = () => {
       const url = new URL(location.href);
       if (url.searchParams.get('id')) return url.searchParams.get('id');
-      const profileMatch = document.documentElement.innerHTML.match(/"profile_id":"?(\d+)"?/);
-      if (profileMatch) return profileMatch[1];
       const entityMatch = document.documentElement.innerHTML.match(/"entity_id":"?(\d+)"?/);
-      return entityMatch ? entityMatch[1] : '';
+      if (entityMatch) return entityMatch[1];
+      const pageIdMatch = document.documentElement.innerHTML.match(/"page_id":"?(\d+)"?/);
+      return pageIdMatch ? pageIdMatch[1] : '';
     };
 
     const parseFollowers = (value) => {
@@ -169,13 +170,7 @@
         result.category = categoryLine.replace(/^Page\s*·\s*/i, '').replace(/^主页\s*·\s*/i, '').replace(/^公共主页\s*·\s*/i, '');
       }
 
-      const locationLine = lines.find((line) => /所在地|居住|住在|located|based|lives in|from |来自|家乡|hometown/i.test(line))
-        || lines.find((line) =>
-          /[,，]/.test(line) &&
-          !/@/.test(line) &&
-          !/(Page|followers|following|reviews|price|open)/i.test(line) &&
-          !phones.some((phone) => line.includes(phone))
-        );
+      const locationLine = lines.find((line) => /所在地|居住|住在|located in|based in|lives in|from |来自|家乡|hometown/i.test(line));
       if (locationLine) {
         if (/家乡|hometown|from |来自/i.test(locationLine)) result.hometown = locationLine;
         else if (/居住|住在|lives in/i.test(locationLine)) result.location = locationLine;

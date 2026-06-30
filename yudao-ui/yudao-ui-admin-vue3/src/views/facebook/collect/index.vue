@@ -204,8 +204,8 @@ import { FbCollectGroupApi } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
+import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
 import { onCollectionComplete, closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
-import request from '@/config/axios'
 import { Connection, Tools, Tickets } from '@element-plus/icons-vue'
 
 /** FB采集任务 - 左右布局 */
@@ -549,12 +549,48 @@ const handleExport = async () => {
   }
 }
 
+const continueNextCollectDetailOrClose = async (accountId?: string | number, currentDetailId?: string | number) => {
+  if (!accountId) return
+  const fbAccount = String(accountId)
+  try {
+    const currentDetail = currentDetailId ? await FbCollectApi.getCollectDetail(String(currentDetailId)) : null
+    const currentTaskId = currentDetail?.taskId ? String(currentDetail.taskId) : undefined
+    const pendingDetails = await FbCollectApi.getPendingDetails(fbAccount, currentTaskId)
+    const nextDetail = Array.isArray(pendingDetails) ? pendingDetails[0] : null
+    if (nextDetail?.id && nextDetail?.searchUrl) {
+      const nextTask = await FbCollectApi.getFbCollect(String(nextDetail.taskId))
+      const configJson = nextTask?.taskType === 12 && nextDetail.sourceUserId
+        ? JSON.stringify({ sourceUserId: String(nextDetail.sourceUserId) })
+        : undefined
+      startBrowserCollect(
+        String(nextDetail.id),
+        fbAccount,
+        null,
+        nextDetail.searchUrl,
+        nextDetail.expectedCount || 1,
+        nextTask?.taskType || nextDetail.taskType || 1,
+        configJson
+      )
+      message.info(`账号 ${fbAccount} 继续执行当前任务的下一条采集明细`)
+      return
+    }
+    closeBrowser(fbAccount)
+    message.info(`账号 ${fbAccount} 本轮采集已结束，浏览器已关闭`)
+  } catch (error) {
+    console.warn('查询下一条采集明细失败，关闭浏览器', error)
+    closeBrowser(fbAccount)
+  }
+}
+
 /** 初始化：监听采集完成事件并保存结果 */
 onMounted(() => {
   getList()
 
   // 注册采集完成事件监听
   onCollectionComplete(async (data) => {
+    if (isAiAgentClaimedDetail(data.detailId)) {
+      return
+    }
     console.log('收到采集完成事件:', data)
 
     try {
@@ -667,8 +703,7 @@ onMounted(() => {
         }
       }
 
-      // 🔄 检查该账号是否有下一个待执行的任务
-      await checkAndStartNextTask(accountId, results.length)
+      await continueNextCollectDetailOrClose(accountId, detailId)
 
       // 刷新列表
       await getList()
@@ -679,57 +714,6 @@ onMounted(() => {
   })
 })
 
-/**
- * 检查并启动账号的下一个任务
- * @param accountId 账号ID
- * @param collectedCount 本次采集到的数据条数
- */
-const checkAndStartNextTask = async (accountId: string, collectedCount: number = 0) => {
-  try {
-    // 查询该账号的所有待执行明细(status=0)
-    const response = await request.get({
-      url: '/facebook/fb-collect-detail/pending',
-      params: { fbAccount: accountId }
-    })
-
-    const pendingDetails = response.data || []
-
-    if (pendingDetails.length > 0) {
-      // 有下一个任务,复用浏览器继续采集
-      const nextDetail = pendingDetails[0]
-      const nextTask = await FbCollectApi.getFbCollect(nextDetail.taskId)
-      const nextTaskType = nextTask?.taskType || nextDetail.taskType || 1
-      console.log(`✅ 发现下一个任务: 明细ID=${nextDetail.id}, URL=${nextDetail.searchUrl}`)
-
-      // 启动下一个采集(复用已打开的浏览器)
-      startBrowserCollect(
-        String(nextDetail.id),
-        accountId,
-        null,
-        nextDetail.searchUrl,
-        nextDetail.expectedCount,
-        nextTaskType // 传递任务类型
-      )
-
-      message.info(`账号 ${accountId} 继续采集下一个链接...`)
-    } else {
-      // 没有下一个任务,关闭浏览器
-      console.log(`✅ 账号 ${accountId} 所有任务已完成,关闭浏览器`)
-
-      // ✅ 如果采集到0条数据，也关闭浏览器（避免浪费资源）
-      if (collectedCount === 0) {
-        console.log(`⚠️ 采集到0条数据，关闭浏览器`)
-        closeBrowser(accountId)
-        message.info(`账号 ${accountId} 本轮任务已结束，未采集到数据`)
-      } else {
-        closeBrowser(accountId)
-        message.success(`账号 ${accountId} 所有任务已完成`)
-      }
-    }
-  } catch (error) {
-    console.error('检查下一个任务失败:', error)
-  }
-}
 </script>
 
 <style scoped lang="scss">

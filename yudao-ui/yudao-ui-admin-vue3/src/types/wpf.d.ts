@@ -20,6 +20,7 @@ declare global {
                 isOperation?: boolean
               ) => void
               StopBrowser?: (accountId: string) => void
+              GetAvailableBrowserSlots?: () => number
               StartAccountLoginBatch: (
                 accountsJson: string
               ) => void

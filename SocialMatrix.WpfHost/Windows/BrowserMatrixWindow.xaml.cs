@@ -1478,7 +1478,7 @@ namespace SocialMatrix.WpfHost.Windows
                 const id = idMatch ? idMatch[1] : (url.match(/facebook\.com\/([^\?]+)/) || [])[1] || '';
 
                 seenUrls.add(url);
-                return { id, name: cleanName, url, avatar, followers, category, snippet, isVerified, collectedAt: new Date().toISOString() };
+                return { id, name: cleanName, url, avatar, followers, category, snippet, isVerified, dataType: 1, fromResource: 'page_search', syncTime: new Date().toISOString(), collectedAt: new Date().toISOString() };
             } catch (e) {
                 console.warn('Extract failed:', e);
                 return null;

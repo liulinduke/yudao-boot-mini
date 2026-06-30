@@ -16,6 +16,7 @@ export interface FbCollect {
   startTime: string | Dayjs // 开始时间
   endTime: string | Dayjs // 结束时间
   remark: string // 备注
+  sourceUserIds?: Array<string | number> // 深度采集来源资源库用户ID
 }
 
 // FB采集任务 API
@@ -26,8 +27,23 @@ export const FbCollectApi = {
   },
 
   // 查询FB采集任务详情
-  getFbCollect: async (id: number) => {
+  getFbCollect: async (id: number | string) => {
     return await request.get({ url: `/facebook/fb-collect/get?id=` + id })
+  },
+
+  // 查询账号的待执行明细
+  getPendingDetails: async (fbAccount: string, taskId?: string | number) => {
+    return await request.get({ url: `/facebook/fb-collect-detail/pending`, params: { fbAccount, taskId } })
+  },
+
+  // 查询采集明细
+  getCollectDetail: async (id: string | number) => {
+    return await request.get({ url: `/facebook/fb-collect-detail/get`, params: { id } })
+  },
+
+  // 根据任务ID查询明细列表
+  getDetailListByTaskId: async (taskId: string | number) => {
+    return await request.get({ url: `/facebook/fb-collect-detail/list-by-task`, params: { taskId } })
   },
 
   // 新增FB采集任务

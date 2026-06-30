@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.agent.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -10,15 +12,18 @@ import java.time.LocalDateTime;
 public class FbAiTouchRecordRespVO {
 
     @Schema(description = "编号")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     @Schema(description = "Agent配置ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long agentConfigId;
 
     @Schema(description = "线索类型")
     private String leadType;
 
     @Schema(description = "线索ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long leadId;
 
     @Schema(description = "目标用户ID")
@@ -28,6 +33,7 @@ public class FbAiTouchRecordRespVO {
     private String targetUrl;
 
     @Schema(description = "执行账号数据库ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long accountDbId;
 
     @Schema(description = "Facebook账号ID")
@@ -58,9 +64,11 @@ public class FbAiTouchRecordRespVO {
     private LocalDateTime sentTime;
 
     @Schema(description = "关联运营任务ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long operationTaskId;
 
     @Schema(description = "关联运营任务明细ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long operationDetailId;
 
     @Schema(description = "创建时间")

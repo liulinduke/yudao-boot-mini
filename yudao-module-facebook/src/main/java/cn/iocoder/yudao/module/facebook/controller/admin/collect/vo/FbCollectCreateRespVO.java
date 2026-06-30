@@ -30,5 +30,8 @@ public class FbCollectCreateRespVO {
 
         @Schema(description = "采集链接", requiredMode = Schema.RequiredMode.REQUIRED, example = "https://www.facebook.com/search/users?q=xxx")
         private String searchUrl;
+
+        @Schema(description = "来源资源库用户ID")
+        private Long sourceUserId;
     }
 }

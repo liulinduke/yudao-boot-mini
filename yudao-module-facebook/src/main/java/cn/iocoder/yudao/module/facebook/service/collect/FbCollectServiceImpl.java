@@ -112,7 +112,8 @@ public class FbCollectServiceImpl implements FbCollectService {
                 detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
                     detail.getId(),
                     fbAccount,
-                    url.trim()
+                    url.trim(),
+                    null
                 ));
             }
         }
@@ -122,11 +123,22 @@ public class FbCollectServiceImpl implements FbCollectService {
     }
 
     private FbCollectCreateRespVO createDeepCollect(FbCollectSaveReqVO createReqVO) {
-        List<String> urls = Arrays.stream(createReqVO.getSearchUrl().split("\\r?\\n"))
+        List<String> rawUrls = Arrays.stream(createReqVO.getSearchUrl().split("\\r?\\n"))
                 .map(String::trim)
                 .filter(url -> url.length() > 0)
-                .distinct()
                 .collect(Collectors.toList());
+        List<Long> rawSourceUserIds = createReqVO.getSourceUserIds();
+        List<String> urls = new ArrayList<>();
+        List<Long> sourceUserIds = new ArrayList<>();
+        Set<String> seenUrls = new LinkedHashSet<>();
+        for (int i = 0; i < rawUrls.size(); i++) {
+            String url = rawUrls.get(i);
+            if (!seenUrls.add(url)) {
+                continue;
+            }
+            urls.add(url);
+            sourceUserIds.add(CollUtil.isNotEmpty(rawSourceUserIds) && i < rawSourceUserIds.size() ? rawSourceUserIds.get(i) : null);
+        }
         if (CollUtil.isEmpty(urls)) {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
@@ -165,6 +177,7 @@ public class FbCollectServiceImpl implements FbCollectService {
             detail.setTaskId(task.getId());
             detail.setFbAccount(fbAccount);
             detail.setSearchUrl(urls.get(i));
+            detail.setSourceUserId(sourceUserIds.get(i));
             detail.setExpectedCount(1);
             detail.setCollectedCount(0);
             detail.setStatus(0);
@@ -173,7 +186,8 @@ public class FbCollectServiceImpl implements FbCollectService {
             detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
                     detail.getId(),
                     fbAccount,
-                    urls.get(i)
+                    urls.get(i),
+                    detail.getSourceUserId()
             ));
         }
 
