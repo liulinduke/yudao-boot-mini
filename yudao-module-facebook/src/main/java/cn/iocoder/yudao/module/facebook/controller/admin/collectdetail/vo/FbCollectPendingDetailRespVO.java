@@ -30,4 +30,25 @@ public class FbCollectPendingDetailRespVO {
 
     @Schema(description = "任务类型")
     private Integer taskType;
+
+    @Schema(description = "队列来源：collect/dm/operation")
+    private String sourceType;
+
+    @Schema(description = "执行账号ID")
+    private String accountId;
+
+    @Schema(description = "私信目标用户ID")
+    private String targetUserId;
+
+    @Schema(description = "私信话术")
+    private String scriptContent;
+
+    @Schema(description = "最小间隔秒")
+    private Integer minIntervalSeconds;
+
+    @Schema(description = "最大间隔秒")
+    private Integer maxIntervalSeconds;
+
+    @Schema(description = "运营任务配置")
+    private String actionConfig;
 }

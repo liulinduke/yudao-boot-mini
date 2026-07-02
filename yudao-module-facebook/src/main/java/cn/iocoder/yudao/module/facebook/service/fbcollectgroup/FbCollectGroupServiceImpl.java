@@ -21,6 +21,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectgroup.FbCollectGroupM
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -48,6 +49,8 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
     
     @Resource
     private FbCollectCountService countService;
+    @Resource
+    private FbAiAgentCollectQueueService accountTaskQueueService;
 
     @Override
     public Long createFbCollectGroup(FbCollectGroupSaveReqVO createReqVO) {
@@ -167,6 +170,7 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         detail.setEndTime(LocalDateTime.now());
         
         fbCollectDetailMapper.updateById(detail);
+        accountTaskQueueService.releaseRunning(detail.getFbAccount());
         
         // 聚合更新主表
         updateMainTaskProgress(detail.getTaskId());

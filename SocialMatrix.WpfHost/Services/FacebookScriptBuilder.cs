@@ -132,10 +132,13 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';");
             _js.AppendLine("            };");
             _js.AppendLine("            const findContinueButton = () => {");
-            _js.AppendLine("                const exact = document.querySelector('[aria-label=\"Continue\"], [aria-label=\"继续\"]');");
+            _js.AppendLine("                const exact = document.querySelector('[aria-label=\"Continue\"], [aria-label=\"Get started\"], [aria-label=\"继续\"], [aria-label=\"开始使用\"]');");
             _js.AppendLine("                if (exact && isVisibleElement(exact)) return exact;");
+            _js.AppendLine("                const startLabels = ['continue', 'get started', 'get start', 'start', '继续', '开始使用', '开始'];");
             _js.AppendLine("                const selectors = [");
             _js.AppendLine("                    '[aria-label*=\"Continue\"]',");
+            _js.AppendLine("                    '[aria-label*=\"Get started\"]',");
+            _js.AppendLine("                    '[aria-label*=\"Start\"]',");
             _js.AppendLine("                    'div[role=\"button\"]',");
             _js.AppendLine("                    'button',");
             _js.AppendLine("                    'span[role=\"button\"]',");
@@ -154,10 +157,9 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("                        const text = normalizeText(el.innerText || el.textContent);");
             _js.AppendLine("                        const title = normalizeText(el.getAttribute('title'));");
             _js.AppendLine("                        console.log('[私信发送] 检查元素 - ariaLabel:', ariaLabel, ', text:', text, ', title:', title);");
-            _js.AppendLine("                        if (ariaLabel.includes('Continue') || ariaLabel.includes('continue') || ariaLabel.includes('继续') ||");
-            _js.AppendLine("                            text.includes('Continue') || text.includes('continue') || text.includes('继续') ||");
-            _js.AppendLine("                            title.includes('Continue') || title.includes('continue') || title.includes('继续')) {");
-            _js.AppendLine("                            console.log('[私信发送] ✅ 找到 Continue 按钮');");
+            _js.AppendLine("                        const blob = normalizeText([ariaLabel, text, title].join(' ')).toLowerCase();");
+            _js.AppendLine("                        if (startLabels.some(label => blob === label || blob.includes(label))) {");
+            _js.AppendLine("                            console.log('[私信发送] ✅ 找到开始/继续按钮');");
             _js.AppendLine("                            return el;");
             _js.AppendLine("                        }");
             _js.AppendLine("                    }");

@@ -19,6 +19,7 @@ public interface FbCollectUserMapper extends BaseMapperX<FbCollectUserDO> {
 
     default PageResult<FbCollectUserDO> selectPage(FbCollectUserPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<FbCollectUserDO>()
+                .inIfPresent(FbCollectUserDO::getId, reqVO.getIds())
                 .eqIfPresent(FbCollectUserDO::getTaskId, reqVO.getTaskId())
                 .eqIfPresent(FbCollectUserDO::getUserId, reqVO.getUserId())
                 .eqIfPresent(FbCollectUserDO::getDeptId, reqVO.getDeptId())

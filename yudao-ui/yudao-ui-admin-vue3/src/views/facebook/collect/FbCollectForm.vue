@@ -725,7 +725,6 @@ import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 import { DICT_TYPE, getIntDictOptions } from '@/utils/dict'
 import { useI18n } from '@/hooks/web/useI18n'
 import { useMessage } from '@/hooks/web/useMessage'
@@ -981,10 +980,15 @@ const loadUserList = async (taskId: number) => {
         })
       } else {
         // 个人主页采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
+        const sourceUserIds = taskType === 12
+          ? detailList.value
+              .map((item: any) => item.sourceUserId)
+              .filter((id: any) => id !== undefined && id !== null && id !== '')
+          : []
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
-          taskId
+          ...(sourceUserIds.length ? { ids: sourceUserIds } : { taskId })
         })
       }
 
@@ -1119,71 +1123,7 @@ __CONFIG__:${JSON.stringify(config)}`
       return
     }
 
-    // 为每个账号启动第一个浏览器的采集(后续任务由后端调度复用)
-    const createdTasks: Array<{ detailId: number; fbAccount: string; url: string }> = []
-
-    // 按账号分组,每个账号只启动第一个任务
-    const accountFirstDetailMap = new Map<string, (typeof details)[0]>()
-    for (const detail of details) {
-      if (!accountFirstDetailMap.has(detail.fbAccount)) {
-        accountFirstDetailMap.set(detail.fbAccount, detail)
-      }
-    }
-
-    // 为每个账号启动第一个浏览器的采集
-    for (const [fbAccount, firstDetail] of accountFirstDetailMap.entries()) {
-      try {
-        // 从选中的账号列表中获取该账号的 Cookie
-        const selectedAccount = selectedAccounts.find((acc) => acc.fbAccount === fbAccount)
-        const cookie = selectedAccount?.cookie || null
-
-        console.log(`🔍 账号 ${fbAccount} 的 Cookie:`, cookie ? '已提供' : '未提供')
-
-        // 构建配置JSON（仅针对帖子评论点赞采集）
-        let configJson: string | undefined = undefined
-        if (data.taskType === 11) {
-          configJson = JSON.stringify({
-            collectComment: commentLikeOptions.value.includes('comment'),
-            collectLike: commentLikeOptions.value.includes('like'),
-            commentExpectedCount: formData.value.commentExpectedCount || 100,
-            likeExpectedCount: formData.value.likeExpectedCount || 100
-          })
-          console.log('📋 帖子评论点赞采集配置:', configJson)
-        } else if (data.taskType === 12 && firstDetail.sourceUserId) {
-          configJson = JSON.stringify({ sourceUserId: String(firstDetail.sourceUserId) })
-        }
-
-        startBrowserCollect(
-          String(firstDetail.detailId),
-          String(fbAccount),
-          cookie, // ✅ 传入 Cookie
-          firstDetail.searchUrl,
-          data.taskType === 12 ? 1 : data.expectedCount,
-          data.taskType, // 传递任务类型(1主页/2帖子/3用户等)
-          configJson // 传递配置（可选）
-        )
-        createdTasks.push({
-          detailId: firstDetail.detailId,
-          fbAccount: fbAccount,
-          url: firstDetail.searchUrl
-        })
-        console.log(
-          `🚀 启动采集: 明细ID=${firstDetail.detailId}, 账号=${fbAccount}, 类型=${data.taskType}`
-        )
-      } catch (error) {
-        console.error(`启动账号 ${fbAccount} 的浏览器失败:`, error)
-        message.warning(`账号 ${fbAccount} 启动浏览器失败`)
-      }
-    }
-
-    if (createdTasks.length > 0) {
-      message.success(`已创建 ${createdTasks.length} 个任务并启动采集`)
-      console.log('已启动的任务:', createdTasks)
-    } else {
-      message.success(
-        t('common.' + (formType.value === 'create' ? 'createSuccess' : 'updateSuccess'))
-      )
-    }
+    message.success(`已创建 ${details.length} 条采集明细，已加入账号串行队列`)
     dialogVisible.value = false
     // 发送操作成功的事件
     emit('success')

@@ -21,6 +21,21 @@ declare global {
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
+              StartDmTask?: (
+                taskId: string,
+                detailId: string,
+                accountId: string,
+                cookie: string,
+                targetUserId: string,
+                scriptContent: string
+              ) => void
+              StartGroupPublishTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                actionConfigJson: string,
+                detailId?: string
+              ) => void
               StartAccountLoginBatch: (
                 accountsJson: string
               ) => void

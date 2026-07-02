@@ -4,8 +4,12 @@ import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import { FbCollectUserApi } from '@/api/facebook/collectuser'
 import { batchSaveAddGroupResult, batchSaveRepostResult } from '@/api/facebook/operation'
 import {
+  beginQueuedDetailResult,
+  beginQueuedDmResult,
   claimNextAiAgentDetail,
+  finishQueuedAccountTaskAndStartNext,
   isAiAgentClaimedDetail,
+  markAiAgentCollectFinished,
   startAiAgentCollectDetail
 } from '@/utils/wpfAiAgentTaskPoller'
 import { closeBrowser, onCollectionComplete } from '@/utils/wpfBridge'
@@ -63,10 +67,11 @@ export function setupWpfOperationSync() {
     }
 
     const detailId = String(result.detailId || data.detailId || '')
-    if (!detailId || handledDmDetailIds.has(detailId)) {
+    if (!detailId || handledDmDetailIds.has(detailId) || !beginQueuedDmResult(detailId)) {
       return
     }
     handledDmDetailIds.add(detailId)
+    const accountId = String(data.accountId || result.accountId || '')
 
     try {
       console.log('[私信结果] 上报后端:', { detailId, success: result.success })
@@ -77,8 +82,11 @@ export function setupWpfOperationSync() {
       })
       window.dispatchEvent(new CustomEvent('fb:dm:result:saved', { detail: { detailId } }))
     } catch (error) {
-      handledDmDetailIds.delete(detailId)
       console.error('[私信结果] 上报失败:', error)
+    } finally {
+      if (accountId) {
+        await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+      }
     }
   })
 }
@@ -116,7 +124,7 @@ function parseMetricNumber(raw: string): number | null {
 
 async function saveCollectResult(data: any) {
   const detailId = String(data.detailId || '')
-  if (!detailId || handledCollectDetailIds.has(detailId)) {
+  if (!detailId || handledCollectDetailIds.has(detailId) || !beginQueuedDetailResult(detailId)) {
     return
   }
 
@@ -155,6 +163,7 @@ async function saveCollectResult(data: any) {
         }))
       })
     }
+    markAiAgentCollectFinished(data.accountId, detailId)
     const nextDetail = await claimNextAiAgentDetail()
     if (data.accountId && (!nextDetail || String(nextDetail.fbAccount) !== String(data.accountId))) {
       closeBrowser(String(data.accountId))
@@ -163,6 +172,7 @@ async function saveCollectResult(data: any) {
       startAiAgentCollectDetail(nextDetail)
     }
     window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))
+    window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId, taskType } }))
   } catch (error) {
     handledCollectDetailIds.delete(detailId)
     console.error('[AI获客采集结果] 上报失败:', error)
@@ -171,7 +181,7 @@ async function saveCollectResult(data: any) {
 
 async function saveGroupPublishResult(data: any) {
   const detailId = String(data.detailId || '')
-  if (!detailId || handledGroupPublishDetailIds.has(detailId)) {
+  if (!detailId || handledGroupPublishDetailIds.has(detailId) || !beginQueuedDetailResult(detailId)) {
     return
   }
 
@@ -195,6 +205,7 @@ async function saveGroupPublishResult(data: any) {
     window.dispatchEvent(
       new CustomEvent('fb:group-publish:result:saved', { detail: { detailId } })
     )
+    await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
   } catch (error) {
     handledGroupPublishDetailIds.delete(detailId)
     console.error('[发群帖结果] 上报失败:', error)
@@ -203,7 +214,7 @@ async function saveGroupPublishResult(data: any) {
 
 async function saveRepostResult(data: any) {
   const detailId = String(data.detailId || '')
-  if (!detailId || handledRepostDetailIds.has(detailId)) {
+  if (!detailId || handledRepostDetailIds.has(detailId) || !beginQueuedDetailResult(detailId)) {
     return
   }
 
@@ -231,6 +242,7 @@ async function saveRepostResult(data: any) {
       }))
     })
     window.dispatchEvent(new CustomEvent('fb:repost:result:saved', { detail: { detailId } }))
+    await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
   } catch (error) {
     handledRepostDetailIds.delete(detailId)
     console.error('[转帖结果] 上报失败:', error)

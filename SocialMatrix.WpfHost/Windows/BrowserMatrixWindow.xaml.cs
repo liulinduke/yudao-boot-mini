@@ -26,6 +26,7 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
         private readonly Dictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
         private readonly Dictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
+        private readonly HashSet<string> _dmSendingAccounts = new(); // 账号 -> 私信发送中，避免同账号并发串消息
 
         // 当前明细ID(用于回传,单任务场景，兼容旧逻辑)
         public string? CurrentDetailId { get; set; }
@@ -851,7 +852,32 @@ namespace SocialMatrix.WpfHost.Windows
                         await WaitForPageReady(browser, timeoutMs: 15000);
                         System.Diagnostics.Debug.WriteLine($"✅ 私信页面已就绪");
 
-                        if (_dmOperationParams.TryGetValue(accountId, out var dmParams))
+                        if (!string.IsNullOrEmpty(config))
+                        {
+                            try
+                            {
+                                var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
+                                string fbUserId = configObj.ContainsKey("fbUserId") ? configObj.Value<string>("fbUserId") ?? "" : "";
+                                string messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") ?? "" : "";
+                                if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
+                                {
+                                    string dmTaskId = configObj.ContainsKey("taskId") ? configObj.Value<string>("taskId") ?? "" : "";
+                                    string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+                                    await SendDirectMessage(accountId, fbUserId, messageText, dmTaskId, dmDetailId);
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"⚠️ 私信参数无效: fbUserId={fbUserId}, messageText为空={string.IsNullOrEmpty(messageText)}");
+                                    OnCollectionError?.Invoke(accountId, "私信参数无效");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"⚠️ 解析私信参数失败: {ex.Message}");
+                                OnCollectionError?.Invoke(accountId, "解析私信参数失败");
+                            }
+                        }
+                        else if (_dmOperationParams.TryGetValue(accountId, out var dmParams))
                         {
                             string dmTaskId = _dmTaskIds.TryGetValue(accountId, out var tid) ? tid : "";
                             string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
@@ -859,37 +885,8 @@ namespace SocialMatrix.WpfHost.Windows
                         }
                         else
                         {
-                            // 从 config JSON 中重新解析
-                            if (!string.IsNullOrEmpty(config))
-                            {
-                                try
-                                {
-                                    var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
-                                    string fbUserId = configObj.ContainsKey("fbUserId") ? configObj.Value<string>("fbUserId") ?? "" : "";
-                                    string messageText = configObj.ContainsKey("messageText") ? configObj.Value<string>("messageText") ?? "" : "";
-                                    if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
-                                    {
-                                        string dmTaskId = configObj.ContainsKey("taskId") ? configObj.Value<string>("taskId") ?? "" : "";
-                                        string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
-                                        await SendDirectMessage(accountId, fbUserId, messageText, dmTaskId, dmDetailId);
-                                    }
-                                    else
-                                    {
-                                        System.Diagnostics.Debug.WriteLine($"⚠️ 私信参数无效: fbUserId={fbUserId}, messageText为空={string.IsNullOrEmpty(messageText)}");
-                                        OnCollectionError?.Invoke(accountId, "私信参数无效");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"⚠️ 解析私信参数失败: {ex.Message}");
-                                    OnCollectionError?.Invoke(accountId, "解析私信参数失败");
-                                }
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"⚠️ 未找到私信参数，config={config}");
-                                OnCollectionError?.Invoke(accountId, "未找到私信参数");
-                            }
+                            System.Diagnostics.Debug.WriteLine($"⚠️ 未找到私信参数，config={config}");
+                            OnCollectionError?.Invoke(accountId, "未找到私信参数");
                         }
                         break;
 

@@ -353,10 +353,8 @@ import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import {
   createFbOperationTask,
-  getFbOperationTask,
   FbOperationTaskSaveReqVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 import GroupSelectorForRepost from './GroupSelectorForRepost.vue'
 import ScriptSelector from './dmtask/ScriptSelector.vue'
 
@@ -557,56 +555,8 @@ const submitForm = async () => {
       remark: formData.value.remark
     } as unknown as FbOperationTaskSaveReqVO
 
-    const result = await createFbOperationTask(submitData)
-    const respData = result.data || result
-    const taskId = respData?.id || respData
-
-    message.success('任务创建成功')
-
-    // 转帖任务创建成功后启动浏览器执行
-    if (taskId) {
-      const createdTaskDetail = await getFbOperationTask(String(taskId))
-      const createdDetails = createdTaskDetail?.details || []
-      const repostConfig = JSON.stringify({
-        taskId: String(taskId),
-        postUrl: formData.value.postUrl,
-        actionConfig: configData
-      })
-
-      const startedAccounts = new Set<string>()
-      for (const accountId of formData.value.accountIds) {
-        if (startedAccounts.has(accountId)) continue
-
-        const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
-        if (!accountInfo) continue
-
-        const detail = createdDetails.find((d) => String(d.accountId) === String(accountId))
-        const cookie = accountInfo.cookie || null
-
-        try {
-          startBrowserCollect(
-            String(detail?.id || `${taskId}_${accountId}`),
-            String(accountId),
-            cookie,
-            formData.value.postUrl,
-            expectedCount,
-            10,
-            repostConfig,
-            true
-          )
-          startedAccounts.add(accountId)
-          console.log(`🚀 启动转帖: 任务=${taskId}, 明细=${detail?.id}, 账号=${accountId}`)
-        } catch (error) {
-          console.error(`启动账号 ${accountId} 的转帖任务失败:`, error)
-        }
-      }
-
-      if (startedAccounts.size > 0) {
-        message.success(`已启动 ${startedAccounts.size} 个账号的浏览器执行转帖任务`)
-      } else {
-        message.warning('任务已创建，但 WPF 未连接或账号无效')
-      }
-    }
+    await createFbOperationTask(submitData)
+    message.success('转帖任务已创建，已加入账号串行队列')
 
     dialogVisible.value = false
     emit('success')

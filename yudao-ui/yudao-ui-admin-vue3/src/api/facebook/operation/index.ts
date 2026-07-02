@@ -176,3 +176,7 @@ export const getPendingDetails = (fbAccount: string) => {
 export const batchSaveRepostResult = (data: FbRepostResultBatchSaveReqVO) => {
   return request.post({ url: '/facebook/fb-operation-task/batch-save-repost-result', data })
 }
+
+export const markOperationDetailFailed = (data: { detailId: string | number; errorMsg?: string }) => {
+  return request.post({ url: '/facebook/fb-operation-task/detail-fail', params: data })
+}

@@ -11,11 +11,14 @@ import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskPageR
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskDetailRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
@@ -46,6 +49,8 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
     @Resource
     private FbDmTaskDetailMapper dmTaskDetailMapper;
+    @Resource
+    private FbAiTouchRecordMapper aiTouchRecordMapper;
 
     @Resource
     private DmTaskAllocator taskAllocator;
@@ -55,6 +60,8 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
     @Resource
     private FbAccountMapper accountMapper;
+    @Resource
+    private FbAiAgentCollectQueueService accountTaskQueueService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -101,6 +108,7 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
                 details.get(i).setScriptContent(script);
             }
             dmTaskDetailMapper.insertBatch(details);
+            pushDmDetailsToAccountQueue(details);
             task.setTotalCount(details.size());
             dmTaskMapper.updateById(task);
         }
@@ -262,9 +270,83 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
             dailyLimitService.useOnce(detail.getAccountId(), OperationTypeEnum.DM);
         }
         dmTaskDetailMapper.updateById(detail);
+        releaseDmAccountRunning(detail);
+        updateAiTouchRecordStatus(detail, status, errorMsg);
 
         // 更新主任务统计
         updateTaskStatistics(detail.getTaskId());
+    }
+
+    private void pushDmDetailsToAccountQueue(List<FbDmTaskDetailDO> details) {
+        if (CollUtil.isEmpty(details)) {
+            return;
+        }
+        Map<String, String> accountMap = resolveFbAccountMap(details.stream()
+                .map(FbDmTaskDetailDO::getAccountId)
+                .collect(Collectors.toList()));
+        for (FbDmTaskDetailDO detail : details) {
+            String fbAccount = accountMap.get(detail.getAccountId());
+            if (StrUtil.isNotBlank(fbAccount)) {
+                accountTaskQueueService.push("dm", detail.getId(), fbAccount);
+            }
+        }
+    }
+
+    private void releaseDmAccountRunning(FbDmTaskDetailDO detail) {
+        Map<String, String> accountMap = resolveFbAccountMap(Collections.singletonList(detail.getAccountId()));
+        String fbAccount = accountMap.get(detail.getAccountId());
+        if (StrUtil.isNotBlank(fbAccount)) {
+            accountTaskQueueService.releaseRunning(fbAccount);
+        }
+    }
+
+    private Map<String, String> resolveFbAccountMap(List<String> accountIds) {
+        List<Long> ids = accountIds.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(this::parseLongOrNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(ids)) {
+            return Collections.emptyMap();
+        }
+        return accountMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(account -> String.valueOf(account.getId()), FbAccountDO::getFbAccount, (a, b) -> a));
+    }
+
+    private Long parseLongOrNull(String value) {
+        try {
+            return value == null ? null : Long.valueOf(value.trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private void updateAiTouchRecordStatus(FbDmTaskDetailDO detail, Integer dmStatus, String errorMsg) {
+        if (detail == null || detail.getTaskId() == null || detail.getTargetUserId() == null) {
+            return;
+        }
+        FbAiTouchRecordDO record = aiTouchRecordMapper.selectOne(new LambdaQueryWrapper<FbAiTouchRecordDO>()
+                .eq(FbAiTouchRecordDO::getTouchType, "dm")
+                .eq(FbAiTouchRecordDO::getOperationTaskId, detail.getTaskId())
+                .eq(FbAiTouchRecordDO::getTargetUserId, detail.getTargetUserId())
+                .last("LIMIT 1"));
+        if (record == null) {
+            return;
+        }
+        FbAiTouchRecordDO updateObj = new FbAiTouchRecordDO();
+        updateObj.setId(record.getId());
+        if (Objects.equals(dmStatus, 1)) {
+            updateObj.setStatus(2);
+            updateObj.setSentTime(LocalDateTime.now());
+            updateObj.setFailReason(null);
+        } else if (Objects.equals(dmStatus, 2)) {
+            updateObj.setStatus(3);
+            updateObj.setFailReason(errorMsg);
+        } else {
+            return;
+        }
+        aiTouchRecordMapper.updateById(updateObj);
     }
 
     /**

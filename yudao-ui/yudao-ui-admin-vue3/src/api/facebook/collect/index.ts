@@ -46,6 +46,11 @@ export const FbCollectApi = {
     return await request.get({ url: `/facebook/fb-collect-detail/list-by-task`, params: { taskId } })
   },
 
+  // 标记采集明细失败
+  markDetailFailed: async (data: { detailId: string | number; errorMessage?: string }) => {
+    return await request.post({ url: `/facebook/fb-collect-detail/fail`, params: data })
+  },
+
   // 新增FB采集任务
   createFbCollect: async (data: FbCollect) => {
     return await request.post({ url: `/facebook/fb-collect/create`, data })

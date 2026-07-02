@@ -311,7 +311,7 @@
         <el-tabs v-model="detailTab">
           <el-tab-pane label="客户发现" name="discovery">
             <el-table v-loading="discoveryLoading" :data="discoveryList" :show-overflow-tooltip="true">
-              <el-table-column label="发现时间" width="160">
+              <el-table-column label="发现时间" width="170">
                 <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
               </el-table-column>
               <el-table-column label="关键词" prop="keyword" min-width="150" />
@@ -331,7 +331,9 @@
             <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true">
               <el-table-column label="客户名称" prop="userName" min-width="160" />
               <el-table-column label="国家" prop="country" width="110" />
-              <el-table-column label="客户类型" prop="leadType" width="130" />
+              <el-table-column label="客户类型" width="130">
+                <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
+              </el-table-column>
               <el-table-column label="评分" prop="productRelevanceScore" width="90" />
               <el-table-column label="联系方式" width="200">
                 <template #default="scope">
@@ -341,7 +343,13 @@
               <el-table-column label="最近活跃" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.lastPostTime) }}</template>
               </el-table-column>
-              <el-table-column label="状态" prop="touchStatus" width="110" />
+              <el-table-column label="状态" width="110">
+                <template #default="scope">
+                  <el-tag :type="getLeadTouchStatusTagType(scope.row.touchStatus)">
+                    {{ getLeadTouchStatusLabel(scope.row.touchStatus) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="AI分析原因" prop="intentReason" min-width="220" />
             </el-table>
           </el-tab-pane>
@@ -369,12 +377,8 @@
 
           <el-tab-pane label="运行日志" name="logs">
             <div v-loading="runLogLoading" class="timeline-box">
-              <div v-for="item in runLogList" :key="item.id" class="timeline-item">
-                <div class="timeline-time">{{ formatDateTime(item.createTime) }}</div>
-                <div class="timeline-content">
-                  <div class="timeline-title">{{ item.title }}</div>
-                  <div class="timeline-desc">{{ item.content }}</div>
-                </div>
+              <div v-for="item in runLogList" :key="item.id" class="timeline-item" :class="`is-${item.logLevel || 'info'}`">
+                <span class="timeline-text">{{ formatRunLogLine(item) }}</span>
               </div>
             </div>
           </el-tab-pane>
@@ -398,8 +402,7 @@ import {
   type FbAiTouchRecord
 } from '@/api/facebook/aiagent'
 import {
-  claimAndStartPendingAiAgentDetails,
-  startAiAgentCollectDetail
+  claimAndStartPendingAiAgentDetails
 } from '@/utils/wpfAiAgentTaskPoller'
 
 const message = useMessage()
@@ -532,6 +535,12 @@ const formatDateTime = (value?: string | Date) => {
   return dateFormatter(value)
 }
 
+const formatRunLogLine = (item: FbAiAgentRunLog) => {
+  const time = formatDateTime(item.createTime)
+  const title = item.title || '-'
+  return item.content ? `${time} ${title}：${item.content}` : `${time} ${title}`
+}
+
 const getStatusLabel = (status?: number) => {
   const map: Record<number, string> = { 0: '草稿', 1: '运行中', 2: '暂停', 3: '停止' }
   return status !== undefined ? map[status] || String(status) : '-'
@@ -561,6 +570,39 @@ const getTouchStatusTagType = (status?: number) => {
     4: 'info'
   }
   return status !== undefined ? map[status] || 'info' : 'info'
+}
+
+const getLeadTouchStatusLabel = (status?: string) => {
+  const map: Record<string, string> = {
+    not_touched: '未触达',
+    pending: '待触达',
+    touched: '已触达',
+    completed: '已完成',
+    failed: '触达失败',
+    skipped: '已跳过'
+  }
+  return status ? map[status] || status : '-'
+}
+
+const getLeadTouchStatusTagType = (status?: string) => {
+  const map: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
+    not_touched: 'info',
+    pending: 'warning',
+    touched: 'success',
+    completed: 'success',
+    failed: 'danger',
+    skipped: 'info'
+  }
+  return status ? map[status] || 'info' : 'info'
+}
+
+const getLeadTypeLabel = (value?: string) => {
+  const map: Record<string, string> = {
+    page_lead: '主页线索',
+    post_lead: '帖子线索',
+    comment_lead: '评论线索'
+  }
+  return value ? map[value] || value : '-'
 }
 
 const syncWizard = (config?: FbAiAgentConfig) => {
@@ -715,8 +757,10 @@ const handleDispatch = async () => {
     result.dispatched ? message.success(result.message) : message.warning(result.message)
     const details = result.details || []
     if (details.length > 0) {
-      details.forEach(startAiAgentCollectDetail)
-      message.info(`已提交 ${details.length} 个采集明细到WPF浏览器`)
+      const started = await claimAndStartPendingAiAgentDetails(details.length)
+      started > 0
+        ? message.info(`已提交 ${started} 个采集明细到WPF浏览器`)
+        : message.warning('已创建采集任务，但没有可启动的WPF浏览器窗口')
     } else {
       await claimAndStartPendingAiAgentDetails()
     }
@@ -815,7 +859,9 @@ const loadDetailTabs = async () => {
       FbAiAgentApi.getTouchRecordPage({ pageNo: 1, pageSize: 50, agentConfigId }),
       FbAiAgentApi.getRunLogPage({ pageNo: 1, pageSize: 50, agentConfigId })
     ])
-    discoveryList.value = discoveryData.list || []
+    discoveryList.value = (discoveryData.list || []).filter(
+      (item) => item.sourceType !== 'deep' && item.keyword !== '深度采集'
+    )
     leadList.value = leadData.list || []
     touchList.value = touchData.list || []
     runLogList.value = runLogData.list || []
@@ -941,35 +987,40 @@ onBeforeUnmount(() => {
 
   .timeline-box {
     display: grid;
-    gap: 14px;
+    gap: 8px;
     padding-right: 8px;
   }
 
   .timeline-item {
-    display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 14px;
-    padding: 12px 14px;
-    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 7px 10px;
+    border-left: 3px solid var(--el-color-primary);
+    border-radius: 4px;
     background: #fafafa;
-    border: 1px solid var(--el-border-color-lighter);
+    color: var(--el-text-color-primary);
   }
 
-  .timeline-time {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
+  .timeline-item.is-success {
+    border-left-color: var(--el-color-success);
   }
 
-  .timeline-title {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 4px;
+  .timeline-item.is-warning {
+    border-left-color: var(--el-color-warning);
   }
 
-  .timeline-desc {
+  .timeline-item.is-error {
+    border-left-color: var(--el-color-danger);
+  }
+
+  .timeline-text {
+    width: 100%;
     font-size: 13px;
-    line-height: 1.6;
-    color: var(--el-text-color-secondary);
+    line-height: 20px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 </style>

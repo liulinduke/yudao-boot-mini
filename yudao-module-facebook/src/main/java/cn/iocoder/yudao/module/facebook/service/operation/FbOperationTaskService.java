@@ -73,4 +73,12 @@ public interface FbOperationTaskService {
      */
     void batchSaveRepostResult(@Valid FbRepostResultBatchSaveReqVO batchSaveReqVO);
 
+    /**
+     * 标记运营明细失败，并释放账号队列运行锁。
+     *
+     * @param detailId 明细 ID
+     * @param errorMsg 失败原因
+     */
+    void markDetailFailed(Long detailId, String errorMsg);
+
 }

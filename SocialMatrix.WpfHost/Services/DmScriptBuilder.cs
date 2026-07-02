@@ -13,24 +13,60 @@ namespace SocialMatrix.WpfHost.Services
         }
         
         /// <summary>
-        /// 点击 Continue 按钮（短脚本，禁止页面导航）
+        /// 点击 Continue / Get started 按钮（短脚本，禁止页面导航）
         /// </summary>
         public static string BuildClickContinueScript()
         {
             return @"
-(function() {
+(async function() {
+    const normalize = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     const isVisible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
         return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const btn = document.querySelector('[aria-label=""Continue""], [aria-label=""继续""]');
-    if (btn && isVisible(btn)) {
-        btn.click();
-        return JSON.stringify({ success: true, action: 'clicked' });
+    const robustClick = async (el) => {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        await sleep(120);
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            const event = type.startsWith('pointer')
+                ? new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', isPrimary: true })
+                : new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+            el.dispatchEvent(event);
+        }
+        if (typeof el.click === 'function') el.click();
+    };
+    const labels = [
+        'continue',
+        'get started',
+        'get start',
+        'start',
+        '开始使用',
+        '开始',
+        '继续'
+    ];
+    const candidates = Array.from(document.querySelectorAll(
+        '[aria-label], div[role=""button""], button, span[role=""button""], a[role=""button""], input[type=""button""], input[type=""submit""]'
+    ));
+    for (const el of candidates) {
+        if (!isVisible(el)) continue;
+        const text = normalize([
+            el.getAttribute('aria-label'),
+            el.getAttribute('title'),
+            el.getAttribute('value'),
+            el.innerText || el.textContent
+        ].filter(Boolean).join(' '));
+        if (labels.some(label => text === label || text.includes(label))) {
+            await robustClick(el);
+            return JSON.stringify({ success: true, action: 'clicked', text });
+        }
     }
-    return JSON.stringify({ success: true, action: 'no_continue' });
+    return JSON.stringify({ success: true, action: 'no_start_button' });
 })();";
         }
         

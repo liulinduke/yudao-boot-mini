@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -67,7 +68,25 @@ public class FbCollectDetailController {
     @Operation(summary = "WPF领取待执行采集明细")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
     public CommonResult<List<FbCollectPendingDetailRespVO>> claimPendingDetails(
-            @RequestParam(value = "limit", defaultValue = "3") Integer limit) {
-        return success(fbCollectDetailService.claimPendingDetails(limit));
+            @RequestParam(value = "limit", defaultValue = "3") Integer limit,
+            @RequestParam(value = "excludeAccounts", required = false) List<String> excludeAccounts) {
+        return success(fbCollectDetailService.claimPendingDetails(limit, excludeAccounts));
+    }
+
+    @GetMapping("/claim-next")
+    @Operation(summary = "领取同账号同任务下一条待执行采集明细")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect:query')")
+    public CommonResult<FbCollectPendingDetailRespVO> claimNextDetail(@RequestParam("fbAccount") String fbAccount,
+                                                                      @RequestParam("taskId") String taskId) {
+        return success(fbCollectDetailService.claimNextDetail(fbAccount, Long.parseLong(taskId)));
+    }
+
+    @PostMapping("/fail")
+    @Operation(summary = "标记采集明细失败")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect:update')")
+    public CommonResult<Boolean> markDetailFailed(@RequestParam("detailId") String detailId,
+                                                  @RequestParam(value = "errorMessage", required = false) String errorMessage) {
+        fbCollectDetailService.markDetailFailed(Long.parseLong(detailId), errorMessage);
+        return success(true);
     }
 }

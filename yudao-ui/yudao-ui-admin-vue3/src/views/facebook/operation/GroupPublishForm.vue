@@ -426,52 +426,8 @@ const submitForm = async () => {
       })
     }
 
-    // 1. 创建任务
-    const taskId = await OperationApi.createFbOperationTask(data)
-    console.log('✅ 发群帖任务创建成功, TaskId:', taskId)
-    const createdTaskDetail = taskId ? await OperationApi.getFbOperationTask(String(taskId)) : null
-    const createdDetails = createdTaskDetail?.details || []
-
-    // 2. 调用 WPF 执行任务（为每个账号启动）
-    // @ts-ignore
-    if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      console.log('🚀 开始调用 WPF 执行发群帖任务...')
-
-      // 获取账号信息（需要从后端获取cookie）
-      for (const accountId of formData.value.accountIds) {
-        try {
-          // TODO: 这里需要从后端获取账号的 cookie
-          // 暂时使用空字符串，实际使用时需要从 FbAccountApi 获取
-          const accountInfo = await FbAccountApi.getFbAccount(accountId)
-          const cookie = accountInfo.cookie || ''
-          const operationDetail = createdDetails.find(
-            (detail) => String(detail.accountId) === String(accountId)
-          )
-
-          console.log(`👥 启动账号 ${accountId} 的发群帖任务`)
-
-          // @ts-ignore
-          window.chrome.webview.hostObjects.sync.wpfBridge.StartGroupPublishTask(
-            String(taskId),
-            String(accountId),
-            cookie,
-            data.actionConfig,
-            String(operationDetail?.id || '')
-          )
-
-          // 等待间隔时间（防风控）
-          const intervalSeconds = (minSec + maxSec) / 2
-          await new Promise((resolve) => setTimeout(resolve, intervalSeconds * 1000))
-        } catch (error) {
-          console.error(`❌ 启动账号 ${accountId} 的任务失败:`, error)
-        }
-      }
-
-      message.success('任务已创建并发送到 WPF 队列')
-    } else {
-      console.warn('⚠️ WPF 桥接对象不存在，任务已创建但未执行')
-      message.warning('任务已创建，但 WPF 未连接')
-    }
+    await OperationApi.createFbOperationTask(data)
+    message.success('发群帖任务已创建，已加入账号串行队列')
 
     dialogVisible.value = false
     emit('success')

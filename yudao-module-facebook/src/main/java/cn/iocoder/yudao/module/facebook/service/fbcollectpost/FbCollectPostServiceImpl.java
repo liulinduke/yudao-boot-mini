@@ -18,6 +18,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMap
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -43,6 +44,8 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
 
     @Resource
     private FbCollectCountService countService;
+    @Resource
+    private FbAiAgentCollectQueueService accountTaskQueueService;
 
     @Override
     public Long createFbCollectPost(FbCollectPostSaveReqVO createReqVO) {
@@ -165,6 +168,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         detail.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
         
         fbCollectDetailMapper.updateById(detail);
+        accountTaskQueueService.releaseRunning(detail.getFbAccount());
         
         // 聚合更新主表
         updateMainTaskProgress(detail.getTaskId());

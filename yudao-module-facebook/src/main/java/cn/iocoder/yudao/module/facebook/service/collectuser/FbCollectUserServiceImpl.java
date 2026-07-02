@@ -22,6 +22,7 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentService;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
 
@@ -56,6 +57,8 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
 
     @Resource
     private FbAiAgentService aiAgentService;
+    @Resource
+    private FbAiAgentCollectQueueService aiAgentCollectQueueService;
 
     @Override
     public Long createFbCollectUser(FbCollectUserSaveReqVO createReqVO) {
@@ -169,9 +172,11 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);
         
-        // 3. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
-        updateDetailAndMainTableAsync(detailId);
-        aiAgentService.continueAfterCollectTaskFinished(detail.getTaskId());
+        // 3. 更新数据库和主表。AI Agent 只在整个采集任务完成后继续下一步，避免每条深度采集都触发一次分析/触达。
+        boolean taskFinished = updateDetailAndMainTableAsync(detailId);
+        if (taskFinished) {
+            aiAgentService.continueAfterCollectTaskFinished(detail.getTaskId());
+        }
         
         return count;
     }
@@ -228,27 +233,28 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
     /**
      * 异步更新明细表和主表
      */
-    private void updateDetailAndMainTableAsync(Long detailId) {
+    private boolean updateDetailAndMainTableAsync(Long detailId) {
         // TODO: 使用 @Async 注解实现真正的异步
         // 这里暂时同步执行,后续可以优化
         try {
-            updateDetailAndMainTable(detailId);
+            return updateDetailAndMainTable(detailId);
         } catch (Exception e) {
             log.error("更新明细和主表失败, detailId={}", detailId, e);
+            return false;
         }
     }
     
     /**
      * 更新明细表和主表
      */
-    private void updateDetailAndMainTable(Long detailId) {
+    private boolean updateDetailAndMainTable(Long detailId) {
         // 从 Redis 获取最新计数
         Long redisCount = countService.getCollectCount(detailId);
         
         // 更新明细表
         FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
         if (detail == null) {
-            return;
+            return false;
         }
         
         detail.setCollectedCount(redisCount.intValue());
@@ -258,24 +264,26 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         detail.setEndTime(LocalDateTime.now());
         
         fbCollectDetailMapper.updateById(detail);
+        aiAgentCollectQueueService.releaseRunning(detail.getFbAccount());
         
         // 聚合更新主表
-        updateMainTaskProgress(detail.getTaskId());
+        boolean taskFinished = updateMainTaskProgress(detail.getTaskId());
         
         // 清理 Redis 缓存
         countService.removeCountCache(detailId);
         
         log.info("更新明细 {} 完成, 已采集: {}/{}", detailId, redisCount, detail.getExpectedCount());
+        return taskFinished;
     }
     
     /**
      * 聚合更新主表进度
      */
-    private void updateMainTaskProgress(Long taskId) {
+    private boolean updateMainTaskProgress(Long taskId) {
         // 查询所有明细的统计信息
         Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
         if (stats == null || stats.isEmpty()) {
-            return;
+            return false;
         }
         
         // 更新主表
@@ -303,6 +311,7 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         fbCollectMapper.updateById(task);
         
         log.info("更新主表 {} 完成, 总进度: {}/{}", taskId, totalCollected, totalExpected);
+        return unfinishedCount == 0;
     }
 
 }

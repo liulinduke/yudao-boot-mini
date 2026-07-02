@@ -43,5 +43,22 @@ public interface FbCollectDetailService {
      * @param limit 拉取数量
      * @return 可执行明细列表
      */
-    List<FbCollectPendingDetailRespVO> claimPendingDetails(Integer limit);
+    List<FbCollectPendingDetailRespVO> claimPendingDetails(Integer limit, List<String> excludeAccounts);
+
+    /**
+     * 领取同账号同任务下一个待执行明细，用于复用当前浏览器串行执行。
+     *
+     * @param fbAccount FB账号
+     * @param taskId 任务ID
+     * @return 可执行明细，没有则返回 null
+     */
+    FbCollectPendingDetailRespVO claimNextDetail(String fbAccount, Long taskId);
+
+    /**
+     * 标记采集明细失败，并释放账号队列运行锁。
+     *
+     * @param detailId 明细 ID
+     * @param errorMessage 失败原因
+     */
+    void markDetailFailed(Long detailId, String errorMessage);
 }

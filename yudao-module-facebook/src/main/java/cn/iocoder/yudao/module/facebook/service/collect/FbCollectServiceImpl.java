@@ -16,6 +16,7 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDe
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
@@ -45,6 +46,8 @@ public class FbCollectServiceImpl implements FbCollectService {
 
     @Resource
     private FbAccountMapper fbAccountMapper;
+    @Resource
+    private FbAiAgentCollectQueueService accountTaskQueueService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -84,29 +87,23 @@ public class FbCollectServiceImpl implements FbCollectService {
         task.setStartTime(LocalDateTime.now()); // 设置开始时间
         fbCollectMapper.insert(task);
             
+        Map<Long, String> accountMap = resolveAccountMap(accountIds, createReqVO.getFbAccount());
+
         // 5. 创建明细记录(每个账号×每个链接)
-        // 需要根据 accountIds 查询真实的 fbAccount
         List<FbCollectCreateRespVO.DetailInfo> detailInfos = new ArrayList<>();
-        
-        // TODO: 这里应该注入 FbAccountMapper 来查询账号信息
-        // 暂时简化处理,如果 fbAccount 为空,使用占位符
-        String fbAccount = createReqVO.getFbAccount();
-        if (fbAccount == null || fbAccount.trim().isEmpty()) {
-            // 如果没有传入 fbAccount,尝试从第一个 accountId 获取
-            // 这里暂时使用占位符,实际应该查询数据库
-            fbAccount = "account_" + accountIds.get(0);
-        }
             
         for (Long accountId : accountIds) {
+            String fbAccount = accountMap.getOrDefault(accountId, "account_" + accountId);
             for (String url : urls) {
                 FbCollectDetailDO detail = new FbCollectDetailDO();
                 detail.setTaskId(task.getId());
-                detail.setFbAccount(fbAccount); // TODO: 需要根据 accountId 查询真实账号
+                detail.setFbAccount(fbAccount);
                 detail.setSearchUrl(url.trim());
                 detail.setExpectedCount(createReqVO.getExpectedCount());
                 detail.setCollectedCount(0);
                 detail.setStatus(0); // 待执行
                 fbCollectDetailMapper.insert(detail);
+                accountTaskQueueService.push("collect", detail.getId(), detail.getFbAccount());
                     
                 // 收集明细信息
                 detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
@@ -182,6 +179,7 @@ public class FbCollectServiceImpl implements FbCollectService {
             detail.setCollectedCount(0);
             detail.setStatus(0);
             fbCollectDetailMapper.insert(detail);
+            accountTaskQueueService.push("collect", detail.getId(), detail.getFbAccount());
 
             detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
                     detail.getId(),
@@ -192,6 +190,29 @@ public class FbCollectServiceImpl implements FbCollectService {
         }
 
         return new FbCollectCreateRespVO(task.getId(), detailInfos);
+    }
+
+    private Map<Long, String> resolveAccountMap(List<Long> accountIds, String fallbackFbAccount) {
+        Map<Long, String> accountMap = new LinkedHashMap<>();
+        List<Long> realAccountIds = accountIds.stream()
+                .filter(Objects::nonNull)
+                .filter(id -> id > 0)
+                .collect(Collectors.toList());
+        if (CollUtil.isNotEmpty(realAccountIds)) {
+            List<FbAccountDO> accounts = fbAccountMapper.selectBatchIds(realAccountIds);
+            for (FbAccountDO account : accounts) {
+                if (account != null && account.getId() != null && account.getFbAccount() != null) {
+                    accountMap.put(account.getId(), account.getFbAccount());
+                }
+            }
+        }
+        for (Long accountId : accountIds) {
+            if (!accountMap.containsKey(accountId)) {
+                accountMap.put(accountId, fallbackFbAccount == null || fallbackFbAccount.trim().isEmpty()
+                        ? "account_" + accountId : fallbackFbAccount);
+            }
+        }
+        return accountMap;
     }
 
     @Override

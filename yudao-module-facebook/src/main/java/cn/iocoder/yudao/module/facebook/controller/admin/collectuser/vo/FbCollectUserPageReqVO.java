@@ -16,6 +16,9 @@ public class FbCollectUserPageReqVO extends PageParam {
     @Schema(description = "任务ID", example = "15717")
     private Long taskId;
 
+    @Schema(description = "资源库用户ID列表")
+    private List<Long> ids;
+
     @Schema(description = "系统用户ID", example = "6714")
     private Long userId;
 

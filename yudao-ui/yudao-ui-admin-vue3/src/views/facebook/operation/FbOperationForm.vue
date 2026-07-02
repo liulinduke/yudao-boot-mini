@@ -451,7 +451,6 @@ import {
   FbOperationTaskSaveReqVO,
   FbOperationTaskDetailRespVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 import GroupSelector from '../collect/components/GroupSelector.vue'
 
 const message = useMessage()
@@ -685,130 +684,21 @@ const submitForm = async () => {
       ...formData.value,
       accountIds: usedAccountIds.map((id) => String(id)),
       taskName: `${taskNamePrefix}_${timestamp}`,
+      actionConfig:
+        formData.value.taskType === 9
+          ? JSON.stringify({
+              selectedGroups: selectedGroups.value.map((g) => ({
+                groupId: g.id,
+                groupName: g.groupName,
+                groupUrl: g.url
+              }))
+            })
+          : formData.value.actionConfig,
       expectedCount: selectedGroups.value.length // 期望数量 = 选择的群组数量
     } as unknown as FbOperationTaskSaveReqVO
 
-    const result = await createFbOperationTask(data)
-    const respData = result.data || result
-    const taskId = respData?.id || respData
-    const createdTaskDetail = taskId ? await getFbOperationTask(String(taskId)) : null
-    const createdDetails = createdTaskDetail?.details || []
-
-    message.success('任务创建成功')
-
-    // 如果是链接加组任务，创建成功后启动浏览器
-    if (formData.value.taskType === 9 && taskId) {
-      const startedAccounts = new Set<string>()
-      const totalGroups = selectedGroups.value.length
-      const totalAccounts = usedAccountIds.length
-
-      // 群组平均分配：将群组列表分配给账号
-      // 规则：10账号+10群组 → 每个账号1个群组；10账号+1群组 → 1个账号处理；5账号+12群组 → 2个账号处理3个，3个账号处理2个
-      const accountsToUse = Math.min(totalAccounts, totalGroups)
-
-      // 获取全局配置中的每日加组限制
-      let dailyLimit = 10
-      try {
-        const config = await import('@/api/facebook/dailylimit').then((m) =>
-          m.DailyLimitApi.getConfig()
-        )
-        dailyLimit = config.data?.join_group_daily_limit || 10
-      } catch (e) {
-        console.warn('⚠️ 获取全局配置失败，使用默认每日加组限制: 10')
-      }
-
-      for (let i = 0; i < accountsToUse; i++) {
-        const accountId = usedAccountIds[i]
-        if (startedAccounts.has(accountId)) continue
-
-        const accountInfo = accounts.value.find((acc) => String(acc.id) === String(accountId))
-        if (!accountInfo) continue
-
-        // 调用API获取该账号今日剩余加组次数
-        let remainingCount = dailyLimit
-        try {
-          const limitData = await import('@/api/facebook/dailylimit').then((m) =>
-            m.DailyLimitApi.getRemainingCount(String(accountId), 'join_group')
-          )
-          remainingCount = limitData.data?.remaining || dailyLimit
-        } catch (e) {
-          console.warn(
-            `⚠️ 获取账号 ${accountInfo.fbAccount} 剩余加组次数失败，默认允许 ${dailyLimit} 次`
-          )
-        }
-
-        // 检查剩余次数
-        if (remainingCount <= 0) {
-          console.warn(
-            `⚠️ 账号 ${accountInfo.fbAccount} 今日加组次数已达上限(${dailyLimit}次)，跳过`
-          )
-          continue
-        }
-
-        // 计算该账号需要处理的群组索引范围
-        const groupsPerAccount = Math.ceil(totalGroups / accountsToUse)
-        const startIndex = i * groupsPerAccount
-        const endIndex = Math.min(startIndex + groupsPerAccount, totalGroups)
-
-        // 获取分配给该账号的群组（不超过剩余次数）
-        const maxGroupsToProcess = Math.min(remainingCount, endIndex - startIndex)
-        const assignedGroups = selectedGroups.value.slice(
-          startIndex,
-          startIndex + maxGroupsToProcess
-        )
-        if (assignedGroups.length === 0) continue
-
-        const cookie = accountInfo.cookie || null
-        const operationDetail = createdDetails.find(
-          (detail) => String(detail.accountId) === String(accountId)
-        )
-        if (!operationDetail?.id) {
-          console.warn(`⚠️ 未找到账号 ${accountInfo.fbAccount} 对应的任务明细ID，跳过启动`)
-          continue
-        }
-
-        try {
-          // 构造该账号的群组配置
-          const groupConfig = {
-            groups: assignedGroups.map((g) => ({
-              groupId: g.id,
-              groupName: g.groupName,
-              groupUrl: g.url
-            }))
-          }
-          const configJson = JSON.stringify(groupConfig)
-
-          const startUrl = assignedGroups[0]?.url || 'https://www.facebook.com'
-          const detailId = String(operationDetail.id)
-
-          startBrowserCollect(
-            detailId,
-            String(accountInfo.id), // 传数字ID字符串，不是fbAccount
-            cookie,
-            startUrl,
-            assignedGroups.length,
-            9, // 任务类型9：链接加组
-            configJson,
-            true // isOperation: 运营任务
-          )
-          startedAccounts.add(accountId)
-          console.log(
-            `🚀 启动链接加组任务: 任务ID=${taskId}, 账号=${accountInfo.fbAccount}, 分配群组=${assignedGroups.length}个[${startIndex + 1}-${startIndex + maxGroupsToProcess}]`
-          )
-        } catch (error) {
-          console.error(`启动账号 ${accountInfo.fbAccount} 的浏览器失败:`, error)
-        }
-      }
-
-      if (startedAccounts.size > 0) {
-        message.success(
-          `已启动 ${startedAccounts.size} 个账号的浏览器执行任务，共处理 ${totalGroups} 个群组`
-        )
-      } else {
-        console.warn('⚠️ 未找到有效的账号信息或所有账号已达每日加组上限')
-        message.warning('未启动浏览器：所有账号已达每日加组上限或无有效账号')
-      }
-    }
+    await createFbOperationTask(data)
+    message.success('任务创建成功，已加入账号串行队列')
 
     dialogVisible.value = false
     emit('success')

@@ -90,4 +90,13 @@ public class FbOperationTaskController {
         return success(true);
     }
 
+    @PostMapping("/detail-fail")
+    @Operation(summary = "标记运营明细失败")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")
+    public CommonResult<Boolean> markDetailFailed(@RequestParam("detailId") Long detailId,
+                                                  @RequestParam(value = "errorMsg", required = false) String errorMsg) {
+        operationTaskService.markDetailFailed(detailId, errorMsg);
+        return success(true);
+    }
+
 }

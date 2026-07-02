@@ -205,7 +205,12 @@ import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
 import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
-import { onCollectionComplete, closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
+import { onCollectionComplete, closeBrowser } from '@/utils/wpfBridge'
+import {
+  claimNextAiAgentDetail,
+  markAiAgentCollectFinished,
+  startAiAgentCollectDetail
+} from '@/utils/wpfAiAgentTaskPoller'
 import { Connection, Tools, Tickets } from '@element-plus/icons-vue'
 
 /** FB采集任务 - 左右布局 */
@@ -553,25 +558,11 @@ const continueNextCollectDetailOrClose = async (accountId?: string | number, cur
   if (!accountId) return
   const fbAccount = String(accountId)
   try {
-    const currentDetail = currentDetailId ? await FbCollectApi.getCollectDetail(String(currentDetailId)) : null
-    const currentTaskId = currentDetail?.taskId ? String(currentDetail.taskId) : undefined
-    const pendingDetails = await FbCollectApi.getPendingDetails(fbAccount, currentTaskId)
-    const nextDetail = Array.isArray(pendingDetails) ? pendingDetails[0] : null
-    if (nextDetail?.id && nextDetail?.searchUrl) {
-      const nextTask = await FbCollectApi.getFbCollect(String(nextDetail.taskId))
-      const configJson = nextTask?.taskType === 12 && nextDetail.sourceUserId
-        ? JSON.stringify({ sourceUserId: String(nextDetail.sourceUserId) })
-        : undefined
-      startBrowserCollect(
-        String(nextDetail.id),
-        fbAccount,
-        null,
-        nextDetail.searchUrl,
-        nextDetail.expectedCount || 1,
-        nextTask?.taskType || nextDetail.taskType || 1,
-        configJson
-      )
-      message.info(`账号 ${fbAccount} 继续执行当前任务的下一条采集明细`)
+    markAiAgentCollectFinished(fbAccount, currentDetailId)
+    const nextDetail = await claimNextAiAgentDetail()
+    if (nextDetail) {
+      startAiAgentCollectDetail(nextDetail)
+      message.info(`账号 ${fbAccount} 继续执行账号队列下一条任务`)
       return
     }
     closeBrowser(fbAccount)
@@ -585,6 +576,7 @@ const continueNextCollectDetailOrClose = async (accountId?: string | number, cur
 /** 初始化：监听采集完成事件并保存结果 */
 onMounted(() => {
   getList()
+  window.addEventListener('fb:collect:saved', getList)
 
   // 注册采集完成事件监听
   onCollectionComplete(async (data) => {
@@ -712,6 +704,10 @@ onMounted(() => {
       message.error('保存采集结果失败')
     }
   })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('fb:collect:saved', getList)
 })
 
 </script>

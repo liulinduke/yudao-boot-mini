@@ -130,11 +130,18 @@ export interface FbAiAgentDispatchDetail {
   taskId?: string | number
   detailId: string | number
   fbAccount: string
+  accountId?: string
   cookie?: string
-  searchUrl: string
+  searchUrl?: string
   sourceUserId?: string | number
   expectedCount?: number
   taskType?: number
+  sourceType?: 'collect' | 'dm' | 'operation'
+  targetUserId?: string
+  scriptContent?: string
+  minIntervalSeconds?: number
+  maxIntervalSeconds?: number
+  actionConfig?: string
 }
 
 export const FbAiAgentApi = {
@@ -196,10 +203,17 @@ export const FbAiAgentApi = {
     })
   },
 
-  claimPendingCollectDetails: async (limit: number) => {
+  claimPendingCollectDetails: async (limit: number, excludeAccounts?: string[]) => {
     return await request.get<FbAiAgentDispatchDetail[]>({
       url: '/facebook/fb-collect-detail/claim-pending',
-      params: { limit }
+      params: { limit, excludeAccounts: excludeAccounts?.join(',') }
+    })
+  },
+
+  claimNextCollectDetail: async (fbAccount: string, taskId: string | number) => {
+    return await request.get<FbAiAgentDispatchDetail>({
+      url: '/facebook/fb-collect-detail/claim-next',
+      params: { fbAccount, taskId }
     })
   },
 

@@ -69,7 +69,6 @@ namespace SocialMatrix.WpfHost.Windows
             _accountDetailIds[accountId] = detailId;
             CurrentDetailId = detailId;
             _dmTaskIds[accountId] = taskId;
-            _dmOperationParams[accountId] = (fbUserId, messageText);
             await SendDirectMessage(accountId, fbUserId, messageText, taskId, detailId);
         }
 
@@ -86,11 +85,18 @@ namespace SocialMatrix.WpfHost.Windows
                 return;
             }
 
+            if (!_dmSendingAccounts.Add(accountId))
+            {
+                const string runningMessage = "账号正在发送上一条私信";
+                System.Diagnostics.Debug.WriteLine($"⚠️ {runningMessage}: account={accountId}, detail={detailId}");
+                return;
+            }
+
             try
             {
                 System.Diagnostics.Debug.WriteLine($"📨 开始发送私信: 任务={taskId}, 明细={detailId}, 账号={accountId}, 目标={fbUserId}");
 
-                // 1. 确保已进入私信页面（兜底：防止运营任务未导航成功）
+                // 1. 确保已进入私信页面（公共主页也优先走 messages/t/{id}）。
                 var dmUrl = $"https://www.facebook.com/messages/t/{fbUserId}/";
                 string currentUrl = "";
                 RunOnBrowserUiThread(browser, () => currentUrl = browser.Address ?? "");
@@ -170,6 +176,10 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine($"❌ 私信发送异常: {ex.Message}");
                 OnCollectionError?.Invoke(accountId, $"私信发送异常: {ex.Message}");
                 NotifyDmResult(accountId, taskId, detailId, fbUserId, false, ex.Message);
+            }
+            finally
+            {
+                _dmSendingAccounts.Remove(accountId);
             }
         }
     }

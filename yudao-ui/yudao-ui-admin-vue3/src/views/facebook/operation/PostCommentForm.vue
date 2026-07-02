@@ -148,10 +148,8 @@ import { FbAccountApi } from '@/api/facebook/account'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import {
   createFbOperationTask,
-  getFbOperationTask,
   type FbOperationTaskSaveReqVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 
 defineOptions({ name: 'PostCommentForm' })
 
@@ -374,41 +372,8 @@ const submitForm = async () => {
       remark: formData.value.remark
     }
 
-    const result: any = await createFbOperationTask(submitData)
-    const taskId = result?.data?.id || result?.data || result
-    const detailResp: any = await getFbOperationTask(String(taskId))
-    const details = detailResp?.details || []
-
-    for (const detail of details) {
-      const accountInfo = accounts.value.find(
-        (item) => String(item.id) === String(detail.accountId)
-      )
-      if (!accountInfo) continue
-
-      const detailConfig =
-        typeof detail.actionConfig === 'string'
-          ? JSON.parse(detail.actionConfig || '{}')
-          : detail.actionConfig || {}
-
-      const runtimeConfig = JSON.stringify({
-        taskId: String(taskId),
-        postUrl: detail.postUrl,
-        actionConfig: detailConfig
-      })
-
-      startBrowserCollect(
-        String(detail.id),
-        String(detail.accountId),
-        accountInfo.cookie || null,
-        detail.postUrl,
-        Number(detail.expectedCount || 1),
-        TASK_TYPE,
-        runtimeConfig,
-        true
-      )
-    }
-
-    message.success('帖子评论任务创建成功')
+    await createFbOperationTask(submitData)
+    message.success('帖子评论任务已创建，已加入账号串行队列')
     dialogVisible.value = false
     emit('success')
   } finally {

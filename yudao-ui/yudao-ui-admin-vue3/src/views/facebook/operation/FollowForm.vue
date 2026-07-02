@@ -68,10 +68,8 @@ import { Dialog } from '@/components/Dialog'
 import { FbAccountApi } from '@/api/facebook/account'
 import {
   createFbOperationTask,
-  getFbOperationTask,
   type FbOperationTaskSaveReqVO
 } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 
 defineOptions({ name: 'FollowForm' })
 
@@ -183,54 +181,8 @@ const submitForm = async () => {
       remark: formData.value.remark
     }
 
-    const result = await createFbOperationTask(submitData)
-    const respData = result?.data || result
-    const taskId = respData?.id || respData
-    message.success('任务创建成功')
-
-    if (taskId) {
-      const createdTaskDetail = await getFbOperationTask(String(taskId))
-      const createdDetails = createdTaskDetail?.details || []
-      const startedAccounts = new Set<string>()
-
-      for (const detail of createdDetails) {
-        const accountId = String(detail.accountId || '')
-        if (!accountId || startedAccounts.has(accountId)) continue
-
-        const accountInfo = accounts.value.find((acc) => String(acc.id) === accountId)
-        if (!accountInfo) continue
-
-        const followConfig = JSON.stringify({
-          taskId: String(taskId),
-          detailId: String(detail.id),
-          targetUrl,
-          actionConfig: configData
-        })
-
-        try {
-          startBrowserCollect(
-            String(detail.id),
-            accountId,
-            accountInfo.cookie || null,
-            targetUrl,
-            1,
-            TASK_TYPE,
-            followConfig,
-            true
-          )
-          startedAccounts.add(accountId)
-          console.log(`🚀 启动刷粉: 任务=${taskId}, 明细=${detail.id}, 账号=${accountId}`)
-        } catch (error) {
-          console.error(`启动账号 ${accountId} 的刷粉任务失败:`, error)
-        }
-      }
-
-      if (startedAccounts.size > 0) {
-        message.success(`已启动 ${startedAccounts.size} 个账号执行刷粉任务`)
-      } else {
-        message.warning('任务已创建，但 WPF 未连接、账号无效或关注额度不足')
-      }
-    }
+    await createFbOperationTask(submitData)
+    message.success('刷粉任务已创建，已加入账号串行队列')
 
     dialogVisible.value = false
     emit('success')

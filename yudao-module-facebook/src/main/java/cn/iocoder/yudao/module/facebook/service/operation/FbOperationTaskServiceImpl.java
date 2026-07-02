@@ -24,6 +24,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbRepostResultMapper
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +88,8 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
     @Resource
     private FacebookDailyLimitService dailyLimitService;
+    @Resource
+    private FbAiAgentCollectQueueService accountTaskQueueService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -115,14 +118,36 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         Map<Long, String> accountIdToFbAccountMap = accountList.stream()
                 .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
 
+        List<JSONObject> addGroupAllocations = Integer.valueOf(9).equals(task.getTaskType())
+                ? allocateAddGroupTargets(createReqVO.getActionConfig(), normalizedAccountIds.size())
+                : Collections.emptyList();
+        List<JSONObject> groupPublishAllocations = Integer.valueOf(13).equals(task.getTaskType())
+                ? allocateGroupPublishTargets(createReqVO.getActionConfig(), normalizedAccountIds.size())
+                : Collections.emptyList();
+
         // 3. 为每个账号创建明细
         List<FbOperationTaskDetailDO> details = new ArrayList<>();
-        for (String accountIdStr : normalizedAccountIds) {
+        for (int i = 0; i < normalizedAccountIds.size(); i++) {
+            String accountIdStr = normalizedAccountIds.get(i);
             Long accountId = Long.valueOf(accountIdStr);
             String fbAccount = accountIdToFbAccountMap.get(accountId);
             if (StrUtil.isBlank(fbAccount)) {
                 FbAccountDO account = fbAccountMapper.selectById(accountId);
                 fbAccount = account != null ? StrUtil.nullToEmpty(account.getFbAccount()) : "";
+            }
+            JSONObject detailActionConfig = Integer.valueOf(9).equals(task.getTaskType()) && i < addGroupAllocations.size()
+                    ? addGroupAllocations.get(i)
+                    : Integer.valueOf(13).equals(task.getTaskType()) && i < groupPublishAllocations.size()
+                    ? groupPublishAllocations.get(i)
+                    : parseActionConfig(createReqVO.getActionConfig());
+            int detailExpectedCount = Integer.valueOf(9).equals(task.getTaskType())
+                    ? detailActionConfig.getJSONArray("groups") == null ? 0 : detailActionConfig.getJSONArray("groups").size()
+                    : Integer.valueOf(13).equals(task.getTaskType())
+                    ? calculateGroupPublishExpectedCount(detailActionConfig)
+                    : createReqVO.getExpectedCount();
+            if ((Integer.valueOf(9).equals(task.getTaskType()) || Integer.valueOf(13).equals(task.getTaskType()))
+                    && detailExpectedCount <= 0) {
+                continue;
             }
             FbOperationTaskDetailDO detail = new FbOperationTaskDetailDO();
             detail.setTaskId(task.getId());
@@ -131,15 +156,16 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setTargetUrls(createReqVO.getTargetUrls());
             detail.setTargetGroupIds(createReqVO.getTargetGroupIds());
             detail.setPostUrl(createReqVO.getPostUrl());
-            detail.setActionConfig(createReqVO.getActionConfig());
+            detail.setActionConfig(detailActionConfig.toString());
             detail.setCommentScript(createReqVO.getCommentScript());
             detail.setScriptLibraryId(createReqVO.getScriptLibraryId());
-            detail.setExpectedCount(createReqVO.getExpectedCount());
+            detail.setExpectedCount(detailExpectedCount);
             detail.setActualCount(0);
             detail.setStatus(0); // 待执行
             operationTaskDetailMapper.insert(detail);
             details.add(detail);
         }
+        pushOperationDetailsToAccountQueue(details);
 
         return task.getId();
     }
@@ -212,6 +238,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setActualCount(0);
             detail.setStatus(0);
             operationTaskDetailMapper.insert(detail);
+            pushOperationDetailToAccountQueue(detail);
         }
 
         return task.getId();
@@ -343,6 +370,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setActualCount(0);
             detail.setStatus(0);
             operationTaskDetailMapper.insert(detail);
+            pushOperationDetailToAccountQueue(detail);
         }
 
         return task.getId();
@@ -649,6 +677,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setErrorMsg(null);
         }
         operationTaskDetailMapper.updateById(detail);
+        releaseOperationAccountRunning(detail);
 
         // 更新主任务的统计信息
         updateTaskStatistics(detail.getTaskId());
@@ -735,8 +764,27 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setStartTime(LocalDateTime.now());
         }
         operationTaskDetailMapper.updateById(detail);
+        releaseOperationAccountRunning(detail);
 
         // 更新主任务的统计信息
+        updateTaskStatistics(detail.getTaskId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markDetailFailed(Long detailId, String errorMsg) {
+        if (detailId == null) {
+            return;
+        }
+        FbOperationTaskDetailDO detail = operationTaskDetailMapper.selectById(detailId);
+        if (detail == null || Integer.valueOf(2).equals(detail.getStatus()) || Integer.valueOf(3).equals(detail.getStatus())) {
+            return;
+        }
+        detail.setStatus(3);
+        detail.setErrorMsg(StrUtil.blankToDefault(errorMsg, "运营执行超时"));
+        detail.setEndTime(LocalDateTime.now());
+        operationTaskDetailMapper.updateById(detail);
+        releaseOperationAccountRunning(detail);
         updateTaskStatistics(detail.getTaskId());
     }
 
@@ -872,6 +920,111 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             task.setEndTime(LocalDateTime.now());
         }
         operationTaskMapper.updateById(task);
+    }
+
+    private void pushOperationDetailsToAccountQueue(List<FbOperationTaskDetailDO> details) {
+        if (CollUtil.isEmpty(details)) {
+            return;
+        }
+        details.forEach(this::pushOperationDetailToAccountQueue);
+    }
+
+    private void pushOperationDetailToAccountQueue(FbOperationTaskDetailDO detail) {
+        if (detail == null || detail.getId() == null) {
+            return;
+        }
+        String fbAccount = StrUtil.blankToDefault(detail.getFbAccount(), resolveFbAccount(detail.getAccountId()));
+        if (StrUtil.isBlank(fbAccount)) {
+            return;
+        }
+        accountTaskQueueService.push("operation", detail.getId(), fbAccount);
+    }
+
+    private void releaseOperationAccountRunning(FbOperationTaskDetailDO detail) {
+        if (detail == null) {
+            return;
+        }
+        String fbAccount = StrUtil.blankToDefault(detail.getFbAccount(), resolveFbAccount(detail.getAccountId()));
+        if (StrUtil.isNotBlank(fbAccount)) {
+            accountTaskQueueService.releaseRunning(fbAccount);
+        }
+    }
+
+    private List<JSONObject> allocateAddGroupTargets(String rawConfig, int accountCount) {
+        if (accountCount <= 0) {
+            return Collections.emptyList();
+        }
+        JSONObject config = parseActionConfig(rawConfig);
+        JSONArray selectedGroups = config.getJSONArray("selectedGroups");
+        if (selectedGroups == null || selectedGroups.isEmpty()) {
+            selectedGroups = config.getJSONArray("groups");
+        }
+        if (selectedGroups == null || selectedGroups.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int usedAccountCount = Math.min(accountCount, selectedGroups.size());
+        int groupsPerAccount = (int) Math.ceil(selectedGroups.size() * 1.0 / usedAccountCount);
+        List<JSONObject> result = new ArrayList<>();
+        for (int i = 0; i < usedAccountCount; i++) {
+            int start = i * groupsPerAccount;
+            int end = Math.min(start + groupsPerAccount, selectedGroups.size());
+            JSONArray groups = JSONUtil.createArray();
+            for (int index = start; index < end; index++) {
+                Object rawGroup = selectedGroups.get(index);
+                JSONObject group = rawGroup instanceof JSONObject
+                        ? (JSONObject) rawGroup
+                        : JSONUtil.parseObj(rawGroup);
+                JSONObject normalized = JSONUtil.createObj();
+                normalized.set("groupId", StrUtil.blankToDefault(group.getStr("groupId"), group.getStr("id")));
+                normalized.set("groupName", StrUtil.blankToDefault(group.getStr("groupName"), group.getStr("name")));
+                normalized.set("groupUrl", StrUtil.blankToDefault(group.getStr("groupUrl"), group.getStr("url")));
+                groups.add(normalized);
+            }
+            JSONObject detailConfig = JSONUtil.createObj();
+            detailConfig.set("groups", groups);
+            result.add(detailConfig);
+        }
+        return result;
+    }
+
+    private List<JSONObject> allocateGroupPublishTargets(String rawConfig, int accountCount) {
+        if (accountCount <= 0) {
+            return Collections.emptyList();
+        }
+        JSONObject config = parseActionConfig(rawConfig);
+        JSONArray joinedGroups = config.getJSONArray("selectedGroups");
+        JSONArray unjoinedGroups = config.getJSONArray("selectedUnjoinedGroups");
+        JSONArray targets = joinedGroups != null && !joinedGroups.isEmpty() ? joinedGroups : unjoinedGroups;
+        String targetField = joinedGroups != null && !joinedGroups.isEmpty() ? "selectedGroups" : "selectedUnjoinedGroups";
+        if (targets == null || targets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int usedAccountCount = Math.min(accountCount, targets.size());
+        int groupsPerAccount = (int) Math.ceil(targets.size() * 1.0 / usedAccountCount);
+        List<JSONObject> result = new ArrayList<>();
+        for (int i = 0; i < usedAccountCount; i++) {
+            int start = i * groupsPerAccount;
+            int end = Math.min(start + groupsPerAccount, targets.size());
+            JSONObject detailConfig = JSONUtil.parseObj(config.toString());
+            JSONArray groups = JSONUtil.createArray();
+            for (int index = start; index < end; index++) {
+                groups.add(targets.get(index));
+            }
+            detailConfig.set("selectedGroups", JSONUtil.createArray());
+            detailConfig.set("selectedUnjoinedGroups", JSONUtil.createArray());
+            detailConfig.set(targetField, groups);
+            result.add(detailConfig);
+        }
+        return result;
+    }
+
+    private int calculateGroupPublishExpectedCount(JSONObject detailConfig) {
+        JSONArray joinedGroups = detailConfig.getJSONArray("selectedGroups");
+        if (joinedGroups != null && !joinedGroups.isEmpty()) {
+            return joinedGroups.size();
+        }
+        JSONArray unjoinedGroups = detailConfig.getJSONArray("selectedUnjoinedGroups");
+        return unjoinedGroups == null ? 0 : unjoinedGroups.size();
     }
 
     private List<String> normalizeAccountIds(List<String> accountIds) {

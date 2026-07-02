@@ -1,9 +1,19 @@
 import { FbAiAgentApi, type FbAiAgentDispatchDetail } from '@/api/facebook/aiagent'
+import { FbCollectApi } from '@/api/facebook/collect'
+import { DmTaskApi } from '@/api/facebook/dmtask'
+import { markOperationDetailFailed } from '@/api/facebook/operation'
 import { startBrowserCollect } from '@/utils/wpfBridge'
 
 let timer: number | undefined
 let polling = false
 const claimedDetailIds = new Set<string>()
+const runningAccounts = new Set<string>()
+const detailTimeouts = new Map<string, number>()
+const finishedDetailIds = new Set<string>()
+const queuedDetailSources = new Map<string, string>()
+const detailRunningAccounts = new Map<string, string>()
+const DETAIL_TIMEOUT_MS = 3 * 60 * 1000
+const FINISHED_DETAIL_KEEP_MS = 10 * 60 * 1000
 
 const getBridge = () => window.chrome?.webview?.hostObjects?.sync?.wpfBridge
 
@@ -20,22 +30,244 @@ const getAvailableSlots = () => {
   return 1
 }
 
-export const startAiAgentCollectDetail = (detail: FbAiAgentDispatchDetail) => {
-  if (!detail.detailId || !detail.fbAccount || !detail.searchUrl) return
-  claimedDetailIds.add(String(detail.detailId))
-  startBrowserCollect(
-    String(detail.detailId),
-    detail.fbAccount,
-    detail.cookie || null,
-    detail.searchUrl,
-    detail.expectedCount || 1,
-    detail.taskType || 1,
-    detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined
-  )
+export const startAiAgentCollectDetail = (
+  detail: FbAiAgentDispatchDetail,
+  options: { force?: boolean } = {}
+) => {
+  if (!detail.detailId || !detail.fbAccount) return false
+  const account = String(detail.fbAccount)
+  const browserAccount = detail.sourceType === 'operation'
+    ? String(detail.accountId || detail.fbAccount)
+    : account
+  if (!options.force && runningAccounts.has(account)) return false
+  const detailId = String(detail.detailId)
+  claimedDetailIds.add(detailId)
+  runningAccounts.add(account)
+  detailRunningAccounts.set(detailId, account)
+  queuedDetailSources.set(detailId, detail.sourceType || 'collect')
+  try {
+    if (detail.sourceType === 'dm') {
+      const bridge = getBridge()
+      if (!bridge?.StartDmTask || !detail.targetUserId || !detail.scriptContent) {
+        runningAccounts.delete(account)
+        claimedDetailIds.delete(detailId)
+        detailRunningAccounts.delete(detailId)
+        queuedDetailSources.delete(detailId)
+        return false
+      }
+      bridge.StartDmTask(
+        String(detail.taskId || ''),
+        String(detail.detailId),
+        account,
+        detail.cookie || '',
+        detail.targetUserId,
+        detail.scriptContent
+      )
+      registerQueuedDetailTimeout(account, detail.detailId, 'dm')
+      return true
+    }
+    if (detail.sourceType === 'operation') {
+      const startUrl = detail.searchUrl || detail.actionConfig
+        ? resolveOperationStartUrl(detail)
+        : ''
+      if (!startUrl) {
+        runningAccounts.delete(account)
+        claimedDetailIds.delete(detailId)
+        detailRunningAccounts.delete(detailId)
+        queuedDetailSources.delete(detailId)
+        return false
+      }
+      if (Number(detail.taskType) === 13) {
+        const bridge = getBridge()
+        if (!bridge?.StartGroupPublishTask) {
+          runningAccounts.delete(account)
+          claimedDetailIds.delete(detailId)
+          detailRunningAccounts.delete(detailId)
+          queuedDetailSources.delete(detailId)
+          return false
+        }
+        bridge.StartGroupPublishTask(
+          String(detail.taskId || ''),
+          browserAccount,
+          detail.cookie || '',
+          detail.actionConfig || '{}',
+          String(detail.detailId)
+        )
+        registerQueuedDetailTimeout(account, detail.detailId, 'operation')
+        return true
+      }
+      startBrowserCollect(
+        String(detail.detailId),
+        browserAccount,
+        detail.cookie || null,
+        startUrl,
+        detail.expectedCount || 1,
+        detail.taskType || 10,
+        detail.actionConfig,
+        true
+      )
+      registerQueuedDetailTimeout(account, detail.detailId, 'operation')
+      return true
+    }
+    if (!detail.searchUrl) {
+      runningAccounts.delete(account)
+      claimedDetailIds.delete(detailId)
+      detailRunningAccounts.delete(detailId)
+      queuedDetailSources.delete(detailId)
+      return false
+    }
+    startBrowserCollect(
+      String(detail.detailId),
+      detail.fbAccount,
+      detail.cookie || null,
+      detail.searchUrl,
+      detail.expectedCount || 1,
+      detail.taskType || 1,
+      detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined
+    )
+    registerQueuedDetailTimeout(account, detail.detailId, 'collect')
+    return true
+  } catch (error) {
+    runningAccounts.delete(account)
+    claimedDetailIds.delete(detailId)
+    detailRunningAccounts.delete(detailId)
+    queuedDetailSources.delete(detailId)
+    throw error
+  }
+}
+
+function resolveOperationStartUrl(detail: FbAiAgentDispatchDetail) {
+  if (detail.searchUrl) {
+    return detail.searchUrl
+  }
+  if (!detail.actionConfig) {
+    return ''
+  }
+  try {
+    const config = JSON.parse(detail.actionConfig)
+    const urls =
+      config.postUrls ||
+      config.groups ||
+      config.selectedGroups ||
+      config.selectedUnjoinedGroups ||
+      config.actionConfig?.groups
+    if (Array.isArray(urls) && urls.length > 0) {
+      return urls[0]?.postUrl || urls[0]?.groupUrl || urls[0]?.url || String(urls[0] || '')
+    }
+    return config.postUrl || config.targetUrl || config.actionConfig?.postUrl || config.actionConfig?.targetUrl || ''
+  } catch {
+    return ''
+  }
 }
 
 export const isAiAgentClaimedDetail = (detailId?: string | number) => {
   return !!detailId && claimedDetailIds.has(String(detailId))
+}
+
+export const markAiAgentCollectFinished = (accountId?: string | number, detailId?: string | number) => {
+  if (detailId) {
+    const value = String(detailId)
+    const runningAccount = detailRunningAccounts.get(value)
+    if (runningAccount) {
+      runningAccounts.delete(runningAccount)
+    }
+    claimedDetailIds.delete(value)
+    detailRunningAccounts.delete(value)
+    queuedDetailSources.delete(value)
+    return
+  }
+  if (accountId) {
+    runningAccounts.delete(String(accountId))
+  }
+}
+
+export const beginQueuedDmResult = (detailId?: string | number) => {
+  const value = String(detailId || '')
+  if (!value || finishedDetailIds.has(value)) {
+    return false
+  }
+  rememberFinishedDetail(value)
+  clearQueuedDetailTimeout(value)
+  return true
+}
+
+export const beginQueuedDetailResult = (detailId?: string | number) => {
+  const value = String(detailId || '')
+  if (!value || finishedDetailIds.has(value)) {
+    return false
+  }
+  rememberFinishedDetail(value)
+  clearQueuedDetailTimeout(value)
+  return true
+}
+
+export const finishQueuedAccountTaskAndStartNext = async (
+  accountId?: string | number,
+  detailId?: string | number
+) => {
+  markAiAgentCollectFinished(accountId, detailId)
+  const nextDetail = await claimNextAiAgentDetail()
+  if (nextDetail) {
+    startAiAgentCollectDetail(nextDetail)
+  }
+}
+
+function registerQueuedDetailTimeout(accountId: string, detailId: string | number, sourceType: string) {
+  const value = String(detailId)
+  clearQueuedDetailTimeout(value)
+  queuedDetailSources.set(value, sourceType)
+  const timeout = window.setTimeout(() => {
+    void timeoutQueuedDetail(accountId, value, sourceType)
+  }, DETAIL_TIMEOUT_MS)
+  detailTimeouts.set(value, timeout)
+}
+
+function clearQueuedDetailTimeout(detailId: string | number) {
+  const value = String(detailId)
+  const timeout = detailTimeouts.get(value)
+  if (timeout) {
+    window.clearTimeout(timeout)
+    detailTimeouts.delete(value)
+  }
+}
+
+async function timeoutQueuedDetail(accountId: string, detailId: string, sourceType: string) {
+  if (finishedDetailIds.has(detailId)) {
+    return
+  }
+  rememberFinishedDetail(detailId)
+  detailTimeouts.delete(detailId)
+  try {
+    if (sourceType === 'dm') {
+      await DmTaskApi.reportDetail({
+        detailId,
+        status: 2,
+        errorMsg: '私信发送超过3分钟未回传'
+      })
+      window.dispatchEvent(new CustomEvent('fb:dm:result:saved', { detail: { detailId } }))
+    } else if (sourceType === 'operation') {
+      await markOperationDetailFailed({
+        detailId,
+        errorMsg: '运营执行超过3分钟未回传'
+      })
+      window.dispatchEvent(new CustomEvent('fb:repost:result:saved', { detail: { detailId } }))
+    } else {
+      await FbCollectApi.markDetailFailed({
+        detailId,
+        errorMessage: '采集执行超过3分钟未回传'
+      })
+      window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
+    }
+  } catch (error) {
+    console.error('队列任务超时失败上报失败', error)
+  } finally {
+    await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+  }
+}
+
+function rememberFinishedDetail(detailId: string) {
+  finishedDetailIds.add(detailId)
+  window.setTimeout(() => finishedDetailIds.delete(detailId), FINISHED_DETAIL_KEEP_MS)
 }
 
 export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) => {
@@ -45,9 +277,23 @@ export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) =>
 
   polling = true
   try {
-    const details = await FbAiAgentApi.claimPendingCollectDetails(Math.min(availableSlots, 10))
-    ;(details || []).forEach(startAiAgentCollectDetail)
-    return details?.length || 0
+    const details = await FbAiAgentApi.claimPendingCollectDetails(
+      Math.min(availableSlots, 10),
+      Array.from(runningAccounts)
+    )
+    let started = 0
+    const startedAccounts = new Set<string>()
+    ;(details || []).forEach((detail) => {
+      const account = String(detail.fbAccount || '')
+      if (!account || runningAccounts.has(account) || startedAccounts.has(account)) {
+        return
+      }
+      if (startAiAgentCollectDetail(detail)) {
+        startedAccounts.add(account)
+        started++
+      }
+    })
+    return started
   } catch (error) {
     console.warn('领取AI获客采集明细失败', error)
     return 0
@@ -56,12 +302,22 @@ export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) =>
   }
 }
 
+export const claimNextAiAgentDetailInTask = async (accountId?: string | number, taskId?: string | number) => {
+  if (!accountId || !taskId || !getBridge()) return null
+  try {
+    return await FbAiAgentApi.claimNextCollectDetail(String(accountId), String(taskId))
+  } catch (error) {
+    console.warn('领取AI获客当前任务下一条采集明细失败', error)
+    return null
+  }
+}
+
 export const claimNextAiAgentDetail = async () => {
   if (polling || !getBridge()) return null
 
   polling = true
   try {
-    const details = await FbAiAgentApi.claimPendingCollectDetails(1)
+    const details = await FbAiAgentApi.claimPendingCollectDetails(1, Array.from(runningAccounts))
     const nextDetail = details?.[0]
     return nextDetail || null
   } catch (error) {
