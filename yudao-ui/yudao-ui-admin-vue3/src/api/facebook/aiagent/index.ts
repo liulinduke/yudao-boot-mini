@@ -49,6 +49,7 @@ export interface FbAiAgentDiscoveryLog {
   finalLeadCount?: number
   collectTaskId?: string | number
   createTime?: string | Dayjs
+  updateTime?: string | Dayjs
 }
 
 export interface FbAiAgentRunLog {
@@ -200,6 +201,13 @@ export const FbAiAgentApi = {
   dispatchOnce: async () => {
     return await request.post<{ dispatched: boolean; message: string; details?: FbAiAgentDispatchDetail[] }>({
       url: '/facebook/ai-agent/dispatch-once'
+    })
+  },
+
+  executeNow: async (ids: Array<string | number>) => {
+    return await request.post<{ dispatched: boolean; message: string; details?: FbAiAgentDispatchDetail[] }>({
+      url: '/facebook/ai-agent/execute-now',
+      data: { ids }
     })
   },
 

@@ -10,6 +10,8 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUser
 
 import jakarta.validation.Valid;
 
+import java.util.List;
+
 public interface FbAiAgentService {
 
     Long saveConfig(@Valid FbAiAgentConfigSaveReqVO saveReqVO);
@@ -43,6 +45,8 @@ public interface FbAiAgentService {
     void saveLeadAnalysis(@Valid FbAiLeadAnalysisSaveReqVO saveReqVO);
 
     FbAiAgentDispatchRespVO dispatchOnce();
+
+    FbAiAgentDispatchRespVO executeNow(List<Long> ids);
 
     FbAiAgentDispatchRespVO dispatchScheduled();
 

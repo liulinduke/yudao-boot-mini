@@ -296,6 +296,73 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public FbAiAgentDispatchRespVO executeNow(List<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            return new FbAiAgentDispatchRespVO(false, "请选择要执行的Agent");
+        }
+        List<Long> agentIds = ids.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        if (CollUtil.isEmpty(agentIds)) {
+            return new FbAiAgentDispatchRespVO(false, "请选择要执行的Agent");
+        }
+
+        List<FbAiAgentConfigDO> configs = agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
+                .in(FbAiAgentConfigDO::getId, agentIds)
+                .orderByAsc(FbAiAgentConfigDO::getId));
+        if (CollUtil.isEmpty(configs)) {
+            return new FbAiAgentDispatchRespVO(false, "未找到可执行的Agent");
+        }
+
+        AgentDispatchStats stats = new AgentDispatchStats();
+        List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails = new ArrayList<>();
+        List<String> skippedReasons = new ArrayList<>();
+
+        for (FbAiAgentConfigDO config : configs) {
+            if (!Objects.equals(config.getStatus(), 1)) {
+                skippedReasons.add(config.getAgentName() + "：不是运行中状态");
+                continue;
+            }
+            if (!AGENT_TYPE_PAGE_LEAD.equals(config.getAgentType())) {
+                skippedReasons.add(config.getAgentName() + "：不是AI主页获客Agent");
+                continue;
+            }
+
+            List<String> accountIds = parseCsvStringList(config.getAccountIds());
+            List<String> runKeywords = pickRunKeywords(config);
+            if (CollUtil.isEmpty(runKeywords)) {
+                skippedReasons.add(config.getAgentName() + "：关键词为空");
+                continue;
+            }
+            if (CollUtil.isEmpty(accountIds)) {
+                skippedReasons.add(config.getAgentName() + "：账号池为空");
+                continue;
+            }
+
+            addRunLog(config.getId(), "立即执行",
+                    String.format("关键词%s个，目标%s个", runKeywords.size(), resolveTargetCustomerCount(config)), "info");
+            int created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails, true);
+            stats.executedAgents++;
+            stats.createdCollectTasks += created;
+            advanceKeywordCursor(config, runKeywords.size());
+            markAgentExecuted(config.getId());
+        }
+
+        if (stats.executedAgents == 0) {
+            String message = CollUtil.isEmpty(skippedReasons)
+                    ? "暂无可立即执行的Agent"
+                    : "暂无可立即执行的Agent，原因：" + String.join("；", skippedReasons);
+            return new FbAiAgentDispatchRespVO(false, message);
+        }
+
+        String message = String.format("立即执行完成：Agent%s个，新建主页采集%s个%s",
+                stats.executedAgents, stats.createdCollectTasks,
+                CollUtil.isEmpty(skippedReasons) ? "" : "，跳过：" + String.join("；", skippedReasons));
+        FbAiAgentDispatchRespVO respVO = new FbAiAgentDispatchRespVO(true, message);
+        respVO.setDetails(launchDetails);
+        return respVO;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public FbAiAgentDispatchRespVO dispatchScheduled() {
         return dispatchInternal(true, true);
     }
@@ -1262,7 +1329,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             addRunLog(agentConfigId, "触达跳过", reason, qualifiedUsers > 0 ? "warning" : "info");
             return;
         }
-        addRunLog(agentConfigId, "触达完成", String.format("排队%s条，生成私信任务%s个，私信明细%s条，评论任务%s个",
+        String title = activatedTouches.totalDetails() > 0 ? "触达转执行" : "触达排队";
+        addRunLog(agentConfigId, title, String.format("排队%s条，生成私信任务%s个，私信明细%s条，评论任务%s个",
                 queuedTouches, activatedTouches.dmTaskCount, activatedTouches.dmDetailCount, activatedTouches.commentTaskCount),
                 activatedTouches.failed > 0 ? "warning" : "success");
     }
@@ -1944,6 +2012,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(logs)) {
             return;
         }
+        FbAiAgentConfigDO config = agentConfigMapper.selectById(agentConfigId);
+        int threshold = config == null ? 95 : resolveTouchScoreThreshold(config);
         for (FbAiAgentDiscoveryLogDO logDO : logs) {
             if (logDO.getCollectTaskId() == null) {
                 continue;
@@ -1955,11 +2025,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             updateObj.setDiscoveredCount(users.size());
             updateObj.setPageCollectCount(users.size());
             long analyzed = users.stream().filter(item -> item.getLastAiAnalyzeTime() != null).count();
-            long highIntent = users.stream().filter(item -> StrUtil.equals(item.getIntentLevel(), "high")).count();
+            long qualified = users.stream()
+                    .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
+                    .count();
             updateObj.setAiAnalyzeCount((int) analyzed);
-            updateObj.setHighIntentCount((int) highIntent);
-            updateObj.setFilteredCount((int) Math.max(users.size() - highIntent, 0));
-            updateObj.setFinalLeadCount((int) highIntent);
+            updateObj.setHighIntentCount((int) qualified);
+            updateObj.setFilteredCount((int) Math.max(users.size() - qualified, 0));
+            updateObj.setFinalLeadCount((int) qualified);
             discoveryLogMapper.updateById(updateObj);
         }
     }

@@ -33,8 +33,8 @@
               <div class="panel-title">Agent列表</div>
               <div class="panel-subtitle">主页获客 Agent 的创建、运行、暂停与查看</div>
             </div>
-            <el-button :loading="dispatching" @click="handleDispatch">
-              <Icon icon="ep:video-play" class="mr-5px" /> 触发一次
+            <el-button :loading="dispatching" :disabled="!selectedAgentIds.length" @click="handleDispatch">
+              <Icon icon="ep:video-play" class="mr-5px" /> 立即执行选中
             </el-button>
           </div>
 
@@ -62,7 +62,13 @@
             </el-form-item>
           </el-form>
 
-          <el-table v-loading="loading" :data="list" :show-overflow-tooltip="true">
+          <el-table
+            v-loading="loading"
+            :data="list"
+            :show-overflow-tooltip="true"
+            @selection-change="handleSelectionChange"
+          >
+            <el-table-column type="selection" width="45" />
             <el-table-column label="Agent名称" prop="agentName" min-width="180" />
             <el-table-column label="类型" width="130">
               <template #default>AI主页获客</template>
@@ -270,8 +276,20 @@
               <span>秒</span>
             </div>
           </el-form-item>
-          <el-form-item label="触达评分阈值" prop="touchScoreThreshold">
-            <el-input-number v-model="wizardForm.touchScoreThreshold" :min="0" :max="100" />
+          <el-form-item prop="touchScoreThreshold">
+            <template #label>
+              <el-tooltip :content="intentLevelTip" placement="top">
+                <span class="form-label-tip">触达意向等级</span>
+              </el-tooltip>
+            </template>
+            <el-select v-model="wizardForm.touchScoreThreshold" class="!w-220px">
+              <el-option
+                v-for="item in intentLevelOptions"
+                :key="item.value"
+                :label="item.thresholdLabel"
+                :value="item.value"
+              />
+            </el-select>
           </el-form-item>
         </template>
 
@@ -312,18 +330,18 @@
           <el-tab-pane label="客户发现" name="discovery">
             <el-table v-loading="discoveryLoading" :data="discoveryList" :show-overflow-tooltip="true">
               <el-table-column label="发现时间" width="170">
-                <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
+                <template #default="scope">{{ formatDateTime(scope.row.createTime || scope.row.updateTime) }}</template>
               </el-table-column>
               <el-table-column label="关键词" prop="keyword" min-width="150" />
               <el-table-column label="发现来源" width="100">
                 <template #default>主页</template>
               </el-table-column>
               <el-table-column label="发现客户数" prop="discoveredCount" width="110" />
-              <el-table-column label="高意向客户数" prop="highIntentCount" width="120" />
+              <el-table-column label="达标客户数" prop="highIntentCount" width="110" />
               <el-table-column label="主页采集" prop="pageCollectCount" width="100" />
               <el-table-column label="AI分析" prop="aiAnalyzeCount" width="90" />
-              <el-table-column label="过滤" prop="filteredCount" width="90" />
-              <el-table-column label="最终线索" prop="finalLeadCount" width="100" />
+              <el-table-column label="未达阈值" prop="filteredCount" width="100" />
+              <el-table-column label="可触达线索" prop="finalLeadCount" width="110" />
             </el-table>
           </el-tab-pane>
 
@@ -334,7 +352,20 @@
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
               </el-table-column>
-              <el-table-column label="评分" prop="productRelevanceScore" width="90" />
+              <el-table-column width="110">
+                <template #header>
+                  <el-tooltip :content="intentLevelTip" placement="top">
+                    <span class="table-header-tip">意向等级</span>
+                  </el-tooltip>
+                </template>
+                <template #default="scope">
+                  <el-tooltip :content="`内部评分：${scope.row.productRelevanceScore ?? '-'}；${getIntentLevelDesc(scope.row.productRelevanceScore)}`" placement="top">
+                    <el-tag :type="getIntentLevelTagType(scope.row.productRelevanceScore)">
+                      {{ getIntentLevelLabel(scope.row.productRelevanceScore) }}
+                    </el-tag>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
               <el-table-column label="联系方式" width="200">
                 <template #default="scope">
                   {{ scope.row.whatsapp || scope.row.email || scope.row.phonenumber || '-' }}
@@ -370,14 +401,15 @@
               </el-table-column>
               <el-table-column label="发送内容" prop="generatedContent" min-width="240" />
               <el-table-column label="时间" width="160">
-                <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
+                <template #default="scope">{{ formatTouchTime(scope.row) }}</template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
 
           <el-tab-pane label="运行日志" name="logs">
             <div v-loading="runLogLoading" class="timeline-box">
-              <div v-for="item in runLogList" :key="item.id" class="timeline-item" :class="`is-${item.logLevel || 'info'}`">
+              <div v-for="item in runLogList" :key="item.id" class="timeline-item">
+                <span class="timeline-time">{{ formatRunLogTime(item) }}</span>
                 <span class="timeline-text">{{ formatRunLogLine(item) }}</span>
               </div>
             </div>
@@ -427,6 +459,7 @@ const list = ref<FbAiAgentConfig[]>([])
 const total = ref(0)
 const accountList = ref<FbAccount[]>([])
 const detailAgent = ref<FbAiAgentConfig>()
+const selectedAgentIds = ref<Array<string | number>>([])
 const discoveryList = ref<FbAiAgentDiscoveryLog[]>([])
 const leadList = ref<any[]>([])
 const touchList = ref<FbAiTouchRecord[]>([])
@@ -492,7 +525,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
   autoDmEnabled: true,
   dailyCommentLimit: 50,
   dailyDmLimit: 30,
-  touchScoreThreshold: 90,
+  touchScoreThreshold: 85,
   replyDelayRange: '[180,600]',
   personaType: 'professional_sales',
   personaConfig: '',
@@ -513,6 +546,15 @@ const wizardRules = {
   agentName: [{ required: true, message: '请输入Agent名称', trigger: 'blur' }],
   accountIds: [{ required: true, message: '请选择账号池', trigger: 'change' }]
 }
+
+const intentLevelOptions = [
+  { level: 'A', value: 95, thresholdLabel: 'A及以上（高意向）', desc: '高意向，建议立即联系' },
+  { level: 'B', value: 85, thresholdLabel: 'B及以上（推荐联系）', desc: '推荐联系' },
+  { level: 'C', value: 70, thresholdLabel: 'C及以上（普通线索）', desc: '普通线索，可关注' },
+  { level: 'D', value: 50, thresholdLabel: 'D及以上（全部线索）', desc: '无价值，不建议联系' }
+]
+
+const intentLevelTip = 'AI返回A/B/C/D，程序映射为 A=95、B=85、C=70、D=50。触达等级选B，表示触达A+B；选C，表示触达A+B+C。'
 
 const parseJsonArray = <T,>(value?: string, fallback: T[] = []) => {
   if (!value) return fallback
@@ -536,9 +578,22 @@ const formatDateTime = (value?: string | Date) => {
 }
 
 const formatRunLogLine = (item: FbAiAgentRunLog) => {
-  const time = formatDateTime(item.createTime)
   const title = item.title || '-'
-  return item.content ? `${time} ${title}：${item.content}` : `${time} ${title}`
+  return item.content ? `${title}：${item.content}` : title
+}
+
+const formatRunLogTime = (item: FbAiAgentRunLog) => {
+  return item.createTime ? formatDateTime(item.createTime) : '-'
+}
+
+const formatTouchTime = (item: FbAiTouchRecord) => {
+  if (item.sentTime) {
+    return `发送 ${formatDateTime(item.sentTime as string)}`
+  }
+  if (item.scheduledTime) {
+    return `计划 ${formatDateTime(item.scheduledTime as string)}`
+  }
+  return formatDateTime(item.createTime as string)
 }
 
 const getStatusLabel = (status?: number) => {
@@ -605,6 +660,39 @@ const getLeadTypeLabel = (value?: string) => {
   return value ? map[value] || value : '-'
 }
 
+const normalizeIntentThreshold = (score?: number, defaultValue = 85) => {
+  const value = Number(score ?? defaultValue)
+  if (value >= 95) return 95
+  if (value >= 85) return 85
+  if (value >= 70) return 70
+  return 50
+}
+
+const getIntentLevelOption = (score?: number) => {
+  const value = normalizeIntentThreshold(score, 50)
+  return intentLevelOptions.find((item) => item.value === value) || intentLevelOptions[1]
+}
+
+const getIntentLevelLabel = (score?: number) => {
+  return getIntentLevelOption(score).level
+}
+
+const getIntentLevelDesc = (score?: number) => {
+  const option = getIntentLevelOption(score)
+  return `${option.level}：${option.desc}`
+}
+
+const getIntentLevelTagType = (score?: number) => {
+  const level = getIntentLevelLabel(score)
+  const map: Record<string, 'danger' | 'warning' | 'success' | 'info'> = {
+    A: 'danger',
+    B: 'warning',
+    C: 'success',
+    D: 'info'
+  }
+  return map[level] || 'info'
+}
+
 const syncWizard = (config?: FbAiAgentConfig) => {
   Object.assign(wizardForm, {
     id: undefined,
@@ -627,13 +715,14 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     autoDmEnabled: true,
     dailyCommentLimit: 50,
     dailyDmLimit: 30,
-    touchScoreThreshold: 90,
+    touchScoreThreshold: 85,
     replyDelayRange: '[180,600]',
     personaType: 'professional_sales',
     personaConfig: '',
     status: 0,
     ...config
   })
+  wizardForm.touchScoreThreshold = normalizeIntentThreshold(wizardForm.touchScoreThreshold)
   wizardState.accountIdList = (wizardForm.accountIds || '')
     .split(',')
     .map((item) => item.trim())
@@ -656,6 +745,7 @@ const buildSubmitData = (): FbAiAgentConfig => {
     targetCountries: JSON.stringify(wizardState.targetCountryList),
     seedKeywords: JSON.stringify(seedKeywords),
     keywordPool: JSON.stringify(wizardState.keywordPoolList),
+    touchScoreThreshold: normalizeIntentThreshold(wizardForm.touchScoreThreshold),
     replyDelayRange: JSON.stringify([wizardState.replyDelayMin, wizardState.replyDelayMax])
   }
 }
@@ -704,6 +794,8 @@ const getList = async () => {
     const data = await FbAiAgentApi.getConfigPage(queryParams)
     list.value = data.list || []
     total.value = data.total || 0
+    const currentIds = new Set(list.value.map((item) => item.id).filter(Boolean).map(String))
+    selectedAgentIds.value = selectedAgentIds.value.filter((id) => currentIds.has(String(id)))
   } finally {
     loading.value = false
   }
@@ -712,6 +804,10 @@ const getList = async () => {
 const handleQuery = () => {
   queryParams.pageNo = 1
   getList()
+}
+
+const handleSelectionChange = (rows: FbAiAgentConfig[]) => {
+  selectedAgentIds.value = rows.map((row) => row.id).filter(Boolean) as Array<string | number>
 }
 
 const openCreateWizard = (item: any) => {
@@ -751,9 +847,13 @@ const handleDelete = async (row: FbAiAgentConfig) => {
 }
 
 const handleDispatch = async () => {
+  if (!selectedAgentIds.value.length) {
+    message.warning('请先勾选要执行的Agent')
+    return
+  }
   dispatching.value = true
   try {
-    const result = await FbAiAgentApi.dispatchOnce()
+    const result = await FbAiAgentApi.executeNow(selectedAgentIds.value)
     result.dispatched ? message.success(result.message) : message.warning(result.message)
     const details = result.details || []
     if (details.length > 0) {
@@ -963,6 +1063,12 @@ onBeforeUnmount(() => {
     flex-wrap: wrap;
   }
 
+  .form-label-tip,
+  .table-header-tip {
+    cursor: help;
+    border-bottom: 1px dashed var(--el-text-color-placeholder);
+  }
+
   .keyword-pool {
     width: 100%;
     min-height: 42px;
@@ -992,7 +1098,9 @@ onBeforeUnmount(() => {
   }
 
   .timeline-item {
-    display: flex;
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    column-gap: 12px;
     align-items: center;
     min-height: 34px;
     padding: 7px 10px;
@@ -1002,16 +1110,10 @@ onBeforeUnmount(() => {
     color: var(--el-text-color-primary);
   }
 
-  .timeline-item.is-success {
-    border-left-color: var(--el-color-success);
-  }
-
-  .timeline-item.is-warning {
-    border-left-color: var(--el-color-warning);
-  }
-
-  .timeline-item.is-error {
-    border-left-color: var(--el-color-danger);
+  .timeline-time {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    white-space: nowrap;
   }
 
   .timeline-text {

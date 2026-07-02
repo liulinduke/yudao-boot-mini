@@ -11,9 +11,11 @@ import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskPageR
 import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskDetailRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentRunLogDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentRunLogMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
@@ -51,6 +53,8 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
     private FbDmTaskDetailMapper dmTaskDetailMapper;
     @Resource
     private FbAiTouchRecordMapper aiTouchRecordMapper;
+    @Resource
+    private FbAiAgentRunLogMapper aiAgentRunLogMapper;
 
     @Resource
     private DmTaskAllocator taskAllocator;
@@ -334,19 +338,36 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         if (record == null) {
             return;
         }
+        if (Objects.equals(record.getStatus(), 2) || Objects.equals(record.getStatus(), 3)) {
+            return;
+        }
         FbAiTouchRecordDO updateObj = new FbAiTouchRecordDO();
         updateObj.setId(record.getId());
         if (Objects.equals(dmStatus, 1)) {
             updateObj.setStatus(2);
             updateObj.setSentTime(LocalDateTime.now());
             updateObj.setFailReason(null);
+            addAiAgentTouchLog(record, "触达完成", "私信成功：" + record.getTargetUserId(), "success");
         } else if (Objects.equals(dmStatus, 2)) {
             updateObj.setStatus(3);
             updateObj.setFailReason(errorMsg);
+            addAiAgentTouchLog(record, "触达失败", "私信失败：" + record.getTargetUserId(), "warning");
         } else {
             return;
         }
         aiTouchRecordMapper.updateById(updateObj);
+    }
+
+    private void addAiAgentTouchLog(FbAiTouchRecordDO record, String title, String content, String logLevel) {
+        if (record == null || record.getAgentConfigId() == null) {
+            return;
+        }
+        FbAiAgentRunLogDO logDO = new FbAiAgentRunLogDO();
+        logDO.setAgentConfigId(record.getAgentConfigId());
+        logDO.setTitle(title);
+        logDO.setContent(content);
+        logDO.setLogLevel(logLevel);
+        aiAgentRunLogMapper.insert(logDO);
     }
 
     /**

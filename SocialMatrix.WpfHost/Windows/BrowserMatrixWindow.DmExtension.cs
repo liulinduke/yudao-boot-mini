@@ -113,6 +113,13 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     await WaitForPageLoad(browser, timeoutMs: 15000);
                 }
+                if (!IsOnTargetUrl(currentUrl, dmUrl))
+                {
+                    var err = $"未进入目标私信会话，当前={currentUrl}, 目标={dmUrl}";
+                    System.Diagnostics.Debug.WriteLine($"❌ {err}");
+                    NotifyDmResult(accountId, taskId, detailId, fbUserId, false, err);
+                    return;
+                }
                 System.Diagnostics.Debug.WriteLine($"✅ 私信页面加载完成");
 
                 // 2. 点击 Continue 并等待编辑器出现（分步执行，避免页面跳转导致 JS 上下文销毁）

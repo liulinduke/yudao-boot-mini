@@ -482,12 +482,100 @@ namespace SocialMatrix.WpfHost.Windows
 
                     System.Diagnostics.Debug.WriteLine($"🔗 首次加载: {initialUrl}");
                     browser.Load(initialUrl);
+                    _ = WatchInitialLoadAsync(browser, accountId, initialUrl);
                 });
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 预初始化失败: {ex.Message}");
                 OnCollectionError?.Invoke(accountId, $"浏览器预初始化失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 首次导航兜底：CEF 偶发停在 about:blank/空白 DOM 时，主动重载 Facebook。
+        /// </summary>
+        private async Task WatchInitialLoadAsync(ChromiumWebBrowser browser, string accountId, string initialUrl)
+        {
+            const int maxAttempts = 2;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                await Task.Delay(attempt == 1 ? 8000 : 12000);
+
+                bool isBlank = await IsBrowserBlankPageAsync(browser);
+                if (!isBlank)
+                {
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 首次加载空白，重试 {attempt}/{maxAttempts}: {initialUrl}");
+                await RunOnBrowserUiThreadAsync(browser, () =>
+                {
+                    if (!browser.IsDisposed)
+                    {
+                        browser.Load(initialUrl);
+                    }
+                    return Task.CompletedTask;
+                });
+            }
+
+            if (await IsBrowserBlankPageAsync(browser))
+            {
+                var err = $"账号 {accountId} 首次加载仍为空白页，请重试登录";
+                System.Diagnostics.Debug.WriteLine($"❌ {err}");
+                OnCollectionError?.Invoke(accountId, err);
+            }
+        }
+
+        private async Task<bool> IsBrowserBlankPageAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                return await RunOnBrowserUiThreadAsync(browser, async () =>
+                {
+                    if (browser.IsDisposed)
+                    {
+                        return true;
+                    }
+
+                    var address = browser.Address ?? "";
+                    if (string.IsNullOrWhiteSpace(address) ||
+                        address.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    if (browser.IsLoading || !browser.CanExecuteJavascriptInMainFrame)
+                    {
+                        return false;
+                    }
+
+                    var result = await browser.EvaluateScriptAsync(@"
+(function() {
+    try {
+        const bodyText = (document.body && document.body.innerText || '').trim();
+        const elementCount = document.body ? document.body.querySelectorAll('*').length : 0;
+        return { readyState: document.readyState, title: document.title || '', bodyLength: bodyText.length, elementCount };
+    } catch (e) {
+        return { error: String(e), bodyLength: 0, elementCount: 0 };
+    }
+})();");
+                    if (!result.Success || result.Result == null)
+                    {
+                        return true;
+                    }
+
+                    var json = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result);
+                    var state = Newtonsoft.Json.Linq.JObject.Parse(json);
+                    var bodyLength = state.Value<int?>("bodyLength") ?? 0;
+                    var elementCount = state.Value<int?>("elementCount") ?? 0;
+                    return bodyLength == 0 && elementCount == 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 检测空白页失败: {ex.Message}");
+                return false;
             }
         }
 
@@ -2662,14 +2750,15 @@ namespace SocialMatrix.WpfHost.Windows
                     var segments = target.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
                     for (int i = 0; i < segments.Length; i++)
                     {
-                        if (segments[i] == "t" && i + 1 < segments.Length)
+                        if (string.Equals(segments[i], "t", StringComparison.OrdinalIgnoreCase) && i + 1 < segments.Length)
                         {
-                            var userId = segments[i + 1];
-                            if (currentUrl.Contains(userId, StringComparison.Ordinal))
+                            var userId = Uri.UnescapeDataString(segments[i + 1]);
+                            var decodedCurrentUrl = Uri.UnescapeDataString(currentUrl);
+                            if (decodedCurrentUrl.Contains(userId, StringComparison.OrdinalIgnoreCase))
                                 return true;
                         }
                     }
-                    return current.AbsolutePath.Contains("/messages/", StringComparison.OrdinalIgnoreCase);
+                    return false;
                 }
 
                 if (string.Equals(
@@ -2786,6 +2875,16 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         private static Task RunOnBrowserUiThreadAsync(ChromiumWebBrowser browser, Func<Task> action)
+        {
+            if (browser.Dispatcher.CheckAccess())
+            {
+                return action();
+            }
+
+            return browser.Dispatcher.InvokeAsync(action).Task.Unwrap();
+        }
+
+        private static Task<T> RunOnBrowserUiThreadAsync<T>(ChromiumWebBrowser browser, Func<Task<T>> action)
         {
             if (browser.Dispatcher.CheckAccess())
             {

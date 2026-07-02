@@ -151,4 +151,11 @@ public class FbAiAgentController {
         return success(aiAgentService.dispatchOnce());
     }
 
+    @PostMapping("/execute-now")
+    @Operation(summary = "立即执行选中的AI主页获客Agent")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")
+    public CommonResult<FbAiAgentDispatchRespVO> executeNow(@Valid @RequestBody FbAiAgentExecuteNowReqVO reqVO) {
+        return success(aiAgentService.executeNow(reqVO.getIds()));
+    }
+
 }
