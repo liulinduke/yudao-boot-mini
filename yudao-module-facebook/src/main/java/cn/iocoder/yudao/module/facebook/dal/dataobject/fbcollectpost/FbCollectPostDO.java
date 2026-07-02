@@ -39,6 +39,14 @@ public class FbCollectPostDO extends BaseDO {
      */
     private String postUser;
     /**
+     * 发帖人 Facebook 用户ID
+     */
+    private String postAuthorId;
+    /**
+     * 发帖人主页链接
+     */
+    private String postAuthorUrl;
+    /**
      * 帖子链接
      */
     private String url;

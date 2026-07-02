@@ -123,7 +123,7 @@ export const startAiAgentCollectDetail = (
       detail.searchUrl,
       detail.expectedCount || 1,
       detail.taskType || 1,
-      detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined
+      detail.actionConfig || (detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined)
     )
     registerQueuedDetailTimeout(account, detail.detailId, 'collect')
     return true

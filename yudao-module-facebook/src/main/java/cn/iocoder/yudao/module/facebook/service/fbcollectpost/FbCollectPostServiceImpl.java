@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.service.fbcollectpost;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
@@ -17,9 +18,12 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentService;
 import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -106,6 +110,9 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
             log.warn("明细 {} 不存在", detailId);
             return 0;
         }
+        FbCollectDO task = SpringUtils.getBean(cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper.class)
+                .selectById(detail.getTaskId());
+        boolean aiGroupPostCollect = task != null && task.getRemark() != null && task.getRemark().startsWith("AI群帖获客:");
         
         int count = 0;
         if (CollUtil.isNotEmpty(results)) {
@@ -113,6 +120,9 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 // 设置 taskId 和 fbAccount
                 result.setTaskId(detail.getTaskId());
                 result.setFbAccount(detail.getFbAccount());
+                if (aiGroupPostCollect && existsAiGroupPost(result)) {
+                    continue;
+                }
                 
                 FbCollectPostDO fbCollectPost = BeanUtils.toBean(result, FbCollectPostDO.class);
                 
@@ -133,6 +143,29 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         updateDetailAndMainTableAsync(detailId);
         
         return count;
+    }
+
+    private boolean existsAiGroupPost(FbCollectPostSaveReqVO result) {
+        LambdaQueryWrapper<FbCollectPostDO> wrapper = new LambdaQueryWrapper<>();
+        wrapper.and(query -> {
+            boolean hasAny = false;
+            if (StrUtil.isNotBlank(result.getItemId())) {
+                query.eq(FbCollectPostDO::getItemId, result.getItemId());
+                hasAny = true;
+            }
+            if (StrUtil.isNotBlank(result.getUrl())) {
+                if (hasAny) {
+                    query.or();
+                }
+                query.eq(FbCollectPostDO::getUrl, result.getUrl());
+                hasAny = true;
+            }
+            if (!hasAny) {
+                query.eq(FbCollectPostDO::getId, -1L);
+            }
+        });
+        Long count = fbCollectPostMapper.selectCount(wrapper);
+        return count != null && count > 0;
     }
     
     /**
@@ -171,7 +204,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         accountTaskQueueService.releaseRunning(detail.getFbAccount());
         
         // 聚合更新主表
-        updateMainTaskProgress(detail.getTaskId());
+        boolean taskFinished = updateMainTaskProgress(detail.getTaskId());
         
         // 清理 Redis 缓存
         countService.removeCountCache(detailId);
@@ -180,6 +213,9 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         if (detail.getStatus() == 2) {
             countService.removeTaskTotalCountCache(detail.getTaskId());
         }
+        if (taskFinished) {
+            SpringUtils.getBean(FbAiAgentService.class).continueAfterCollectTaskFinished(detail.getTaskId());
+        }
         
         log.info("更新明细 {} 完成, 已采集: {}/{}", detailId, redisCount, detail.getExpectedCount());
     }
@@ -187,14 +223,14 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
     /**
      * 聚合更新主表进度(使用 Redis 原子计数)
      */
-    private void updateMainTaskProgress(Long taskId) {
+    private boolean updateMainTaskProgress(Long taskId) {
         // 从 Redis 获取总采集数量(原子操作,并发安全)
         Long totalCollected = countService.getTaskTotalCount(taskId);
         
         // 查询所有明细的期望总数和失败数
         Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
         if (stats == null || stats.isEmpty()) {
-            return;
+            return false;
         }
         
         Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
@@ -224,6 +260,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         fbCollectMapper.updateById(task);
         
         log.info("更新主表 {} 完成, 总进度: {}/{}", taskId, totalCollected, totalExpected);
+        return unfinishedCount == 0;
     }
 
 }

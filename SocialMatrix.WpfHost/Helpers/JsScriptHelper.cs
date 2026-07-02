@@ -79,8 +79,19 @@ namespace SocialMatrix.WpfHost.Helpers
         const maxScrolls = 50;
         let consecutiveNoNewItems = 0;
         const maxConsecutiveNoNew = 5;
+        let finished = false;
+        let interval = null;
+
+        const finishCollection = (payload, isError) => {{
+            if (finished) return;
+            finished = true;
+            if (interval) clearInterval(interval);
+            if (isError) reject(payload);
+            else resolve(payload);
+        }};
 
         const doScroll = () => {{
+            if (finished) return;
             try {{
                 const cards = document.querySelectorAll('{selector}');
                 console.log('Selector: ' + '{selector}' + ', Found: ' + cards.length + ' items');
@@ -100,16 +111,30 @@ namespace SocialMatrix.WpfHost.Helpers
                 }} else {{
                     consecutiveNoNewItems++;
                 }}
+                console.log('Collection progress: results=' + results.length + '/' + targetCount
+                    + ', cards=' + cards.length
+                    + ', newItems=' + newItemsFound
+                    + ', scrollCount=' + scrollCount + '/' + maxScrolls
+                    + ', noNew=' + consecutiveNoNewItems + '/' + maxConsecutiveNoNew
+                    + ', scrollY=' + Math.round(window.scrollY || document.documentElement.scrollTop || 0)
+                    + ', scrollHeight=' + (document.documentElement.scrollHeight || 0));
 
                 if (results.length >= targetCount) {{
                     console.log('Collection complete: ' + results.length + '/' + targetCount);
-                    resolve(JSON.stringify(results.slice(0, targetCount)));
+                    finishCollection(JSON.stringify(results.slice(0, targetCount)), false);
                     return;
                 }}
 
                 if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {{
-                    console.log('Collection ended: ' + results.length + ' items');
-                    resolve(JSON.stringify(results));
+                    const stopReason = consecutiveNoNewItems >= maxConsecutiveNoNew ? 'no_new_items' : 'max_scrolls';
+                    console.log('Collection ended: reason=' + stopReason
+                        + ', results=' + results.length + '/' + targetCount
+                        + ', cards=' + cards.length
+                        + ', scrollCount=' + scrollCount + '/' + maxScrolls
+                        + ', noNew=' + consecutiveNoNewItems + '/' + maxConsecutiveNoNew
+                        + ', scrollY=' + Math.round(window.scrollY || document.documentElement.scrollTop || 0)
+                        + ', scrollHeight=' + (document.documentElement.scrollHeight || 0));
+                    finishCollection(JSON.stringify(results), false);
                     return;
                 }}
 
@@ -123,15 +148,16 @@ namespace SocialMatrix.WpfHost.Helpers
             }}
         }};
         
-        const interval = setInterval(doScroll, 2000);
+        interval = setInterval(doScroll, 2000);
 
         setTimeout(() => {{
-            clearInterval(interval);
+            if (finished) return;
+            if (interval) clearInterval(interval);
             if (results.length > 0) {{
-                console.log('Timeout: returning ' + results.length + ' items');
-                resolve(JSON.stringify(results));
+                console.log('Timeout: returning ' + results.length + ' items after {timeoutMs}ms');
+                finishCollection(JSON.stringify(results), false);
             }} else {{
-                reject(new Error('Collection timeout with no data'));
+                finishCollection(new Error('Collection timeout with no data'), true);
             }}
         }}, {timeoutMs});";
         }

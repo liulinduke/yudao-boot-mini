@@ -1405,7 +1405,7 @@ namespace SocialMatrix.WpfHost.Windows
             if (taskType == 2) // 帖子采集
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入帖子采集分支，调用 GeneratePostCollectScript");
-                return GeneratePostCollectScript(expectedCount);
+                return GeneratePostCollectScript(expectedCount, config);
             }
             else if (taskType == 3) // 用户采集
             {
@@ -1840,11 +1840,18 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 生成帖子采集脚本（简化版）
         /// </summary>
-        private string GeneratePostCollectScript(int expectedCount)
+        private string GeneratePostCollectScript(int expectedCount, string? config = null)
         {
             var js = new System.Text.StringBuilder();
+            var safeConfig = string.IsNullOrWhiteSpace(config) ? "{}" : config;
 
             js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine($"        const runtimeConfig = {Newtonsoft.Json.JsonConvert.SerializeObject(safeConfig)};");
+            js.AppendLine("        let aiGroupPostConfig = {}; try { aiGroupPostConfig = JSON.parse(runtimeConfig || '{}') || {}; } catch (e) { aiGroupPostConfig = {}; }");
+            js.AppendLine("        const isAiGroupPostCollect = aiGroupPostConfig.source === 'ai_group_post';");
+            js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
+            js.AppendLine("        const knownPostKeys = new Set(Array.isArray(aiGroupPostConfig.knownPostKeys) ? aiGroupPostConfig.knownPostKeys.map(String) : []);");
+            js.AppendLine("        let stopCurrentGroup = false;");
             js.AppendLine("        const seenUrls = new Set();");
             js.AppendLine($"        const maxScrolls = {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
@@ -1873,6 +1880,10 @@ namespace SocialMatrix.WpfHost.Windows
                     if (!groupMatch) return null;
                     return 'https://www.facebook.com/groups/' + groupMatch[1] + '/permalink/' + q.get('multi_permalinks') + '/';
                 }
+                const groupPost = path.match(/\/groups\/([^/]+)\/posts\/([^/]+)/);
+                if (groupPost) {
+                    return 'https://www.facebook.com/groups/' + groupPost[1] + '/posts/' + groupPost[2] + '/';
+                }
                 const groupPermalink = path.match(/\/groups\/([^/]+)\/permalink\/([^/]+)/);
                 if (groupPermalink) {
                     return 'https://www.facebook.com/groups/' + groupPermalink[1] + '/permalink/' + groupPermalink[2] + '/';
@@ -1895,6 +1906,8 @@ namespace SocialMatrix.WpfHost.Windows
                 const u = new URL(url);
                 if (u.searchParams.get('story_fbid')) return u.searchParams.get('story_fbid');
                 if (u.searchParams.get('fbid')) return u.searchParams.get('fbid');
+                const groupPost = u.pathname.match(/\/groups\/[^/]+\/posts\/([^/]+)/);
+                if (groupPost) return groupPost[1];
                 const permalink = u.pathname.match(/\/permalink\/([^/]+)/);
                 if (permalink) return permalink[1];
                 const post = u.pathname.match(/\/posts\/([^/]+)/);
@@ -1903,6 +1916,60 @@ namespace SocialMatrix.WpfHost.Windows
                 if (video) return video[1];
             } catch {}
             return '';
+        };
+
+        const parseAuthorFromGroupUserLink = (link) => {
+            if (!link) return { postAuthorId: '', postAuthorUrl: '' };
+            try {
+                const u = new URL(link.href);
+                const match = u.pathname.match(/\/groups\/[^/]+\/user\/([^/]+)/);
+                const postAuthorId = match ? match[1] : '';
+                return {
+                    postAuthorId,
+                    postAuthorUrl: postAuthorId ? 'https://www.facebook.com/profile.php?id=' + postAuthorId : link.href.split('?')[0]
+                };
+            } catch {
+                return { postAuthorId: '', postAuthorUrl: '' };
+            }
+        };
+
+        const findAuthorLink = (card) => {
+            const links = Array.from(card.querySelectorAll('a[href*=""/groups/""][href*=""/user/""]'));
+            return links.find(link => cleanText(link.textContent || link.getAttribute('aria-label'))) || links[0] || null;
+        };
+
+        const parsePostTime = (text) => {
+            const raw = cleanText(text);
+            if (!raw) return { date: null, daysAgo: null, raw: '' };
+            const now = new Date();
+            const m = raw.match(/^(\d+)\s*(m|min|mins|分钟)$/i);
+            if (m) return { date: new Date(now.getTime() - Number(m[1]) * 60000), daysAgo: 0, raw };
+            const h = raw.match(/^(\d+)\s*(h|hr|hrs|小时)$/i);
+            if (h) return { date: new Date(now.getTime() - Number(h[1]) * 3600000), daysAgo: 0, raw };
+            const d = raw.match(/^(\d+)\s*(d|day|days|天)$/i);
+            if (d) {
+                const days = Number(d[1]);
+                return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
+            }
+            const w = raw.match(/^(\d+)\s*(w|week|weeks|周)$/i);
+            if (w) {
+                const days = Number(w[1]) * 7;
+                return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
+            }
+            if (/^Yesterday|昨天$/i.test(raw)) return { date: new Date(now.getTime() - 86400000), daysAgo: 1, raw };
+            if (/^Today|Just now|刚刚$/i.test(raw)) return { date: now, daysAgo: 0, raw };
+            const parsed = Date.parse(raw);
+            if (!Number.isNaN(parsed)) {
+                const date = new Date(parsed);
+                const daysAgo = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86400000));
+                return { date, daysAgo, raw };
+            }
+            return { date: null, daysAgo: null, raw };
+        };
+
+        const isKnownPost = (itemId, url) => {
+            if (!isAiGroupPostCollect || knownPostKeys.size === 0) return false;
+            return (itemId && knownPostKeys.has(String(itemId))) || (url && knownPostKeys.has(String(url)));
         };
 
         const isTimeLikeText = (text) => {
@@ -2004,7 +2071,21 @@ namespace SocialMatrix.WpfHost.Windows
 
                 const url = canonicalPostUrl(postLinkEl.href);
                 if (!url || seenUrls.has(url)) return null;
+                const itemId = getPostItemId(url);
+                if (isKnownPost(itemId, url)) {
+                    console.log('[AI群帖采集] 遇到历史帖子，停止当前群:', itemId || url);
+                    stopCurrentGroup = true;
+                    return null;
+                }
+                const parsedTime = parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'));
+                if (isAiGroupPostCollect && recentDays > 0 && parsedTime.daysAgo !== null && parsedTime.daysAgo > recentDays) {
+                    console.log('[AI群帖采集] 遇到超过最近天数的帖子，停止当前群:', parsedTime.raw, recentDays);
+                    stopCurrentGroup = true;
+                    return null;
+                }
 
+                const authorLink = findAuthorLink(card);
+                const authorInfo = parseAuthorFromGroupUserLink(authorLink);
                 const postUser = getAuthorName(card, postLinkEl);
                 const groupName = getGroupName(card);
                 const isGroupPost = !!groupName || url.includes('/groups/') || location.pathname.includes('/groups/');
@@ -2030,13 +2111,13 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                 }
 
-                const itemId = getPostItemId(url);
-
                 seenUrls.add(url);
                 return {
-                    itemId, postUser, url, fromResource: isGroupPost ? 'group' : 'page',
+                    itemId, postUser, postAuthorId: authorInfo.postAuthorId, postAuthorUrl: authorInfo.postAuthorUrl,
+                    url, fromResource: isAiGroupPostCollect ? 'ai_group_post' : (isGroupPost ? 'group' : 'page'),
                     groupName, reshareCount, commentCount, reactionCount,
-                    usedCount: 0, postContent, fbAccount: '', postCreateTime: new Date().toISOString()
+                    usedCount: 0, postContent, fbAccount: '',
+                    postCreateTime: parsedTime.date ? parsedTime.date.toISOString() : new Date().toISOString()
                 };
             } catch (e) {
                 console.warn('Extract post failed:', e);
@@ -2051,6 +2132,11 @@ namespace SocialMatrix.WpfHost.Windows
         const doScroll = async () => {
             if (isCompleted) return;
             try {
+                if (stopCurrentGroup) {
+                    isCompleted = true;
+                    resolve(JSON.stringify(results));
+                    return;
+                }
                 const cards = document.querySelectorAll('[role=""article""]');
                 if (cards.length === lastCardCount && cards.length > 0) {
                     consecutiveNoNewItems++;
@@ -2062,6 +2148,11 @@ namespace SocialMatrix.WpfHost.Windows
                 let newItemsFound = 0;
                 for (let i = 0; i < cards.length && results.length < targetCount; i++) {
                     const data = extractPostData(cards[i]);
+                    if (stopCurrentGroup) {
+                        isCompleted = true;
+                        resolve(JSON.stringify(results));
+                        return;
+                    }
                     if (data) {
                         results.push(data);
                         newItemsFound++;

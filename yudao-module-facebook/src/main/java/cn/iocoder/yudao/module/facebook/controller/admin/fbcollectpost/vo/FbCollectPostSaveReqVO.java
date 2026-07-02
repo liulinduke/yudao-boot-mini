@@ -23,6 +23,12 @@ public class FbCollectPostSaveReqVO {
     @Schema(description = "发贴人")
     private String postUser;
 
+    @Schema(description = "发帖人 Facebook 用户ID")
+    private String postAuthorId;
+
+    @Schema(description = "发帖人主页链接")
+    private String postAuthorUrl;
+
     @Schema(description = "帖子链接", example = "https://www.iocoder.cn")
     private String url;
 

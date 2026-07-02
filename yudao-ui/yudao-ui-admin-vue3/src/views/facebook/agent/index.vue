@@ -4,7 +4,7 @@
       <el-col :span="8">
         <ContentWrap>
           <div class="panel-title">创建Agent</div>
-          <div class="panel-subtitle">先做 AI主页获客，其余入口先保留占位</div>
+          <div class="panel-subtitle">创建 Facebook AI 自动获客 Agent</div>
           <div class="agent-entry-list">
             <div
               v-for="item in agentEntries"
@@ -45,6 +45,7 @@
             <el-form-item label="类型">
               <el-select v-model="queryParams.agentType" clearable class="!w-150px">
                 <el-option label="AI主页获客" value="page_lead" />
+                <el-option label="AI群帖获客" value="group_post" />
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
@@ -71,7 +72,7 @@
             <el-table-column type="selection" width="45" />
             <el-table-column label="Agent名称" prop="agentName" min-width="180" />
             <el-table-column label="类型" width="130">
-              <template #default>AI主页获客</template>
+              <template #default="scope">{{ getAgentTypeLabel(scope.row.agentType) }}</template>
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="scope">
@@ -86,9 +87,14 @@
             <el-table-column label="待处理" width="90">
               <template #default="scope">{{ scope.row.pendingCount || 0 }}</template>
             </el-table-column>
-            <el-table-column label="关键词池" min-width="180">
+            <el-table-column label="发现来源" min-width="180">
               <template #default="scope">
-                {{ parseJsonArray<string>(scope.row.keywordPool).slice(0, 4).join(' / ') || '-' }}
+                <template v-if="scope.row.agentType === 'group_post'">
+                  {{ getGroupPostUrls(scope.row).slice(0, 3).join(' / ') || '-' }}
+                </template>
+                <template v-else>
+                  {{ parseJsonArray<string>(scope.row.keywordPool).slice(0, 4).join(' / ') || '-' }}
+                </template>
               </template>
             </el-table-column>
             <el-table-column label="执行时间" width="100">
@@ -148,7 +154,7 @@
           <el-form-item label="Agent名称" prop="agentName">
             <el-input v-model="wizardForm.agentName" placeholder="例如：美国卫浴客户开发" />
           </el-form-item>
-          <el-form-item label="搜索方式" prop="searchMode">
+          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="搜索方式" prop="searchMode">
             <el-radio-group v-model="wizardForm.searchMode">
               <el-radio-button label="keyword">关键词搜索</el-radio-button>
               <el-radio-button label="link">链接搜索</el-radio-button>
@@ -167,7 +173,7 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="目标国家">
+          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标国家">
             <el-select
               v-model="wizardState.targetCountryList"
               multiple
@@ -187,7 +193,7 @@
         </template>
 
         <template v-else-if="wizardStep === 1">
-          <el-form-item label="目标客户数量" prop="targetCustomerCount">
+          <el-form-item :label="wizardForm.agentType === 'group_post' ? '目标帖子数量' : '目标客户数量'" prop="targetCustomerCount">
             <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="100000" />
           </el-form-item>
           <el-form-item label="执行频率">
@@ -204,6 +210,48 @@
               class="!w-180px"
             />
           </el-form-item>
+          <template v-if="wizardForm.agentType === 'group_post'">
+            <el-form-item label="群组来源">
+              <el-radio-group v-model="wizardState.groupPostSourceMode">
+                <el-radio-button label="manual">手动输入</el-radio-button>
+                <el-radio-button label="select">资源库选择</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="wizardState.groupPostSourceMode === 'manual'" label="群组链接">
+              <el-input
+                v-model="wizardState.manualGroupUrlsText"
+                type="textarea"
+                :rows="5"
+                placeholder="每行一个 Facebook 群组链接，例如&#10;https://www.facebook.com/groups/xxx"
+              />
+            </el-form-item>
+            <el-form-item v-else label="选择群组">
+              <div class="w-full">
+                <el-button type="primary" @click="groupSelectorVisible = true">
+                  <Icon icon="ep:plus" class="mr-5px" /> 选择群组
+                </el-button>
+                <div v-if="wizardState.selectedGroups.length" class="mt-10px">
+                  <el-tag
+                    v-for="group in wizardState.selectedGroups"
+                    :key="group.id"
+                    closable
+                    class="mr-8px mb-8px"
+                    @close="removeSelectedGroup(group.id)"
+                  >
+                    {{ group.groupName || group.url }}
+                  </el-tag>
+                </div>
+              </div>
+            </el-form-item>
+            <el-form-item label="采集最近">
+              <div class="inline-row">
+                <el-input-number v-model="wizardState.recentDays" :min="1" :max="30" />
+                <span>天群帖</span>
+              </div>
+            </el-form-item>
+          </template>
+
+          <template v-else>
           <el-form-item label="种子关键词" prop="seedKeywords">
             <el-input
               v-model="wizardState.seedKeywordsText"
@@ -259,6 +307,7 @@
               :max="Math.max(wizardState.keywordPoolList.length || 1, 1)"
             />
           </el-form-item>
+          </template>
         </template>
 
         <template v-else-if="wizardStep === 2">
@@ -319,7 +368,7 @@
         <div class="detail-head">
           <div>
             <div class="detail-title">{{ detailAgent.agentName }}</div>
-            <div class="panel-subtitle">AI主页获客</div>
+            <div class="panel-subtitle">{{ getAgentTypeLabel(detailAgent.agentType) }}</div>
           </div>
           <el-tag :type="getStatusTagType(detailAgent.status)">
             {{ getStatusLabel(detailAgent.status) }}
@@ -333,8 +382,8 @@
                 <template #default="scope">{{ formatDateTime(scope.row.createTime || scope.row.updateTime) }}</template>
               </el-table-column>
               <el-table-column label="关键词" prop="keyword" min-width="150" />
-              <el-table-column label="发现来源" width="100">
-                <template #default>主页</template>
+              <el-table-column label="发现来源" width="110">
+                <template #default="scope">{{ getDiscoverySourceLabel(scope.row.sourceType) }}</template>
               </el-table-column>
               <el-table-column label="发现客户数" prop="discoveredCount" width="110" />
               <el-table-column label="达标客户数" prop="highIntentCount" width="110" />
@@ -347,7 +396,9 @@
 
           <el-tab-pane label="线索列表" name="leads">
             <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true">
-              <el-table-column label="客户名称" prop="userName" min-width="160" />
+              <el-table-column label="线索名称" min-width="160">
+                <template #default="scope">{{ scope.row.userName || scope.row.postUser || '-' }}</template>
+              </el-table-column>
               <el-table-column label="国家" prop="country" width="110" />
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
@@ -368,11 +419,11 @@
               </el-table-column>
               <el-table-column label="联系方式" width="200">
                 <template #default="scope">
-                  {{ scope.row.whatsapp || scope.row.email || scope.row.phonenumber || '-' }}
+                  {{ scope.row.whatsapp || scope.row.email || scope.row.phonenumber || scope.row.postAuthorId || '-' }}
                 </template>
               </el-table-column>
               <el-table-column label="最近活跃" width="160">
-                <template #default="scope">{{ formatDateTime(scope.row.lastPostTime) }}</template>
+                <template #default="scope">{{ formatDateTime(scope.row.lastPostTime || scope.row.postCreateTime) }}</template>
               </el-table-column>
               <el-table-column label="状态" width="110">
                 <template #default="scope">
@@ -417,6 +468,7 @@
         </el-tabs>
       </template>
     </el-drawer>
+    <GroupSelector v-model="groupSelectorVisible" @confirm="handleGroupConfirm" />
   </div>
 </template>
 
@@ -436,6 +488,8 @@ import {
 import {
   claimAndStartPendingAiAgentDetails
 } from '@/utils/wpfAiAgentTaskPoller'
+import GroupSelector from '../collect/components/GroupSelector.vue'
+import type { FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 
 const message = useMessage()
 
@@ -449,6 +503,7 @@ const wizardStep = ref(0)
 const wizardFormRef = ref()
 const detailVisible = ref(false)
 const detailTab = ref('discovery')
+const groupSelectorVisible = ref(false)
 
 const discoveryLoading = ref(false)
 const leadLoading = ref(false)
@@ -478,7 +533,7 @@ const agentEntries = [
     title: 'AI群帖获客',
     icon: 'ep:chat-line-round',
     description: '监控群帖发现潜在买家',
-    disabled: true
+    disabled: false
   },
   {
     type: 'group_comment',
@@ -539,7 +594,11 @@ const wizardState = reactive({
   keywordPoolList: [] as string[],
   newKeyword: '',
   replyDelayMin: 180,
-  replyDelayMax: 600
+  replyDelayMax: 600,
+  groupPostSourceMode: 'select' as 'manual' | 'select',
+  manualGroupUrlsText: '',
+  selectedGroups: [] as FbCollectGroup[],
+  recentDays: 3
 })
 
 const wizardRules = {
@@ -571,6 +630,40 @@ const parseLines = (value: string) =>
     .split('\n')
     .map((item) => item.trim())
     .filter(Boolean)
+
+const getAgentTypeLabel = (type?: string) => {
+  const map: Record<string, string> = {
+    page_lead: 'AI主页获客',
+    group_post: 'AI群帖获客'
+  }
+  return type ? map[type] || type : '-'
+}
+
+const getDiscoverySourceLabel = (sourceType?: string) => {
+  const map: Record<string, string> = {
+    page: '主页',
+    deep: '深度采集',
+    group_post: '群帖'
+  }
+  return sourceType ? map[sourceType] || sourceType : '-'
+}
+
+const getGroupPostConfig = (config?: FbAiAgentConfig) => {
+  if (!config?.personaConfig) return {} as any
+  try {
+    return JSON.parse(config.personaConfig)?.groupPostConfig || {}
+  } catch {
+    return {} as any
+  }
+}
+
+const getGroupPostUrls = (config?: FbAiAgentConfig) => {
+  const groupConfig = getGroupPostConfig(config)
+  if (Array.isArray(groupConfig.manualGroupUrls)) {
+    return groupConfig.manualGroupUrls.filter(Boolean)
+  }
+  return (config?.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
 
 const formatDateTime = (value?: string | Date) => {
   if (!value) return '-'
@@ -734,19 +827,38 @@ const syncWizard = (config?: FbAiAgentConfig) => {
   wizardState.replyDelayMin = delayRange[0] ?? 180
   wizardState.replyDelayMax = delayRange[1] ?? 600
   wizardState.newKeyword = ''
+  const groupConfig = getGroupPostConfig(wizardForm)
+  wizardState.groupPostSourceMode = groupConfig.sourceMode || 'select'
+  const groupUrls = Array.isArray(groupConfig.manualGroupUrls)
+    ? groupConfig.manualGroupUrls
+    : (wizardForm.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
+  wizardState.manualGroupUrlsText = groupUrls.join('\n')
+  wizardState.selectedGroups = []
+  wizardState.recentDays = Number(groupConfig.recentDays || 3)
 }
 
 const buildSubmitData = (): FbAiAgentConfig => {
   const seedKeywords = parseLines(wizardState.seedKeywordsText)
+  const groupUrls = wizardForm.agentType === 'group_post' ? getWizardGroupPostUrls() : []
+  const persona = wizardForm.personaConfig ? JSON.parse(wizardForm.personaConfig) : {}
+  if (wizardForm.agentType === 'group_post') {
+    persona.groupPostConfig = {
+      sourceMode: wizardState.groupPostSourceMode,
+      manualGroupUrls: groupUrls,
+      recentDays: wizardState.recentDays
+    }
+  }
   return {
     ...wizardForm,
-    agentType: 'page_lead',
+    agentType: wizardForm.agentType || 'page_lead',
     accountIds: wizardState.accountIdList.join(','),
     targetCountries: JSON.stringify(wizardState.targetCountryList),
     seedKeywords: JSON.stringify(seedKeywords),
     keywordPool: JSON.stringify(wizardState.keywordPoolList),
+    monitorGroupIds: groupUrls.join(','),
     touchScoreThreshold: normalizeIntentThreshold(wizardForm.touchScoreThreshold),
-    replyDelayRange: JSON.stringify([wizardState.replyDelayMin, wizardState.replyDelayMax])
+    replyDelayRange: JSON.stringify([wizardState.replyDelayMin, wizardState.replyDelayMax]),
+    personaConfig: JSON.stringify(persona)
   }
 }
 
@@ -756,12 +868,28 @@ const validateWizard = () => {
     message.warning('请选择账号池')
     return false
   }
-  if (!seedKeywords.length) {
-    message.warning('请至少输入一个种子关键词')
-    return false
-  }
   if (!wizardForm.exportProduct?.trim()) {
     message.warning('请输入主营/出口产品')
+    return false
+  }
+  if (wizardForm.agentType === 'group_post') {
+    const groupUrls = getWizardGroupPostUrls()
+    if (!groupUrls.length) {
+      message.warning('请配置监控群组')
+      return false
+    }
+    if (!wizardForm.executeTime) {
+      message.warning('请选择每天执行时间')
+      return false
+    }
+    if (wizardState.replyDelayMax < wizardState.replyDelayMin) {
+      message.warning('随机间隔结束值不能小于开始值')
+      return false
+    }
+    return true
+  }
+  if (!seedKeywords.length) {
+    message.warning('请至少输入一个种子关键词')
     return false
   }
   if (!wizardState.keywordPoolList.length) {
@@ -781,6 +909,12 @@ const validateWizard = () => {
     return false
   }
   return true
+}
+
+const getWizardGroupPostUrls = () => {
+  const selectedUrls = wizardState.selectedGroups.map((group) => group.url).filter(Boolean)
+  const manualUrls = parseLines(wizardState.manualGroupUrlsText)
+  return wizardState.groupPostSourceMode === 'select' && selectedUrls.length ? selectedUrls : manualUrls
 }
 
 const getBaseOptions = async () => {
@@ -815,7 +949,7 @@ const openCreateWizard = (item: any) => {
     message.warning('这个入口下一版再接')
     return
   }
-  wizardTitle.value = '创建AI主页获客Agent'
+  wizardTitle.value = `创建${getAgentTypeLabel(item.type)}Agent`
   wizardStep.value = 0
   syncWizard({ agentType: item.type, status: 0 })
   wizardVisible.value = true
@@ -827,7 +961,7 @@ const handleEdit = async (row: FbAiAgentConfig) => {
     message.error('未找到Agent配置，请刷新列表后重试')
     return
   }
-  wizardTitle.value = '编辑AI主页获客Agent'
+  wizardTitle.value = `编辑${getAgentTypeLabel(data.agentType)}Agent`
   wizardStep.value = 0
   syncWizard(data)
   wizardVisible.value = true
@@ -884,6 +1018,19 @@ const nextStep = async () => {
     return
   }
   wizardStep.value++
+}
+
+const handleGroupConfirm = (groups: FbCollectGroup[]) => {
+  wizardState.selectedGroups = groups
+  wizardState.manualGroupUrlsText = groups.map((group) => group.url).filter(Boolean).join('\n')
+  message.success(`已选择 ${groups.length} 个群组`)
+}
+
+const removeSelectedGroup = (groupId: number) => {
+  const index = wizardState.selectedGroups.findIndex((group) => group.id === groupId)
+  if (index >= 0) {
+    wizardState.selectedGroups.splice(index, 1)
+  }
 }
 
 const appendKeyword = () => {

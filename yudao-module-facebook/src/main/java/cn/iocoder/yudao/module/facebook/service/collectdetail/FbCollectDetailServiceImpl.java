@@ -6,15 +6,21 @@ import cn.iocoder.yudao.module.facebook.controller.admin.collectdetail.vo.FbColl
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentConfigDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentDiscoveryLogDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentConfigMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiAgentDiscoveryLogMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAccountTaskQueueItem;
@@ -54,6 +60,12 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbOperationTaskMapper operationTaskMapper;
     @Resource
     private FbOperationTaskDetailMapper operationTaskDetailMapper;
+    @Resource
+    private FbAiAgentDiscoveryLogMapper discoveryLogMapper;
+    @Resource
+    private FbAiAgentConfigMapper agentConfigMapper;
+    @Resource
+    private FbCollectPostMapper collectPostMapper;
 
     @Override
     public List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount, Long taskId) {
@@ -160,6 +172,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
             FbAccountDO account = accountMap.get(detail.getFbAccount());
             FbCollectPendingDetailRespVO item = buildPendingDetailResp(detail, task, account);
             item.setSourceType("collect");
+            item.setActionConfig(buildCollectRuntimeConfig(detail, task));
             result.add(item);
         }
         return result;
@@ -413,7 +426,9 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         FbAccountDO account = fbAccountMapper.selectOne(new LambdaQueryWrapper<FbAccountDO>()
                 .eq(FbAccountDO::getFbAccount, detail.getFbAccount())
                 .last("LIMIT 1"));
-        return buildPendingDetailResp(detail, task, account);
+        FbCollectPendingDetailRespVO item = buildPendingDetailResp(detail, task, account);
+        item.setActionConfig(buildCollectRuntimeConfig(detail, task));
+        return item;
     }
 
     @Override
@@ -445,5 +460,71 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         item.setExpectedCount(detail.getExpectedCount());
         item.setTaskType(task == null ? 1 : task.getTaskType());
         return item;
+    }
+
+    private String buildCollectRuntimeConfig(FbCollectDetailDO detail, FbCollectDO task) {
+        if (task == null || !Integer.valueOf(2).equals(task.getTaskType())
+                || StrUtil.isBlank(task.getRemark()) || !task.getRemark().startsWith("AI群帖获客:")) {
+            return detail.getSourceUserId() == null ? null : cn.hutool.json.JSONUtil.createObj()
+                    .set("sourceUserId", String.valueOf(detail.getSourceUserId()))
+                    .toString();
+        }
+        FbAiAgentDiscoveryLogDO logDO = discoveryLogMapper.selectOne(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                .eq(FbAiAgentDiscoveryLogDO::getCollectTaskId, task.getId())
+                .last("LIMIT 1"));
+        FbAiAgentConfigDO config = logDO == null ? null : agentConfigMapper.selectById(logDO.getAgentConfigId());
+        cn.hutool.json.JSONObject runtimeConfig = cn.hutool.json.JSONUtil.createObj()
+                .set("source", "ai_group_post")
+                .set("agentConfigId", config == null ? null : String.valueOf(config.getId()))
+                .set("recentDays", resolveGroupPostRecentDays(config))
+                .set("knownPostKeys", loadKnownPostKeys(config == null ? null : config.getId()));
+        return runtimeConfig.toString();
+    }
+
+    private int resolveGroupPostRecentDays(FbAiAgentConfigDO config) {
+        if (config == null || StrUtil.isBlank(config.getPersonaConfig())) {
+            return 3;
+        }
+        try {
+            cn.hutool.json.JSONObject persona = cn.hutool.json.JSONUtil.parseObj(config.getPersonaConfig());
+            Object groupPostConfig = persona.get("groupPostConfig");
+            cn.hutool.json.JSONObject groupConfig = groupPostConfig instanceof cn.hutool.json.JSONObject
+                    ? (cn.hutool.json.JSONObject) groupPostConfig
+                    : cn.hutool.json.JSONUtil.parseObj(groupPostConfig);
+            Integer recentDays = groupConfig.getInt("recentDays");
+            return recentDays != null && recentDays > 0 ? recentDays : 3;
+        } catch (Exception ignored) {
+            return 3;
+        }
+    }
+
+    private List<String> loadKnownPostKeys(Long agentConfigId) {
+        if (agentConfigId == null) {
+            return List.of();
+        }
+        List<Long> taskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
+                        .eq(FbAiAgentDiscoveryLogDO::getSourceType, "group_post")
+                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
+                .stream()
+                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(taskIds)) {
+            return List.of();
+        }
+        Set<String> keys = new LinkedHashSet<>();
+        collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
+                        .in(FbCollectPostDO::getTaskId, taskIds)
+                        .select(FbCollectPostDO::getItemId, FbCollectPostDO::getUrl))
+                .forEach(post -> {
+                    if (StrUtil.isNotBlank(post.getItemId())) {
+                        keys.add(post.getItemId());
+                    }
+                    if (StrUtil.isNotBlank(post.getUrl())) {
+                        keys.add(post.getUrl());
+                    }
+                });
+        return new ArrayList<>(keys);
     }
 }
