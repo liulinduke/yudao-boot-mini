@@ -163,53 +163,6 @@
           <el-form-item label="主营/出口产品" prop="exportProduct">
             <el-input v-model="wizardForm.exportProduct" placeholder="例如：Bathroom Faucet / Auto Parts" />
           </el-form-item>
-          <el-form-item label="账号池" prop="accountIds">
-            <el-select v-model="wizardState.accountIdList" multiple filterable class="w-full">
-              <el-option
-                v-for="item in accountList"
-                :key="item.id"
-                :label="item.fbAccount || String(item.id)"
-                :value="String(item.id)"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标国家">
-            <el-select
-              v-model="wizardState.targetCountryList"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              class="w-full"
-            >
-              <el-option
-                v-for="item in wizardState.targetCountryList"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
-          </el-form-item>
-        </template>
-
-        <template v-else-if="wizardStep === 1">
-          <el-form-item :label="wizardForm.agentType === 'group_post' ? '目标帖子数量' : '目标客户数量'" prop="targetCustomerCount">
-            <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="100000" />
-          </el-form-item>
-          <el-form-item label="执行频率">
-            <el-select v-model="wizardForm.executeFrequency" class="!w-180px">
-              <el-option label="每天" value="daily" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="执行时间" prop="executeTime">
-            <el-time-picker
-              v-model="wizardForm.executeTime"
-              format="HH:mm"
-              value-format="HH:mm"
-              placeholder="选择每天执行时间"
-              class="!w-180px"
-            />
-          </el-form-item>
           <template v-if="wizardForm.agentType === 'group_post'">
             <el-form-item label="群组来源">
               <el-radio-group v-model="wizardState.groupPostSourceMode">
@@ -243,6 +196,55 @@
                 </div>
               </div>
             </el-form-item>
+          </template>
+          <el-form-item label="账号池" prop="accountIds">
+            <el-select v-model="wizardState.accountIdList" multiple filterable class="w-full">
+              <el-option
+                v-for="item in accountList"
+                :key="item.id"
+                :label="item.fbAccount || String(item.id)"
+                :value="String(item.id)"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标国家">
+            <el-select
+              v-model="wizardState.targetCountryList"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              class="w-full"
+            >
+              <el-option
+                v-for="item in wizardState.targetCountryList"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+        </template>
+
+        <template v-else-if="wizardStep === 1">
+          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标客户数量" prop="targetCustomerCount">
+            <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="100000" />
+          </el-form-item>
+          <el-form-item label="执行频率">
+            <el-select v-model="wizardForm.executeFrequency" class="!w-180px">
+              <el-option label="每天" value="daily" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="执行时间" prop="executeTime">
+            <el-time-picker
+              v-model="wizardForm.executeTime"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="选择每天执行时间"
+              class="!w-180px"
+            />
+          </el-form-item>
+          <template v-if="wizardForm.agentType === 'group_post'">
             <el-form-item label="采集最近">
               <div class="inline-row">
                 <el-input-number v-model="wizardState.recentDays" :min="1" :max="30" />
@@ -917,6 +919,22 @@ const getWizardGroupPostUrls = () => {
   return wizardState.groupPostSourceMode === 'select' && selectedUrls.length ? selectedUrls : manualUrls
 }
 
+const validateGroupPostSourceStep = () => {
+  if (!wizardForm.exportProduct?.trim()) {
+    message.warning('请输入主营/出口产品')
+    return false
+  }
+  if (!wizardState.accountIdList.length) {
+    message.warning('请选择账号池')
+    return false
+  }
+  if (wizardForm.agentType === 'group_post' && !getWizardGroupPostUrls().length) {
+    message.warning('请配置监控群组')
+    return false
+  }
+  return true
+}
+
 const getBaseOptions = async () => {
   const accountData = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
   accountList.value = accountData?.list || []
@@ -1009,6 +1027,9 @@ const handleDispatch = async () => {
 const nextStep = async () => {
   if (wizardStep.value === 0 && !wizardForm.agentName.trim()) {
     message.warning('请先输入Agent名称')
+    return
+  }
+  if (wizardStep.value === 0 && !validateGroupPostSourceStep()) {
     return
   }
   if (wizardStep.value === 1 && !wizardState.keywordPoolList.length) {

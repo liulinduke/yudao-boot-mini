@@ -1845,15 +1845,16 @@ namespace SocialMatrix.WpfHost.Windows
             var js = new System.Text.StringBuilder();
             var safeConfig = string.IsNullOrWhiteSpace(config) ? "{}" : config;
 
-            js.AppendLine($"        const targetCount = {expectedCount};");
+            js.AppendLine($"        let targetCount = {expectedCount};");
             js.AppendLine($"        const runtimeConfig = {Newtonsoft.Json.JsonConvert.SerializeObject(safeConfig)};");
             js.AppendLine("        let aiGroupPostConfig = {}; try { aiGroupPostConfig = JSON.parse(runtimeConfig || '{}') || {}; } catch (e) { aiGroupPostConfig = {}; }");
             js.AppendLine("        const isAiGroupPostCollect = aiGroupPostConfig.source === 'ai_group_post';");
+            js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
             js.AppendLine("        const knownPostKeys = new Set(Array.isArray(aiGroupPostConfig.knownPostKeys) ? aiGroupPostConfig.knownPostKeys.map(String) : []);");
             js.AppendLine("        let stopCurrentGroup = false;");
             js.AppendLine("        const seenUrls = new Set();");
-            js.AppendLine($"        const maxScrolls = {Math.Max(expectedCount * 3, 10)};");
+            js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
             js.AppendLine("        const maxConsecutiveNoNew = 5;");
             js.AppendLine("        let lastCardCount = 0;");

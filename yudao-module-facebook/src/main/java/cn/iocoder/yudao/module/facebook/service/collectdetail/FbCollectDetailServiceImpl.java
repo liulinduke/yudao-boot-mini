@@ -477,6 +477,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                 .set("source", "ai_group_post")
                 .set("agentConfigId", config == null ? null : String.valueOf(config.getId()))
                 .set("recentDays", resolveGroupPostRecentDays(config))
+                .set("maxPostsPerGroup", 1000)
+                .set("maxScrolls", 240)
                 .set("knownPostKeys", loadKnownPostKeys(config == null ? null : config.getId()));
         return runtimeConfig.toString();
     }

@@ -70,6 +70,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private static final int POST_COLLECT_TASK_TYPE = 2;
     private static final int DEEP_COLLECT_TASK_TYPE = 12;
     private static final int DEFAULT_COLLECT_EXPECTED_COUNT = 20;
+    private static final int GROUP_POST_COLLECT_SAFETY_LIMIT = 1000;
     private static final int MAX_ANALYZE_PER_RUN = 50;
     private static final int AI_ANALYZE_BATCH_SIZE = 50;
     private static final int MAX_TOUCH_QUEUE_PER_RUN = 20;
@@ -356,7 +357,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     continue;
                 }
                 addRunLog(config.getId(), "立即执行",
-                        String.format("群组%s个，最近%s天，目标%s条", groupUrls.size(), resolveGroupPostRecentDays(config), resolveTargetCustomerCount(config)), "info");
+                        String.format("群组%s个，采集最近%s天", groupUrls.size(), resolveGroupPostRecentDays(config)), "info");
                 created = createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, true);
             } else {
                 List<String> runKeywords = pickRunKeywords(config);
@@ -506,7 +507,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     continue;
                 }
                 addRunLog(config.getId(), "开始执行",
-                        String.format("群组%s个，最近%s天，目标%s条", groupUrls.size(), resolveGroupPostRecentDays(config), resolveTargetCustomerCount(config)), "info");
+                        String.format("群组%s个，采集最近%s天", groupUrls.size(), resolveGroupPostRecentDays(config)), "info");
                 int created = createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, enqueueForVuePoller);
                 int analyzedPosts = analyzePendingPosts(config, null);
                 int queuedTouches = queuePostHighIntentTouches(config, accountIds, null);
@@ -871,13 +872,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             return 0;
         }
         List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
-        int targetTotal = resolveTargetCustomerCount(config);
+        int expectedTotal = normalizedUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
         String searchUrls = String.join("\n", normalizedUrls);
         FbCollectDO task = createCollectTask(POST_COLLECT_TASK_TYPE, searchUrls, 2,
                 "AI群帖获客:" + config.getAgentName() + ":" + normalizedUrls.size() + "个群",
                 accountIdLongs.subList(0, Math.min(accountIdLongs.size(), normalizedUrls.size())),
                 accountMap);
-        updateCollectTaskExpected(task.getId(), targetTotal, targetTotal, normalizedUrls.size());
+        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, normalizedUrls.size());
         createDiscoveryLog(config.getId(), "群帖采集", task.getId(), "group_post");
 
         int created = 0;
@@ -887,8 +888,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 continue;
             }
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
-            int expectedCount = distributeExpectedCount(targetTotal, normalizedUrls.size(), i);
-            FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), groupUrl, expectedCount);
+            FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), groupUrl, GROUP_POST_COLLECT_SAFETY_LIMIT);
             if (enqueueForVuePoller) {
                 collectQueueService.push(detail.getId(), detail.getFbAccount());
             }
