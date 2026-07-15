@@ -115,6 +115,32 @@ public class FbAiAgentCollectQueueService {
         stringRedisTemplate.delete(buildAccountRunningKey(fbAccount.trim()));
     }
 
+    public boolean tryClaimAccount(String fbAccount, String owner, long ttlMinutes) {
+        if (fbAccount == null || fbAccount.isBlank()) return false;
+        String key = buildAccountRunningKey(fbAccount.trim());
+        String expectedOwner = owner == null ? "message" : owner;
+        Boolean claimed = stringRedisTemplate.opsForValue().setIfAbsent(key,
+                expectedOwner, Math.max(1, ttlMinutes), TimeUnit.MINUTES);
+        if (Boolean.TRUE.equals(claimed)) {
+            stringRedisTemplate.opsForSet().add(buildAccountSetKey(), fbAccount.trim());
+            return true;
+        }
+        // 消息管理窗口重开时，可能遗留同一 monitor 的短期锁；同 owner 允许续租，
+        // 但采集、运营、私信等其它 owner 仍保持互斥。
+        String currentOwner = stringRedisTemplate.opsForValue().get(key);
+        if (!expectedOwner.equals(currentOwner)) return false;
+        return Boolean.TRUE.equals(stringRedisTemplate.expire(key, Math.max(1, ttlMinutes), TimeUnit.MINUTES));
+    }
+
+    /** Refresh a monitor lock without taking ownership from another task. */
+    public boolean refreshAccountClaim(String fbAccount, String owner, long ttlMinutes) {
+        if (fbAccount == null || fbAccount.isBlank() || owner == null || owner.isBlank()) return false;
+        String key = buildAccountRunningKey(fbAccount.trim());
+        String current = stringRedisTemplate.opsForValue().get(key);
+        if (!owner.equals(current)) return false;
+        return Boolean.TRUE.equals(stringRedisTemplate.expire(key, Math.max(1, ttlMinutes), TimeUnit.MINUTES));
+    }
+
     public boolean tryMarkCreated(Long agentId, String scene, String target) {
         if (agentId == null || target == null) {
             return false;

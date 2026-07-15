@@ -168,6 +168,18 @@ public class FbCollectUserDO extends BaseDO {
      */
     private String config;
     /**
+     * 评论内容
+     */
+    private String commentContent;
+    /**
+     * 来源帖子ID
+     */
+    private Long sourcePostId;
+    /**
+     * 来源帖子URL
+     */
+    private String sourcePostUrl;
+    /**
      * 同步时间
      */
     private LocalDateTime syncTime;

@@ -159,6 +159,15 @@ public class FbCollectUserSaveReqVO {
     @Schema(description = "配置信息")
     private String config;
 
+    @Schema(description = "评论内容")
+    private String commentContent;
+
+    @Schema(description = "来源帖子ID")
+    private Long sourcePostId;
+
+    @Schema(description = "来源帖子URL")
+    private String sourcePostUrl;
+
     @Schema(description = "同步时间")
     private LocalDateTime syncTime;
 

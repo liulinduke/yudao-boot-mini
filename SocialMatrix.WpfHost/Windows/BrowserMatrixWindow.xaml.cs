@@ -3,6 +3,7 @@ using CefSharp.Wpf;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Helpers;
+using SocialMatrix.WpfHost.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,7 +41,6 @@ namespace SocialMatrix.WpfHost.Windows
         public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
         private static FingerprintGlobalConfig? _globalConfig = null;
         private static DateTime _configLastFetchTime = DateTime.MinValue;
-        private static readonly TimeSpan ConfigCacheDuration = TimeSpan.FromMinutes(5);
 
         public bool IsWindowAvailable => IsVisible;
 
@@ -55,71 +55,12 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 从后端获取全局配置（带缓存）
+        /// 全局配置由Vue通过JsBridge同步，WPF不直接访问后台。
         /// </summary>
         private static async Task<FingerprintGlobalConfig?> GetGlobalConfigAsync()
         {
-            // 如果缓存未过期，直接返回
-            if (_globalConfig != null && (DateTime.Now - _configLastFetchTime) < ConfigCacheDuration)
-            {
-                return _globalConfig;
-            }
-
-            try
-            {
-                using var httpClient = new System.Net.Http.HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(3);
-
-                // TODO: 替换为实际的后端 API 地址
-                var response = await httpClient.GetStringAsync("http://localhost:48080/admin-api/facebook/global-config/all");
-                var responseToken = JToken.Parse(response);
-                var configToken = responseToken as JArray
-                    ?? responseToken["data"] as JArray
-                    ?? responseToken["result"] as JArray;
-                var configs = configToken?.ToObject<List<Dictionary<string, string>>>();
-
-                if (configs != null)
-                {
-                    var config = new FingerprintGlobalConfig();
-                    foreach (var item in configs)
-                    {
-                        if (item.ContainsKey("configKey") && item.ContainsKey("configValue"))
-                        {
-                            switch (item["configKey"])
-                            {
-                                case "browser_disable_images":
-                                    config.DisableImages = item["configValue"] == "true";
-                                    break;
-                                case "browser_disable_videos":
-                                    config.DisableVideos = item["configValue"] == "true";
-                                    break;
-                                case "browser_max_concurrent":
-                                    if (int.TryParse(item["configValue"], out int maxConcurrent))
-                                    {
-                                        config.MaxConcurrent = Math.Min(Math.Max(maxConcurrent, 1), 50);
-                                    }
-                                    break;
-                            }
-                        }
-                    }
-
-                    _globalConfig = config;
-                    _configLastFetchTime = DateTime.Now;
-                    _maxConcurrentBrowsers = config.MaxConcurrent;
-
-                    System.Diagnostics.Debug.WriteLine($"✅ 全局配置加载成功: DisableImages={config.DisableImages}, DisableVideos={config.DisableVideos}, MaxConcurrent={config.MaxConcurrent}");
-                    return config;
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ 加载全局配置失败: {ex.Message}，使用默认配置");
-            }
-
-            // 返回默认配置
-            var defaultConfig = new FingerprintGlobalConfig();
-            System.Diagnostics.Debug.WriteLine($"🔧 使用默认配置: DisableImages={defaultConfig.DisableImages}, DisableVideos={defaultConfig.DisableVideos}");
-            return defaultConfig;
+            await Task.CompletedTask;
+            return _globalConfig ?? new FingerprintGlobalConfig();
         }
 
         /// <summary>
@@ -135,6 +76,7 @@ namespace SocialMatrix.WpfHost.Windows
             };
             _configLastFetchTime = DateTime.Now;
             _maxConcurrentBrowsers = _globalConfig.MaxConcurrent;
+            FbFingerprintBrowserFactory.UpdateGlobalConfig(disableImages, disableVideos, maxConcurrent);
 
             System.Diagnostics.Debug.WriteLine($"✅ 全局配置已更新（来自前端）: DisableImages={disableImages}, DisableVideos={disableVideos}, MaxConcurrent={maxConcurrent}");
         }
@@ -317,30 +259,8 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             // 为每个账号创建独立的 RequestContext（实现完全隔离）
-            var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BrowserCache", $"account_{accountId}");
-            if (!Directory.Exists(cachePath))
-            {
-                Directory.CreateDirectory(cachePath);
-            }
-
-            var requestContextSettings = new RequestContextSettings
-            {
-                CachePath = cachePath,
-                PersistSessionCookies = false
-            };
-
-            var requestContext = new RequestContext(requestContextSettings);
+            var browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, out var requestContext);
             _requestContexts[accountId] = requestContext;
-
-            System.Diagnostics.Debug.WriteLine($"🔒 为账号 {accountId} 创建独立缓存: {cachePath}");
-
-            // 先用 about:blank，避免在未设置资源拦截/Cookie 前就加载 Facebook
-            var browser = new ChromiumWebBrowser("about:blank")
-            {
-                RequestContext = requestContext,  // 使用独立的请求上下文
-                Background = System.Windows.Media.Brushes.White  // 设置白色背景，避免灰色遮罩
-            };
-            browser.Tag = accountId;
 
             // 立即应用缓存的资源拦截配置（首次 Load 即生效）
             var cachedConfig = _globalConfig ?? new FingerprintGlobalConfig();
@@ -1848,8 +1768,10 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine($"        let targetCount = {expectedCount};");
             js.AppendLine($"        const runtimeConfig = {Newtonsoft.Json.JsonConvert.SerializeObject(safeConfig)};");
             js.AppendLine("        let aiGroupPostConfig = {}; try { aiGroupPostConfig = JSON.parse(runtimeConfig || '{}') || {}; } catch (e) { aiGroupPostConfig = {}; }");
-            js.AppendLine("        const isAiGroupPostCollect = aiGroupPostConfig.source === 'ai_group_post';");
-            js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || 1000);");
+            js.AppendLine("        const isAiGroupPostCollect = aiGroupPostConfig.source === 'ai_group_post' || aiGroupPostConfig.source === 'ai_group_comment_post' || aiGroupPostConfig.source === 'ai_competitor_post';");
+            js.AppendLine("        const isAiPostLeadCollect = aiGroupPostConfig.source === 'ai_post_lead';");
+            js.AppendLine("        if (isAiPostLeadCollect && aiGroupPostConfig.latestPosts) console.log('[AI帖子获客] 使用最新帖子过滤');");
+            js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
             js.AppendLine("        const knownPostKeys = new Set(Array.isArray(aiGroupPostConfig.knownPostKeys) ? aiGroupPostConfig.knownPostKeys.map(String) : []);");
             js.AppendLine("        let stopCurrentGroup = false;");
@@ -1934,8 +1856,26 @@ namespace SocialMatrix.WpfHost.Windows
             }
         };
 
+        const parseAuthorFromLink = (link) => {
+            if (!link) return { postAuthorId: '', postAuthorUrl: '' };
+            try {
+                const u = new URL(link.href);
+                const groupMatch = u.pathname.match(/\/groups\/[^/]+\/user\/([^/]+)/);
+                const profileId = u.searchParams.get('id') || (u.pathname.match(/\/profile\.php\/([^/]+)/) || [])[1] || '';
+                const postAuthorId = groupMatch ? groupMatch[1] : profileId;
+                return {
+                    postAuthorId,
+                    postAuthorUrl: postAuthorId ? 'https://www.facebook.com/profile.php?id=' + postAuthorId : link.href.split('?')[0]
+                };
+            } catch {
+                return { postAuthorId: '', postAuthorUrl: '' };
+            }
+        };
+
         const findAuthorLink = (card) => {
-            const links = Array.from(card.querySelectorAll('a[href*=""/groups/""][href*=""/user/""]'));
+            const groupLinks = Array.from(card.querySelectorAll('a[href*=""/groups/""][href*=""/user/""]'));
+            const profileLinks = Array.from(card.querySelectorAll('a[href*=""profile.php?id=""]'));
+            const links = [...groupLinks, ...profileLinks];
             return links.find(link => cleanText(link.textContent || link.getAttribute('aria-label'))) || links[0] || null;
         };
 
@@ -1969,7 +1909,7 @@ namespace SocialMatrix.WpfHost.Windows
         };
 
         const isKnownPost = (itemId, url) => {
-            if (!isAiGroupPostCollect || knownPostKeys.size === 0) return false;
+            if (!(isAiGroupPostCollect || isAiPostLeadCollect) || knownPostKeys.size === 0) return false;
             return (itemId && knownPostKeys.has(String(itemId))) || (url && knownPostKeys.has(String(url)));
         };
 
@@ -2086,7 +2026,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 const authorLink = findAuthorLink(card);
-                const authorInfo = parseAuthorFromGroupUserLink(authorLink);
+                const authorInfo = parseAuthorFromLink(authorLink);
                 const postUser = getAuthorName(card, postLinkEl);
                 const groupName = getGroupName(card);
                 const isGroupPost = !!groupName || url.includes('/groups/') || location.pathname.includes('/groups/');
@@ -2115,7 +2055,7 @@ namespace SocialMatrix.WpfHost.Windows
                 seenUrls.add(url);
                 return {
                     itemId, postUser, postAuthorId: authorInfo.postAuthorId, postAuthorUrl: authorInfo.postAuthorUrl,
-                    url, fromResource: isAiGroupPostCollect ? 'ai_group_post' : (isGroupPost ? 'group' : 'page'),
+                    url, fromResource: isAiPostLeadCollect ? 'ai_post_lead' : (isAiGroupPostCollect ? (aiGroupPostConfig.source === 'ai_competitor_post' ? 'ai_competitor_post' : (aiGroupPostConfig.source === 'ai_group_comment_post' ? 'ai_group_comment_post' : 'ai_group_post')) : (isGroupPost ? 'group' : 'page')),
                     groupName, reshareCount, commentCount, reactionCount,
                     usedCount: 0, postContent, fbAccount: '',
                     postCreateTime: parsedTime.date ? parsedTime.date.toISOString() : new Date().toISOString()
@@ -3194,6 +3134,9 @@ namespace SocialMatrix.WpfHost.Windows
             bool collectLike = true;
             int commentExpectedCount = expectedCount;
             int likeExpectedCount = expectedCount;
+            string source = "";
+            string sourcePostId = "";
+            string sourcePostUrl = "";
 
             if (!string.IsNullOrEmpty(configJson))
             {
@@ -3204,6 +3147,9 @@ namespace SocialMatrix.WpfHost.Windows
                     collectLike = config.ContainsKey("collectLike") ? config.Value<bool>("collectLike") : true;
                     commentExpectedCount = config.ContainsKey("commentExpectedCount") ? config.Value<int>("commentExpectedCount") : expectedCount;
                     likeExpectedCount = config.ContainsKey("likeExpectedCount") ? config.Value<int>("likeExpectedCount") : expectedCount;
+                    source = config.ContainsKey("source") ? (config.Value<string>("source") ?? "") : "";
+                    sourcePostId = config.ContainsKey("sourcePostId") ? (config.Value<string>("sourcePostId") ?? "") : "";
+                    sourcePostUrl = config.ContainsKey("sourcePostUrl") ? (config.Value<string>("sourcePostUrl") ?? "") : "";
                     System.Diagnostics.Debug.WriteLine($"📋 帖子评论点赞采集配置: collectComment={collectComment}, collectLike={collectLike}, commentExpectedCount={commentExpectedCount}, likeExpectedCount={likeExpectedCount}");
                 }
                 catch (Exception ex)
@@ -3228,6 +3174,9 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine($"        const targetCount = {totalTargetCount};");
             js.AppendLine($"        const commentTarget = {commentExpectedCount};");
             js.AppendLine($"        const likeTarget = {likeExpectedCount};");
+            js.AppendLine($"        const COLLECT_SOURCE = {Newtonsoft.Json.JsonConvert.SerializeObject(source)};");
+            js.AppendLine($"        const SOURCE_POST_ID = {Newtonsoft.Json.JsonConvert.SerializeObject(sourcePostId)};");
+            js.AppendLine($"        const SOURCE_POST_URL = {Newtonsoft.Json.JsonConvert.SerializeObject(sourcePostUrl)};");
 
             js.AppendLine("        const seenUserIds = new Set();");
             js.AppendLine("        const results = [];");
@@ -3340,6 +3289,25 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                    avatar = svgImg.getAttribute('xlink:href') || svgImg.getAttribute('href') || '';");
             js.AppendLine("                }");
             js.AppendLine("");
+            js.AppendLine("                // 提取评论正文，AI群帖评论截流需要根据评论内容判断询盘意向");
+            js.AppendLine("                let commentContent = '';");
+            js.AppendLine("                let messageNode = commentElement.querySelector('[data-ad-comet-preview=\"message\"]');");
+            js.AppendLine("                if (!messageNode) {");
+            js.AppendLine("                    const textNodes = Array.from(commentElement.querySelectorAll('[dir=\"auto\"]'));");
+            js.AppendLine("                    messageNode = textNodes");
+            js.AppendLine("                        .map(n => ({ node: n, text: (n.innerText || n.textContent || '').replace(/\\s+/g, ' ').trim() }))");
+            js.AppendLine("                        .filter(item => item.text && item.text !== userName && item.text.length > 1)");
+            js.AppendLine("                        .sort((a, b) => b.text.length - a.text.length)[0]?.node || null;");
+            js.AppendLine("                }");
+            js.AppendLine("                if (messageNode) {");
+            js.AppendLine("                    commentContent = (messageNode.innerText || messageNode.textContent || '').replace(/\\s+/g, ' ').trim();");
+            js.AppendLine("                }");
+            js.AppendLine("                if (!commentContent) {");
+            js.AppendLine("                    const clone = commentElement.cloneNode(true);");
+            js.AppendLine("                    clone.querySelectorAll('a, button, [role=\"button\"]').forEach(n => n.remove());");
+            js.AppendLine("                    commentContent = (clone.innerText || clone.textContent || '').replace(/\\s+/g, ' ').trim();");
+            js.AppendLine("                }");
+            js.AppendLine("");
             js.AppendLine("                // 提取用户ID");
             js.AppendLine("                let fbUserId = '';");
             js.AppendLine("                const idMatch = originalUrl.match(/[?&]id=(\\d+)/);");
@@ -3367,7 +3335,11 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                    avatar: avatar,");
             js.AppendLine("                    followers: 0,");
             js.AppendLine("                    profileStatus: '',");
-            js.AppendLine("                    fromResource: '帖子评论采集'");
+            js.AppendLine("                    commentContent: commentContent,");
+            js.AppendLine("                    sourcePostId: SOURCE_POST_ID || null,");
+            js.AppendLine("                    sourcePostUrl: SOURCE_POST_URL || window.location.href,");
+            js.AppendLine("                    leadType: COLLECT_SOURCE === 'ai_competitor_comment' ? 'competitor_comment_lead' : (COLLECT_SOURCE === 'ai_group_comment' ? 'comment_lead' : ''),");
+            js.AppendLine("                    fromResource: COLLECT_SOURCE === 'ai_competitor_comment' ? 'ai_competitor_comment' : (COLLECT_SOURCE === 'ai_group_comment' ? 'ai_group_comment' : '帖子评论采集')");
             js.AppendLine("                };");
             js.AppendLine("            } catch (e) {");
             js.AppendLine("                console.error('解析评论数据失败:', e);");

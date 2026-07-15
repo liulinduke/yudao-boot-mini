@@ -30,7 +30,7 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private String agentName;
 
     /**
-     * Agent类型：page_lead/group_post/group_comment/competitor_buyer
+     * Agent类型：page_lead/post_lead/group_post/group_comment/competitor_buyer
      */
     private String agentType;
 

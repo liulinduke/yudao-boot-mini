@@ -64,6 +64,11 @@ namespace SocialMatrix.WpfHost.Services
             });
         }
 
+        public void OpenMessageManagerWindow()
+        {
+            Application.Current.Dispatcher.Invoke(_mainWindow.OpenMessageManagerWindow);
+        }
+
         public void StartAccountLoginBatch(string accountsJson)
         {
             Application.Current.Dispatcher.Invoke(() =>

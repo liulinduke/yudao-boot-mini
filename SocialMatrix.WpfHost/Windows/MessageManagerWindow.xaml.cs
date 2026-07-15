@@ -1,0 +1,811 @@
+using CefSharp;
+using CefSharp.Wpf;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using SocialMatrix.WpfHost.Services;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
+
+namespace SocialMatrix.WpfHost.Windows
+{
+    public partial class MessageManagerWindow : Window
+    {
+        private sealed class AccountRow : INotifyPropertyChanged
+        {
+            public long Id { get; set; }
+            public string FbAccount { get; set; } = "";
+            public string Cookie { get; set; } = "";
+            public long? DeviceId { get; set; }
+            public string DisplayName => string.IsNullOrWhiteSpace(FbAccount) ? Id.ToString() : FbAccount;
+            private bool _enabled;
+            private string _mode = "disabled";
+            private string _state = "未启用";
+            public int MessengerUnreadCount { get; set; }
+            public int CommentUnreadCount { get; set; }
+            public int TotalUnreadCount => MessengerUnreadCount + CommentUnreadCount;
+            public string LastCheckTime { get; set; } = "";
+            public bool Enabled { get => _enabled; set { _enabled = value; OnChanged(); } }
+            public string Mode { get => _mode; set { _mode = value; OnChanged(); } }
+            public string State { get => _state; set { _state = value; OnChanged(); } }
+            public event PropertyChangedEventHandler? PropertyChanged;
+            private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            public void RefreshUnread()
+            {
+                OnChanged(nameof(MessengerUnreadCount));
+                OnChanged(nameof(CommentUnreadCount));
+                OnChanged(nameof(TotalUnreadCount));
+            }
+        }
+
+        private sealed class ConversationRow
+        {
+            public long Id { get; set; }
+            public long AccountId { get; set; }
+            public string ConversationKey { get; set; } = "";
+            public string TargetUserId { get; set; } = "";
+            public string TargetName { get; set; } = "";
+            public string ReplyTargetLanguage { get; set; } = "";
+            public int UnreadCount { get; set; }
+            public string LastMessagePreview { get; set; } = "";
+            public string LastMessageTime { get; set; } = "";
+            public string DisplayText => $"{(string.IsNullOrWhiteSpace(TargetName) ? TargetUserId : TargetName)}  {LastMessagePreview}";
+        }
+
+        private sealed class BrowserSession
+        {
+            public required string AccountId { get; init; }
+            public required ChromiumWebBrowser Browser { get; init; }
+            public required IRequestContext RequestContext { get; init; }
+            public string? MonitorId { get; set; }
+            public string Mode { get; set; } = "scheduled";
+            public string Kind { get; set; } = "messenger";
+            public bool Completed { get; set; }
+            public bool ManualView { get; set; }
+            public int MonitorRounds { get; set; }
+            public int? LastReportedMessengerUnreadCount { get; set; }
+            public int? LastReportedNotificationUnreadCount { get; set; }
+            public bool? LastReportedLoggedIn { get; set; }
+            public Task InitializationTask { get; set; } = Task.CompletedTask;
+            public HashSet<string> SeenKeys { get; } = new();
+        }
+
+        private readonly MainWindow _owner;
+        private readonly ObservableCollection<AccountRow> _accounts = new();
+        private readonly Dictionary<string, BrowserSession> _sessions = new();
+        private readonly Dictionary<string, TaskCompletionSource<JObject>> _pending = new();
+        private readonly DispatcherTimer _timer;
+        private readonly DispatcherTimer _startupTimer;
+        private readonly DispatcherTimer _selectionTimer;
+        private AccountRow? _currentAccount;
+        private bool _loading;
+        private bool _claimingMonitors;
+        private bool _checkingSelection;
+        private int _requestSequence;
+        private string _lastSelectedText = "";
+
+        public MessageManagerWindow(MainWindow owner)
+        {
+            _owner = owner;
+            InitializeComponent();
+            RealtimeAccountList.ItemTemplate = BuildAccountTemplate();
+            ScheduledAccountList.ItemTemplate = BuildAccountTemplate();
+            DisabledAccountList.ItemTemplate = BuildAccountTemplate();
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            _timer.Tick += async (_, _) => await RunMonitorRoundAsync();
+            _startupTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _startupTimer.Tick += async (_, _) => await ClaimMonitorAccountsAsync(1);
+            _selectionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _selectionTimer.Tick += async (_, _) => await CheckSelectionTranslationAsync();
+            Loaded += async (_, _) => await LoadDataAsync();
+            Loaded += (_, _) => _selectionTimer.Start();
+            Closed += (_, _) => CloseAllBrowsers();
+        }
+
+        private DataTemplate BuildAccountTemplate()
+        {
+            var template = new DataTemplate();
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.PaddingProperty, new Thickness(10, 7, 8, 7));
+            border.SetValue(Border.BorderBrushProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240)));
+            border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
+            var stack = new FrameworkElementFactory(typeof(StackPanel));
+            var name = new FrameworkElementFactory(typeof(TextBlock));
+            name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.DisplayName)));
+            name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            stack.AppendChild(name);
+            var state = new FrameworkElementFactory(typeof(TextBlock));
+            state.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.State)));
+            state.SetValue(TextBlock.FontSizeProperty, 12d);
+            stack.AppendChild(state);
+            var unread = new FrameworkElementFactory(typeof(TextBlock));
+            unread.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.MessengerUnreadCount)) { StringFormat = "消息 {0}" });
+            unread.SetValue(TextBlock.ForegroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(64, 158, 255)));
+            unread.SetValue(TextBlock.FontSizeProperty, 12d);
+            stack.AppendChild(unread);
+            var notices = new FrameworkElementFactory(typeof(TextBlock));
+            notices.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.CommentUnreadCount)) { StringFormat = "通知 {0}" });
+            notices.SetValue(TextBlock.ForegroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 90, 70)));
+            notices.SetValue(TextBlock.FontSizeProperty, 12d);
+            stack.AppendChild(notices);
+            border.AppendChild(stack);
+            template.VisualTree = border;
+            return template;
+        }
+
+        public void HandleRelayMessage(JObject message)
+        {
+            if (!"fb:wpf:message-response".Equals(message.Value<string>("type"))) return;
+            var requestId = message.Value<string>("requestId");
+            if (requestId == null || !_pending.Remove(requestId, out var pending)) return;
+            if (message.Value<bool?>("ok") == true) pending.TrySetResult(message["data"] as JObject ?? new JObject { ["value"] = message["data"] });
+            else pending.TrySetException(new InvalidOperationException(message.Value<string>("error") ?? "消息管理中转请求失败"));
+        }
+
+        private async Task<JToken> RelayAsync(string action, JObject? payload = null)
+        {
+            var requestId = $"message-{DateTime.UtcNow.Ticks}-{++_requestSequence}";
+            var pending = new TaskCompletionSource<JObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending[requestId] = pending;
+            _owner.SendMessageRelayCommand(new JObject
+            {
+                ["requestId"] = requestId,
+                ["action"] = action,
+                ["payload"] = payload ?? new JObject()
+            });
+            var response = await pending.Task;
+            return response["value"] ?? response;
+        }
+
+        private async Task LoadDataAsync()
+        {
+            try
+            {
+                _loading = true;
+                var accounts = (JArray)await RelayAsync("accounts");
+                var monitors = (JArray)await RelayAsync("monitors");
+                var monitorMap = monitors.OfType<JObject>().ToDictionary(x => x.Value<long>("accountId"), x => x);
+                _accounts.Clear();
+                foreach (var token in accounts.OfType<JObject>())
+                {
+                    var account = new AccountRow
+                    {
+                        Id = token.Value<long>("id"),
+                        FbAccount = token.Value<string>("fbAccount") ?? "",
+                        Cookie = token.Value<string>("cookie") ?? "",
+                        DeviceId = token.Value<long?>("deviceId")
+                    };
+                    if (monitorMap.TryGetValue(account.Id, out var monitor))
+                    {
+                        account.Mode = monitor.Value<string>("mode") ?? "disabled";
+                        account.Enabled = !"disabled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase);
+                        account.State = account.Enabled ? "等待检查" : "未启用";
+                        account.LastCheckTime = monitor.Value<string>("lastCheckTime") ?? "";
+                    }
+                    _accounts.Add(account);
+                }
+                RefreshAccountGroups();
+                await RunMonitorRoundAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"消息管理数据加载失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally { _loading = false; _timer.Start(); _startupTimer.Start(); }
+        }
+
+        private async Task RunMonitorRoundAsync()
+        {
+            try
+            {
+                await ClaimMonitorAccountsAsync(1);
+                foreach (var session in _sessions.Values.ToList())
+                {
+                    if (_owner.GetBrowserMatrixWindowForAccount(session.AccountId)?.GetActiveBrowserCount() > 0)
+                    {
+                        if (session.MonitorId != null)
+                            _ = RelayAsync("reportMonitor", new JObject
+                            {
+                                ["monitorId"] = long.Parse(session.MonitorId),
+                                ["success"] = false,
+                                ["errorMessage"] = "业务任务优先，消息监控已暂停"
+                            });
+                        CloseMessageBrowserAccount(session.AccountId);
+                        continue;
+                    }
+                    try { await PollDomAsync(session); }
+                    catch (Exception ex) { SetAccountState(session.AccountId, $"监控失败：{ex.Message}"); }
+                }
+                foreach (var row in _accounts.Where(x => "realtime".Equals(x.Mode, StringComparison.OrdinalIgnoreCase) && x.Enabled))
+                {
+                    var monitor = (JArray)await RelayAsync("monitors");
+                    var item = monitor.OfType<JObject>().FirstOrDefault(x => x.Value<long>("accountId") == row.Id);
+                    if (item != null && item.Value<long?>("id") is long monitorId)
+                        await RelayAsync("heartbeat", new JObject { ["monitorId"] = monitorId });
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"消息监控轮询失败: {ex.Message}"); }
+        }
+
+        private async Task ClaimMonitorAccountsAsync(int batchSize)
+        {
+            if (_claimingMonitors) return;
+            var availableSlots = Math.Max(0, FbFingerprintBrowserFactory.MaxConcurrentBrowsers - 5 - _owner.GetBrowserWindowCount() - _sessions.Count);
+            if (availableSlots == 0)
+            {
+                _startupTimer.Stop();
+                return;
+            }
+            _claimingMonitors = true;
+            try
+            {
+                var claims = (JArray)await RelayAsync("claimMonitor", new JObject { ["limit"] = Math.Min(batchSize, availableSlots) });
+                if (claims.Count == 0) _startupTimer.Stop();
+                foreach (var token in claims.OfType<JObject>())
+                {
+                    var accountId = token.Value<long>("accountId").ToString();
+                    var row = _accounts.FirstOrDefault(x => x.Id.ToString() == accountId);
+                    if (row == null) continue;
+                    row.State = "正在启动";
+                    StartMonitor(row, token);
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"消息监控账号领取失败: {ex.Message}"); }
+            finally { _claimingMonitors = false; }
+        }
+
+        private void StartMonitor(AccountRow account, JObject claim)
+        {
+            // 监控阶段只读取当前 Facebook 页面上的两个未读角标，不打开 Messenger 或 notifications。
+            var url = "https://www.facebook.com/";
+            var mode = claim.Value<string>("mode") ?? account.Mode;
+            account.State = "正在打开浏览器";
+            OpenBrowser(account, claim.Value<string>("cookie") ?? account.Cookie, claim.Value<long?>("deviceId"), url, claim.Value<long>("monitorId"), mode);
+        }
+
+        private void OpenBrowser(AccountRow account, string cookie, long? deviceId, string url, long? monitorId = null, string mode = "realtime", bool show = false, bool manual = false)
+        {
+            var accountKey = account.Id.ToString();
+            if (_owner.GetBrowserMatrixWindowForAccount(accountKey)?.GetActiveBrowserCount() > 0)
+            {
+                account.State = "等待账号任务完成";
+                return;
+            }
+            if (!_sessions.TryGetValue(accountKey, out var session))
+            {
+                var maxBrowsers = FbFingerprintBrowserFactory.MaxConcurrentBrowsers;
+                var reservedForBusiness = 5;
+                var messageLimit = "realtime".Equals(mode, StringComparison.OrdinalIgnoreCase)
+                    ? Math.Max(0, maxBrowsers - reservedForBusiness)
+                    : maxBrowsers;
+                if (_owner.GetBrowserWindowCount() + _sessions.Count >= messageLimit)
+                {
+                    account.State = "等待浏览器槽位";
+                    return;
+                }
+                var browser = FbFingerprintBrowserFactory.Create(accountKey, deviceId, out var context);
+                session = new BrowserSession { AccountId = accountKey, Browser = browser, RequestContext = context };
+                browser.FrameLoadEnd += (_, args) =>
+                {
+                    if (!args.Frame.IsMain) return;
+                    Dispatcher.BeginInvoke(new Action(() => account.State = "浏览器已加载"));
+                };
+                BrowserHost.Children.Add(browser);
+                _sessions[accountKey] = session;
+                session.InitializationTask = InitializeBrowserAsync(session, cookie, deviceId, url);
+            }
+            session.MonitorId = monitorId?.ToString();
+            session.Mode = mode;
+            session.ManualView = manual;
+            session.Kind = url.Contains("notifications", StringComparison.OrdinalIgnoreCase) ? "comment" : "messenger";
+            session.Completed = false;
+            if (monitorId != null) session.MonitorRounds = 0;
+            foreach (var other in _sessions.Values.Where(x => x.AccountId != accountKey))
+                other.Browser.Visibility = Visibility.Collapsed;
+            session.Browser.Visibility = show || _currentAccount?.Id.ToString() == accountKey ? Visibility.Visible : Visibility.Collapsed;
+            if (session.Browser.Visibility == Visibility.Visible) BrowserEmptyText.Visibility = Visibility.Collapsed;
+        }
+
+        private async Task InitializeBrowserAsync(BrowserSession session, string cookie, long? deviceId, string url)
+        {
+            try { await FbFingerprintBrowserFactory.InitializeAsync(session.Browser, session.AccountId, cookie, deviceId, url); }
+            catch (Exception ex) { SetAccountState(session.AccountId, $"浏览器异常：{ex.Message}"); }
+        }
+
+        private async void AccountList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || (sender as ListBox)?.SelectedItem is not AccountRow row) return;
+            var previousAccountId = _currentAccount?.Id.ToString();
+            if (previousAccountId != null && previousAccountId != row.Id.ToString()
+                && _sessions.TryGetValue(previousAccountId, out var previousSession) && previousSession.ManualView)
+                CloseMessageBrowserAccount(previousAccountId);
+            _currentAccount = row;
+            if (!"disabled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase))
+                OpenBrowser(row, row.Cookie, row.DeviceId, "https://www.facebook.com/messages/", mode: row.Mode, show: true, manual: "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async void OpenMonitorConfig_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new MessageMonitorConfigWindow(
+                async () => (JArray)await RelayAsync("accounts"),
+                async () => (JArray)await RelayAsync("monitors"),
+                async items =>
+                {
+                    foreach (var item in items.OfType<JObject>())
+                        await RelayAsync("saveMonitor", item);
+                    return new JValue(true);
+                },
+                async () => (JArray)await RelayAsync("globalConfigs"),
+                async items => await RelayAsync("saveGlobalConfigs", new JObject { ["items"] = items })) { Owner = this };
+            window.ShowDialog();
+            await LoadDataAsync();
+        }
+
+        private async void AccountEnabledChanged(object sender, RoutedEventArgs e)
+        {
+            if (_loading || sender is not CheckBox check || check.DataContext is not AccountRow row) return;
+            row.Enabled = check.IsChecked == true;
+            await SaveMonitorAsync(row, row.Enabled ? "realtime" : "disabled");
+        }
+
+        private async void AccountModeChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || sender is not ComboBox combo || combo.DataContext is not AccountRow row || combo.SelectedValue == null) return;
+            var mode = combo.SelectedValue.ToString() ?? "disabled";
+            if (mode == row.Mode) return;
+            row.Mode = mode;
+            row.Enabled = mode != "disabled";
+            await SaveMonitorAsync(row, mode);
+        }
+
+
+        private void RefreshAccountGroups()
+        {
+            var keyword = AccountSearchBox?.Text?.Trim() ?? "";
+            var rows = _accounts.Where(x => string.IsNullOrEmpty(keyword) || x.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
+            RealtimeAccountList.ItemsSource = rows.Where(x => x.Mode == "realtime").ToList();
+            ScheduledAccountList.ItemsSource = rows.Where(x => x.Mode == "scheduled").ToList();
+            DisabledAccountList.ItemsSource = rows.Where(x => x.Mode == "disabled").ToList();
+        }
+
+        private async Task SaveMonitorAsync(AccountRow row, string mode)
+        {
+            row.Mode = mode;
+            row.State = mode == "disabled" ? "未启用" : "等待检查";
+            await RelayAsync("saveMonitor", new JObject
+            {
+                ["accountId"] = row.Id,
+                ["mode"] = mode,
+                ["checkIntervalMinutes"] = 30,
+                ["status"] = 1
+            });
+            if (mode == "disabled") CloseMessageBrowserAccount(row.Id.ToString());
+            RefreshAccountGroups();
+        }
+
+        private async void ReplyChineseBox_LostFocus(object sender, RoutedEventArgs e) => await TranslateReplySafelyAsync();
+        private async void TargetLanguageBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => await TranslateReplySafelyAsync();
+        private async void TranslateButton_Click(object sender, RoutedEventArgs e) => await TranslateReplySafelyAsync();
+
+        private async Task TranslateReplySafelyAsync()
+        {
+            try
+            {
+                await TranslateReplyAsync();
+            }
+            catch (Exception ex)
+            {
+                ReplyTranslatedBox.Text = ReplyChineseBox.Text;
+                System.Diagnostics.Debug.WriteLine($"消息翻译失败: {ex.Message}");
+                MessageBox.Show($"翻译失败，将保留原文：{ex.Message}", "翻译提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private async Task TranslateReplyAsync()
+        {
+            var text = ReplyChineseBox.Text.Trim();
+            if (text.Length == 0) { ReplyTranslatedBox.Text = ""; return; }
+            var target = (TargetLanguageBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en";
+            if (!text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
+            {
+                ReplyTranslatedBox.Text = text;
+                return;
+            }
+            var result = (JObject)await RelayAsync("translate", new JObject
+            {
+                ["text"] = text, ["sourceLanguage"] = "zh", ["targetLanguage"] = target, ["context"] = "facebook_messenger_reply"
+            });
+            ReplyTranslatedBox.Text = result.Value<string>("translation") ?? text;
+        }
+
+        private async void SendButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentAccount == null)
+            {
+                MessageBox.Show("请先选择 Facebook 账号。", "发送提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(ReplyTranslatedBox.Text))
+            {
+                MessageBox.Show("请输入要发送的消息。", "发送提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            try
+            {
+                var text = ReplyTranslatedBox.Text.Trim();
+                var account = _currentAccount;
+                var conversation = await ResolveBrowserConversationAsync(account);
+                if (conversation == null)
+                {
+                    MessageBox.Show("请先在中间 Messenger 打开一个会话。", "发送提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                var sent = await SendDirectMessageAsync(account, conversation, text);
+                if (!sent) return;
+                await RelayAsync("ingest", new JObject
+                {
+                    ["accountId"] = account.Id,
+                    ["conversationKey"] = conversation.ConversationKey,
+                    ["targetUserId"] = conversation.TargetUserId,
+                    ["targetName"] = conversation.TargetName,
+                    ["targetUrl"] = $"https://www.facebook.com/{conversation.TargetUserId}",
+                    ["originalText"] = text,
+                    ["direction"] = "outbound",
+                    ["sourceType"] = "messenger",
+                    ["detectedLanguage"] = (TargetLanguageBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en"
+                });
+                ReplyChineseBox.Text = "";
+                ReplyTranslatedBox.Text = "";
+                MessageBox.Show("消息已发送到 Messenger。", "发送成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"发送失败：{ex.Message}", "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task<ConversationRow?> ResolveBrowserConversationAsync(AccountRow account)
+        {
+            if (!_sessions.TryGetValue(account.Id.ToString(), out var session)) return null;
+            var address = session.Browser.Address ?? "";
+            var match = Regex.Match(address, @"/messages/(?:e2ee/)?t/([^/?#]+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+
+            var targetUserId = Uri.UnescapeDataString(match.Groups[1].Value);
+            var targetName = targetUserId;
+            if (session.Browser.CanExecuteJavascriptInMainFrame)
+            {
+                var result = await session.Browser.EvaluateScriptAsync(@"(function(){
+                    const node = document.querySelector('[role=""main""] h1, [role=""main""] header h2, [role=""main""] header [dir=""auto""]');
+                    return (node && (node.innerText || node.textContent) || '').trim();
+                })();");
+                if (result.Success && result.Result is string name && !string.IsNullOrWhiteSpace(name)) targetName = name;
+            }
+
+            return new ConversationRow
+            {
+                AccountId = account.Id,
+                ConversationKey = targetUserId,
+                TargetUserId = targetUserId,
+                TargetName = targetName,
+                ReplyTargetLanguage = (TargetLanguageBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en"
+            };
+        }
+
+        private async Task<bool> SendDirectMessageAsync(AccountRow account, ConversationRow conversation, string text)
+        {
+            var accountKey = account.Id.ToString();
+            var url = $"https://www.facebook.com/messages/t/{conversation.TargetUserId}/";
+            OpenBrowser(account, account.Cookie, account.DeviceId, url,
+                mode: account.Mode, show: true, manual: "scheduled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase));
+            if (!_sessions.TryGetValue(accountKey, out var session))
+            {
+                MessageBox.Show("账号当前被其它任务占用，暂时无法发送。", "发送失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            var browser = session.Browser;
+            await session.InitializationTask;
+            if (!IsMessageUrl(browser.Address, conversation.TargetUserId))
+            {
+                browser.Load(url);
+            }
+            if (!await WaitForBrowserReadyAsync(browser, conversation.TargetUserId, 20000))
+            {
+                MessageBox.Show("Messenger 会话页面加载超时。", "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                if (!browser.CanExecuteJavascriptInMainFrame)
+                {
+                    await Task.Delay(500);
+                    continue;
+                }
+                await browser.EvaluateScriptAsync(DmScriptBuilder.BuildClickContinueScript());
+                var ready = await browser.EvaluateScriptAsync(DmScriptBuilder.BuildEditorReadyCheckScript());
+                if (ready.Success && ready.Result is bool isReady && isReady) break;
+                if (attempt == 9)
+                {
+                    MessageBox.Show("未找到 Messenger 输入框，请先完成页面加载。", "发送失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
+                }
+                await Task.Delay(800);
+            }
+
+            try
+            {
+                var responseTask = browser.EvaluateScriptAsync(BuildDirectMessengerSendScript(text));
+                var completed = await Task.WhenAny(responseTask, Task.Delay(60000));
+                if (completed != responseTask)
+                {
+                    MessageBox.Show("Messenger 发送超过 60 秒未完成。", "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return false;
+                }
+                var response = await responseTask;
+                var raw = response.Result?.ToString() ?? "";
+                var resultJson = response.Result as JObject;
+                if (resultJson == null && !string.IsNullOrWhiteSpace(raw))
+                {
+                    try { resultJson = JObject.Parse(raw); } catch { /* keep the raw result for the error message */ }
+                }
+                var sentSuccessfully = response.Success && (resultJson?.Value<bool?>("success") == true
+                    || raw.Contains("\"success\":true", StringComparison.OrdinalIgnoreCase));
+                if (!sentSuccessfully)
+                {
+                    MessageBox.Show($"Messenger 发送失败：{response.Message}\n{raw}", "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Messenger 发送异常：{ex.Message}", "发送失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+        }
+
+        private static bool IsMessageUrl(string? address, string targetUserId)
+        {
+            return !string.IsNullOrWhiteSpace(address)
+                   && address.Contains("/messages/", StringComparison.OrdinalIgnoreCase)
+                   && address.Contains(targetUserId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BuildDirectMessengerSendScript(string text)
+        {
+            var messageJson = JsonConvert.SerializeObject(text);
+            return $@"(async function() {{
+    const messageText = {messageJson};
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const visible = el => {{
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    }};
+    const editor = [...document.querySelectorAll('[role=""textbox""][contenteditable=""true""], div[data-lexical-editor=""true""]')]
+        .find(visible);
+    if (!editor) return JSON.stringify({{ success: false, message: '未找到 Messenger 输入框' }});
+    editor.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('delete', false, null);
+    if (!document.execCommand('insertText', false, messageText)) {{
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.deleteContents();
+        range.insertNode(document.createTextNode(messageText));
+    }}
+    editor.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: messageText }}));
+    await sleep(350);
+    if (!(editor.innerText || editor.textContent || '').trim())
+        return JSON.stringify({{ success: false, message: 'Messenger 输入框未接收文本' }});
+    const key = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
+    for (const type of ['keydown', 'keypress', 'keyup']) editor.dispatchEvent(new KeyboardEvent(type, key));
+    await sleep(1200);
+    return JSON.stringify({{ success: true, message: '已执行 Messenger 发送' }});
+}})();";
+        }
+
+        private static async Task<bool> WaitForBrowserReadyAsync(ChromiumWebBrowser browser, string targetUserId, int timeoutMs)
+        {
+            var start = DateTime.UtcNow;
+            while ((DateTime.UtcNow - start).TotalMilliseconds < timeoutMs)
+            {
+                if (browser.CanExecuteJavascriptInMainFrame && !browser.IsLoading && IsMessageUrl(browser.Address, targetUserId)) return true;
+                await Task.Delay(500);
+            }
+            return false;
+        }
+
+        private void AccountSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            RefreshAccountGroups();
+        }
+
+        private void SetAccountState(string accountId, string state)
+        {
+            var row = _accounts.FirstOrDefault(x => x.Id.ToString() == accountId || x.FbAccount == accountId);
+            if (row != null) row.State = state;
+        }
+
+        private void CloseMessageBrowserAccount(string accountId)
+        {
+            if (!_sessions.Remove(accountId, out var session)) return;
+            BrowserHost.Children.Remove(session.Browser);
+            var browser = session.Browser;
+            var requestContext = session.RequestContext;
+            try { browser.GetBrowser()?.CloseBrowser(true); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"关闭CEF浏览器失败: {ex.Message}"); }
+            _ = Task.Run(() =>
+            {
+                try { browser.Dispose(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"释放CEF浏览器失败: {ex.Message}"); }
+                try { requestContext.Dispose(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"释放账号请求上下文失败: {ex.Message}"); }
+            });
+            if (_currentAccount?.Id.ToString() == accountId) BrowserEmptyText.Visibility = Visibility.Visible;
+        }
+
+        private void CloseAllBrowsers()
+        {
+            foreach (var session in _sessions.Values.ToList())
+            {
+                if (session.MonitorId != null)
+                    _ = RelayAsync("reportMonitor", new JObject
+                    {
+                        ["monitorId"] = long.Parse(session.MonitorId),
+                        ["success"] = false,
+                        ["errorMessage"] = "消息管理窗口已关闭"
+                    });
+                CloseMessageBrowserAccount(session.AccountId);
+            }
+            _timer.Stop();
+            _startupTimer.Stop();
+            _selectionTimer.Stop();
+        }
+
+        private async Task CheckSelectionTranslationAsync()
+        {
+            if (_checkingSelection || _currentAccount == null
+                || !_sessions.TryGetValue(_currentAccount.Id.ToString(), out var session)
+                || session.Browser.Visibility != Visibility.Visible
+                || !session.Browser.CanExecuteJavascriptInMainFrame)
+            {
+                HideSelectionTranslation();
+                return;
+            }
+
+            _checkingSelection = true;
+            try
+            {
+                var result = await session.Browser.EvaluateScriptAsync(@"(function(){
+const selected=(window.getSelection()?.toString()||'').trim();
+if(!selected) return {text:''};
+const range=window.getSelection()?.rangeCount?window.getSelection().getRangeAt(0):null;
+const rect=range?.getBoundingClientRect();
+return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
+})();");
+                if (!result.Success || result.Result == null) { HideSelectionTranslation(); return; }
+                var selection = JObject.Parse(JsonConvert.SerializeObject(result.Result));
+                var text = selection.Value<string>("text")?.Trim() ?? "";
+                if (text.Length == 0) { HideSelectionTranslation(); return; }
+                if (text == _lastSelectedText && SelectionTranslationPopup.Visibility == Visibility.Visible) return;
+
+                _lastSelectedText = text;
+                SelectionTranslationText.Text = "翻译中...";
+                ShowSelectionTranslation(selection.Value<double?>("left") ?? 20, selection.Value<double?>("top") ?? 20);
+                if (text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
+                {
+                    SelectionTranslationText.Text = text;
+                    return;
+                }
+                var translated = (JObject)await RelayAsync("translate", new JObject
+                {
+                    ["text"] = text,
+                    ["sourceLanguage"] = "auto",
+                    ["targetLanguage"] = "zh",
+                    ["context"] = "facebook_messenger_selection"
+                });
+                if (_lastSelectedText == text)
+                    SelectionTranslationText.Text = translated.Value<string>("translation") ?? text;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"划词翻译失败: {ex.Message}");
+                HideSelectionTranslation();
+            }
+            finally { _checkingSelection = false; }
+        }
+
+        private void ShowSelectionTranslation(double left, double top)
+        {
+            SelectionTranslationPopup.Margin = new Thickness(Math.Max(8, Math.Min(left, Math.Max(8, BrowserHost.ActualWidth - 380))),
+                Math.Max(8, Math.Min(top, Math.Max(8, BrowserHost.ActualHeight - 100))), 0, 0);
+            SelectionTranslationPopup.Visibility = Visibility.Visible;
+        }
+
+        private void HideSelectionTranslation()
+        {
+            _lastSelectedText = "";
+            SelectionTranslationPopup.Visibility = Visibility.Collapsed;
+        }
+
+        private string BuildMessengerCollectScript() => @"(function(){
+const root=document.querySelector('[role=main]')||document.body; const path=location.pathname;
+const match=path.match(/\/messages\/(?:e2ee\/)?t\/([^/]+)/); const key=match?match[1]:path;
+return [...root.querySelectorAll('[role=article]')].map(article=>{const aria=article.getAttribute('aria-label')||'';const text=(article.innerText||'').trim();const values=[...article.querySelectorAll('[dir=auto]')].map(x=>(x.innerText||'').trim()).filter(x=>x&&x.length<2000&&!/^Enter, Message sent/i.test(x));const originalText=[...new Set(values)].sort((a,b)=>a.length-b.length)[0]||text.split('\n')[0]||'';return {externalMessageId:article.getAttribute('data-id')||key+'-'+btoa(unescape(encodeURIComponent(aria+'|'+originalText))).slice(0,32),conversationKey:key,targetUserId:match?match[1]:'',targetName:(aria.match(/\bby (.+?):/i)||[])[1]||'',originalText,messageTime:new Date().toISOString(),incoming:!/\bby You:/i.test(aria+' '+text)};}).filter(x=>x.incoming&&x.originalText);
+})();";
+
+        private string BuildNotificationCollectScript() => @"(function(){
+const textOf=e=>(e?.getAttribute?.('aria-label')||e?.getAttribute?.('title')||e?.innerText||'').trim();
+const countOf=e=>{const label=textOf(e);const named=label.match(/(\d+)\s*(?:unread|未读|new|新消息)/i);if(named)return Number(named[1]);const values=[...e.querySelectorAll?.('span,div,[role=img]')||[]].map(textOf).filter(x=>/^\d{1,4}$/.test(x));return values.length?Number(values[values.length-1]):0;};
+const links=[...document.querySelectorAll('a[href], [role=link], [role=button]')];
+const find=(terms)=>{const nodes=links.filter(e=>{const value=((e.getAttribute('href')||'')+' '+textOf(e)).toLowerCase();return terms.some(t=>value.includes(t));});return nodes.reduce((max,e)=>Math.max(max,countOf(e)),0);};
+return {messengerUnreadCount:find(['/messages','messenger']),commentUnreadCount:find(['/notifications','notification','通知']),page:location.href};
+})();";
+
+        private string BuildUnreadBadgeScript() => @"(function(){
+const loginPage=!!document.querySelector('input[name=""email""],input[name=""pass""]')||/\/login\.php/i.test(location.pathname);
+if(loginPage)return {loggedIn:false,messengerUnreadCount:0,commentUnreadCount:0};
+const labels=[...document.querySelectorAll('[aria-label]')].map(e=>e.getAttribute('aria-label')||'');
+const count=(names)=>{const value=labels.find(label=>names.some(name=>new RegExp('^'+name+'[,，].*(\\d+)\\s*(?:unread|未读)','i').test(label)));const match=value?.match(/(\d+)\s*(?:unread|未读)/i);return match?Number(match[1]):0;};
+const titleMatch=document.title.match(/^\((\d+)\)\s*Messenger/i);
+const messenger=count(['Messenger','Messages','消息'])||(titleMatch?Number(titleMatch[1]):0);
+return {loggedIn:true,messengerUnreadCount:messenger,commentUnreadCount:count(['Notifications','通知']),page:location.href};
+})();";
+
+        private async Task PollDomAsync(BrowserSession session)
+        {
+            if (!session.Browser.CanExecuteJavascriptInMainFrame) return;
+            var result = await session.Browser.EvaluateScriptAsync(BuildUnreadBadgeScript());
+            if (!result.Success || result.Result == null) return;
+            var counts = JObject.Parse(JsonConvert.SerializeObject(result.Result));
+            var account = _accounts.FirstOrDefault(x => x.Id.ToString() == session.AccountId);
+            if (account != null)
+            {
+                account.MessengerUnreadCount = counts.Value<int?>("messengerUnreadCount") ?? 0;
+                account.CommentUnreadCount = counts.Value<int?>("commentUnreadCount") ?? 0;
+                var loggedIn = counts.Value<bool?>("loggedIn") != false;
+                account.State = !loggedIn ? "Cookie失效" : "realtime".Equals(account.Mode, StringComparison.OrdinalIgnoreCase) ? "在线（30秒刷新）" : "检查完成";
+                account.RefreshUnread();
+                if (session.LastReportedMessengerUnreadCount != account.MessengerUnreadCount
+                    || session.LastReportedNotificationUnreadCount != account.CommentUnreadCount
+                    || session.LastReportedLoggedIn != loggedIn)
+                {
+                    session.LastReportedMessengerUnreadCount = account.MessengerUnreadCount;
+                    session.LastReportedNotificationUnreadCount = account.CommentUnreadCount;
+                    session.LastReportedLoggedIn = loggedIn;
+                    _ = RelayAsync("reportUnreadBadges", new JObject
+                    {
+                        ["accountId"] = account.Id,
+                        ["messengerUnreadCount"] = account.MessengerUnreadCount,
+                        ["notificationUnreadCount"] = account.CommentUnreadCount,
+                        ["loggedIn"] = loggedIn
+                    });
+                }
+            }
+            if (session.Mode == "scheduled" && !session.Completed)
+            {
+                session.Completed = true;
+                if (session.MonitorId != null) _ = RelayAsync("reportMonitor", new JObject { ["monitorId"] = long.Parse(session.MonitorId), ["success"] = true });
+                Dispatcher.BeginInvoke(new Action(() => CloseMessageBrowserAccount(session.AccountId)));
+            }
+        }
+
+        private async void TimerTick(object? sender, EventArgs e)
+        {
+            foreach (var session in _sessions.Values.ToList())
+            {
+                try { await PollDomAsync(session); }
+                catch (Exception ex) { SetAccountState(session.AccountId, $"监控失败：{ex.Message}"); }
+            }
+        }
+    }
+}

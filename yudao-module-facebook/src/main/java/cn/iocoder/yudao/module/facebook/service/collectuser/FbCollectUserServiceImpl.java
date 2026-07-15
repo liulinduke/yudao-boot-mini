@@ -122,6 +122,9 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         FbCollectDO task = fbCollectMapper.selectById(detail.getTaskId());
         boolean deepCollectTask = task != null && task.getTaskType() != null
                 && task.getTaskType() == DEEP_COLLECT_TASK_TYPE;
+        boolean aiGroupCommentTask = task != null && (StrUtil.startWith(task.getRemark(), "AI群帖评论截流-评论采集:")
+                || StrUtil.startWith(task.getRemark(), "AI竞品监控-评论采集:"));
+        boolean aiCompetitorCommentTask = task != null && StrUtil.startWith(task.getRemark(), "AI竞品监控-评论采集:");
         
         int count = 0;
         if (CollUtil.isNotEmpty(results)) {
@@ -160,6 +163,20 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
                     fbCollectUser.setDeepCollected(true);
                     fbCollectUser.setSyncTime(LocalDateTime.now());
                     upsertDeepCollectedUser(fbCollectUser, detail.getSourceUserId());
+                } else if (aiGroupCommentTask) {
+                    if (fbCollectUser.getSourcePostId() == null) {
+                        fbCollectUser.setSourcePostId(detail.getSourceUserId());
+                    }
+                    if (StrUtil.isBlank(fbCollectUser.getSourcePostUrl())) {
+                        fbCollectUser.setSourcePostUrl(detail.getSearchUrl());
+                    }
+                    fbCollectUser.setFromResource(StrUtil.blankToDefault(fbCollectUser.getFromResource(),
+                            aiCompetitorCommentTask ? "ai_competitor_comment" : "ai_group_comment"));
+                    fbCollectUser.setLeadType(StrUtil.blankToDefault(fbCollectUser.getLeadType(),
+                            aiCompetitorCommentTask ? "competitor_comment_lead" : "comment_lead"));
+                    fbCollectUser.setTouchStatus(StrUtil.blankToDefault(fbCollectUser.getTouchStatus(), "not_touched"));
+                    fbCollectUser.setSyncTime(LocalDateTime.now());
+                    upsertAiGroupCommentUser(fbCollectUser);
                 } else {
                     // 清空id字段,让数据库自动生成主键
                     fbCollectUser.setId(null);
@@ -179,6 +196,35 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         }
         
         return count;
+    }
+
+    private void upsertAiGroupCommentUser(FbCollectUserDO incoming) {
+        FbCollectUserDO existing = null;
+        if (incoming.getSourcePostId() != null && StrUtil.isNotBlank(incoming.getFbUserId())) {
+            List<FbCollectUserDO> existingList = fbCollectUserMapper.selectList(new LambdaQueryWrapperX<FbCollectUserDO>()
+                    .eq(FbCollectUserDO::getSourcePostId, incoming.getSourcePostId())
+                    .eq(FbCollectUserDO::getFbUserId, incoming.getFbUserId())
+                    .last("LIMIT 1"));
+            if (CollUtil.isNotEmpty(existingList)) {
+                existing = existingList.get(0);
+            }
+        }
+        if (existing == null) {
+            incoming.setId(null);
+            fbCollectUserMapper.insert(incoming);
+            return;
+        }
+        incoming.setId(existing.getId());
+        if (StrUtil.isBlank(incoming.getCommentContent())) {
+            incoming.setCommentContent(existing.getCommentContent());
+        }
+        if (StrUtil.isBlank(incoming.getUrl())) {
+            incoming.setUrl(existing.getUrl());
+        }
+        if (StrUtil.isBlank(incoming.getUserName())) {
+            incoming.setUserName(existing.getUserName());
+        }
+        fbCollectUserMapper.updateById(incoming);
     }
 
     private void upsertDeepCollectedUser(FbCollectUserDO incoming, Long sourceUserId) {

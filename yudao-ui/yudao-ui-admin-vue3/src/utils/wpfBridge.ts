@@ -21,6 +21,14 @@ declare global {
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
+              OpenMessageManagerWindow?: () => void
+              OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
+              OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void
+              SetMessageBrowserBounds?: (left: number, top: number, width: number, height: number) => void
+              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string) => void
+              CloseMessageBrowser?: () => void
+              CloseMessageBrowserAccount?: (accountId: string) => void
+              HideMessageBrowser?: () => void
               StartDmTask?: (
                 taskId: string,
                 detailId: string,

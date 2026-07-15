@@ -13,6 +13,8 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.message.FbMessageDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.message.FbMessageMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
@@ -49,6 +51,8 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
     @Resource
     private FbDmTaskDetailMapper dmTaskDetailMapper;
+    @Resource
+    private FbMessageMapper fbMessageMapper;
     @Resource
     private FbAiTouchRecordMapper aiTouchRecordMapper;
 
@@ -270,6 +274,15 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
             dailyLimitService.useOnce(detail.getAccountId(), OperationTypeEnum.DM);
         }
         dmTaskDetailMapper.updateById(detail);
+        FbMessageDO message = fbMessageMapper.selectBySendDetailId(detailId);
+        if (message != null) {
+            FbMessageDO messageUpdate = new FbMessageDO();
+            messageUpdate.setId(message.getId());
+            messageUpdate.setSendStatus(status == 1 ? 2 : 3);
+            messageUpdate.setSendTime(LocalDateTime.now());
+            messageUpdate.setErrorMessage(errorMsg);
+            fbMessageMapper.updateById(messageUpdate);
+        }
         releaseDmAccountRunning(detail);
         updateAiTouchRecordStatus(detail, status, errorMsg);
 

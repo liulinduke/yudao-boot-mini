@@ -1,0 +1,10 @@
+INSERT INTO ai_workflow
+(id, name, code, graph, remark, status, create_time, update_time, deleted, creator, updater, tenant_id)
+SELECT 2072900000000000001,
+       'FB消息翻译 V1',
+       'fb_message_translate_v1',
+       '{"edges":[{"id":"edge-message-translate-start-llm","source":"start-message-translate","target":"llm-message-translate"}],"nodes":[{"id":"start-message-translate","data":{"title":"开始","parameters":[{"id":"text","name":"text","dataType":"String","required":true,"description":"原文"},{"id":"sourceLanguage","name":"sourceLanguage","dataType":"String","required":true,"description":"源语言"},{"id":"targetLanguage","name":"targetLanguage","dataType":"String","required":true,"description":"目标语言"},{"id":"context","name":"context","dataType":"String","required":false,"description":"消息上下文"}],"description":"Facebook消息翻译输入"},"type":"startNode","position":{"x":80,"y":120}},{"id":"llm-message-translate","data":{"topK":20,"topP":0.9,"llmId":1,"title":"消息翻译","parameters":[{"id":"translate-param-text","ref":"start-message-translate.text","name":"text","refType":"ref","dataType":"String"},{"id":"translate-param-source","ref":"start-message-translate.sourceLanguage","name":"sourceLanguage","refType":"ref","dataType":"String"},{"id":"translate-param-target","ref":"start-message-translate.targetLanguage","name":"targetLanguage","refType":"ref","dataType":"String"},{"id":"translate-param-context","ref":"start-message-translate.context","name":"context","refType":"ref","dataType":"String"}],"userPrompt":"text={{text}}\nsourceLanguage={{sourceLanguage}}\ntargetLanguage={{targetLanguage}}\ncontext={{context}}","description":"将Facebook消息翻译为目标语言","temperature":0.2,"systemPrompt":"你是专业外贸客服翻译。请将原文准确翻译成目标语言，保留产品、数量、MOQ、型号和链接。只输出JSON：{\"detectedLanguage\":\"语言代码或名称\",\"translation\":\"翻译结果\"}，不要输出解释、markdown或JSON外文本。"},"type":"llmNode","position":{"x":420,"y":120}}]}',
+       'Facebook消息自动翻译默认流程',
+       0,
+       NOW(), NOW(), b'0', '1', '1', 1
+WHERE NOT EXISTS (SELECT 1 FROM ai_workflow WHERE code = 'fb_message_translate_v1' AND deleted = 0);

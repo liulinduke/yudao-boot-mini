@@ -463,8 +463,26 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     }
 
     private String buildCollectRuntimeConfig(FbCollectDetailDO detail, FbCollectDO task) {
+        if (task != null && Integer.valueOf(11).equals(task.getTaskType())
+                && (StrUtil.startWith(task.getRemark(), "AI群帖评论截流-评论采集:")
+                || StrUtil.startWith(task.getRemark(), "AI竞品监控-评论采集:"))) {
+            boolean competitorComment = StrUtil.startWith(task.getRemark(), "AI竞品监控-评论采集:");
+            return cn.hutool.json.JSONUtil.createObj()
+                    .set("source", competitorComment ? "ai_competitor_comment" : "ai_group_comment")
+                    .set("sourcePostId", detail.getSourceUserId() == null ? null : String.valueOf(detail.getSourceUserId()))
+                    .set("sourcePostUrl", detail.getSearchUrl())
+                    .set("collectComment", true)
+                    .set("collectLike", false)
+                    .set("commentExpectedCount", detail.getExpectedCount() == null ? 100 : detail.getExpectedCount())
+                    .set("likeExpectedCount", 0)
+                    .toString();
+        }
         if (task == null || !Integer.valueOf(2).equals(task.getTaskType())
-                || StrUtil.isBlank(task.getRemark()) || !task.getRemark().startsWith("AI群帖获客:")) {
+                || StrUtil.isBlank(task.getRemark())
+                || (!task.getRemark().startsWith("AI群帖获客:")
+                && !task.getRemark().startsWith("AI帖子获客:")
+                && !task.getRemark().startsWith("AI群帖评论截流-帖子采集:")
+                && !task.getRemark().startsWith("AI竞品监控-帖子采集:"))) {
             return detail.getSourceUserId() == null ? null : cn.hutool.json.JSONUtil.createObj()
                     .set("sourceUserId", String.valueOf(detail.getSourceUserId()))
                     .toString();
@@ -473,11 +491,16 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                 .eq(FbAiAgentDiscoveryLogDO::getCollectTaskId, task.getId())
                 .last("LIMIT 1"));
         FbAiAgentConfigDO config = logDO == null ? null : agentConfigMapper.selectById(logDO.getAgentConfigId());
+        boolean postLeadCollect = task.getRemark().startsWith("AI帖子获客:");
+        boolean groupCommentPostCollect = task.getRemark().startsWith("AI群帖评论截流-帖子采集:");
+        boolean competitorPostCollect = task.getRemark().startsWith("AI竞品监控-帖子采集:");
         cn.hutool.json.JSONObject runtimeConfig = cn.hutool.json.JSONUtil.createObj()
-                .set("source", "ai_group_post")
+                .set("source", postLeadCollect ? "ai_post_lead" : (competitorPostCollect ? "ai_competitor_post" : (groupCommentPostCollect ? "ai_group_comment_post" : "ai_group_post")))
                 .set("agentConfigId", config == null ? null : String.valueOf(config.getId()))
-                .set("recentDays", resolveGroupPostRecentDays(config))
+                .set("latestPosts", postLeadCollect && isPostLeadLatestPosts(config))
+                .set("recentDays", competitorPostCollect ? resolveCompetitorRecentDays(config) : resolveGroupPostRecentDays(config))
                 .set("maxPostsPerGroup", 1000)
+                .set("maxPostsPerPage", 1000)
                 .set("maxScrolls", 240)
                 .set("knownPostKeys", loadKnownPostKeys(config == null ? null : config.getId()));
         return runtimeConfig.toString();
@@ -500,13 +523,43 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         }
     }
 
+    private int resolveCompetitorRecentDays(FbAiAgentConfigDO config) {
+        if (config == null || StrUtil.isBlank(config.getPersonaConfig())) {
+            return 3;
+        }
+        try {
+            cn.hutool.json.JSONObject persona = cn.hutool.json.JSONUtil.parseObj(config.getPersonaConfig());
+            Object competitorConfig = persona.get("competitorConfig");
+            cn.hutool.json.JSONObject competitor = competitorConfig instanceof cn.hutool.json.JSONObject
+                    ? (cn.hutool.json.JSONObject) competitorConfig
+                    : cn.hutool.json.JSONUtil.parseObj(competitorConfig);
+            Integer recentDays = competitor.getInt("recentDays");
+            return recentDays != null && recentDays > 0 ? recentDays : 3;
+        } catch (Exception ignored) {
+            return 3;
+        }
+    }
+
+    private boolean isPostLeadLatestPosts(FbAiAgentConfigDO config) {
+        if (config == null || StrUtil.isBlank(config.getPersonaConfig())) {
+            return false;
+        }
+        try {
+            cn.hutool.json.JSONObject persona = cn.hutool.json.JSONUtil.parseObj(config.getPersonaConfig());
+            cn.hutool.json.JSONObject postConfig = persona.getJSONObject("postLeadConfig");
+            return postConfig != null && Boolean.TRUE.equals(postConfig.getBool("latestPosts"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private List<String> loadKnownPostKeys(Long agentConfigId) {
         if (agentConfigId == null) {
             return List.of();
         }
         List<Long> taskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
                         .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
-                        .eq(FbAiAgentDiscoveryLogDO::getSourceType, "group_post")
+                        .in(FbAiAgentDiscoveryLogDO::getSourceType, java.util.Arrays.asList("post_lead", "group_post", "group_comment_post", "competitor_post"))
                         .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
                 .stream()
                 .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)

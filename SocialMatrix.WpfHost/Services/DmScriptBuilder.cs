@@ -104,7 +104,7 @@ namespace SocialMatrix.WpfHost.Services
         
         private void FindEditor()
         {
-            _js.AppendLine("            let editor = document.querySelector('div[data-lexical-editor=true]');");
+            _js.AppendLine("            let editor = document.querySelector('div[data-lexical-editor=\"true\"]');");
             _js.AppendLine("            if (!editor || !isVisibleElement(editor)) {");
             _js.AppendLine("                editor = document.querySelector('[role=\"textbox\"][contenteditable=\"true\"]');");
             _js.AppendLine("            }");
@@ -146,12 +146,13 @@ namespace SocialMatrix.WpfHost.Services
         
         private void SendMessage()
         {
-            _js.AppendLine("            // Messenger 通常用 Enter 发送；也尝试点击 Send 按钮");
+            _js.AppendLine("            // 当前 Messenger 文本消息通常没有独立 Send 按钮，回车是主发送动作。");
             _js.AppendLine("            let sendButton = null;");
             _js.AppendLine("            const sendSelectors = [");
             _js.AppendLine("                '[aria-label=\"Press Enter to send\"]',");
             _js.AppendLine("                '[aria-label=\"Send\"]',");
-            _js.AppendLine("                '[aria-label=\"发送\"]'");
+            _js.AppendLine("                '[aria-label=\"发送\"]',");
+            _js.AppendLine("                '[data-testid*=\"send\" i]'");
             _js.AppendLine("            ];");
             _js.AppendLine("            for (const sel of sendSelectors) {");
             _js.AppendLine("                const el = document.querySelector(sel);");
@@ -161,7 +162,7 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("                for (const btn of document.querySelectorAll('div[role=\"button\"], button')) {");
             _js.AppendLine("                    if (!isVisibleElement(btn)) continue;");
             _js.AppendLine("                    const aria = normalizeText(btn.getAttribute('aria-label'));");
-            _js.AppendLine("                    if (aria === 'Send' || aria === '发送' || aria.includes('Enter to send')) {");
+            _js.AppendLine("                    if ((aria === 'send' || aria === '发送' || aria.includes('enter to send')) && !aria.includes('like') && !aria.includes('voice')) {");
             _js.AppendLine("                        sendButton = btn; break;");
             _js.AppendLine("                    }");
             _js.AppendLine("                }");
@@ -169,12 +170,12 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("            if (sendButton) {");
             _js.AppendLine("                console.log('[私信发送] 点击发送按钮');");
             _js.AppendLine("                await humanClick(sendButton);");
-            _js.AppendLine("            } else {");
-            _js.AppendLine("                console.log('[私信发送] 未找到发送按钮，使用 Enter 键发送');");
+            _js.AppendLine("            }");
+            _js.AppendLine("            if (!sendButton) {");
+            _js.AppendLine("                console.log('[私信发送] 未找到文本发送按钮，使用 Enter 键发送');");
+            _js.AppendLine("                editor.focus();");
             _js.AppendLine("                const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };");
-            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keydown', enterOpts));");
-            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keypress', enterOpts));");
-            _js.AppendLine("                editor.dispatchEvent(new KeyboardEvent('keyup', enterOpts));");
+            _js.AppendLine("                for (const type of ['keydown', 'keypress', 'keyup']) editor.dispatchEvent(new KeyboardEvent(type, enterOpts));");
             _js.AppendLine("            }");
             _js.AppendLine("            await randomDelay(1000, 2000);");
             _js.AppendLine("");
@@ -182,22 +183,11 @@ namespace SocialMatrix.WpfHost.Services
         
         private void VerifySendComplete()
         {
-            _js.AppendLine("            await new Promise((resolve, reject) => {");
-            _js.AppendLine("                const timeout = setTimeout(() => reject(new Error('发送超时')), 15000);");
-            _js.AppendLine("                let emptyCount = 0;");
-            _js.AppendLine("                const checkInterval = setInterval(() => {");
-            _js.AppendLine("                    const text = (editor.textContent || editor.innerText || '').trim();");
-            _js.AppendLine("                    if (!text) {");
-            _js.AppendLine("                        emptyCount++;");
-            _js.AppendLine("                        if (emptyCount >= 3) {");
-            _js.AppendLine("                            clearTimeout(timeout);");
-            _js.AppendLine("                            clearInterval(checkInterval);");
-            _js.AppendLine("                            console.log('[私信发送] 发送完成');");
-            _js.AppendLine("                            resolve();");
-            _js.AppendLine("                        }");
-            _js.AppendLine("                    }");
-            _js.AppendLine("                }, 500);");
-            _js.AppendLine("            });");
+            _js.AppendLine("            // 发送后编辑器清空即可确认；某些 E2EE 页面不会立即清空，因此只做软校验。");
+            _js.AppendLine("            await randomDelay(500, 900);");
+            _js.AppendLine("            const remainingText = (editor.textContent || editor.innerText || '').trim();");
+            _js.AppendLine("            if (remainingText && remainingText === messageText) console.warn('[私信发送] 编辑器仍有文本，已完成发送动作但页面尚未刷新');");
+            _js.AppendLine("            console.log('[私信发送] 发送动作完成');");
             _js.AppendLine("");
         }
     }

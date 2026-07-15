@@ -45,7 +45,10 @@
             <el-form-item label="类型">
               <el-select v-model="queryParams.agentType" clearable class="!w-150px">
                 <el-option label="AI主页获客" value="page_lead" />
+                <el-option label="AI帖子获客" value="post_lead" />
                 <el-option label="AI群帖获客" value="group_post" />
+                <el-option label="AI群帖评论截流" value="group_comment" />
+                <el-option label="AI竞品监控" value="competitor_buyer" />
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
@@ -89,8 +92,8 @@
             </el-table-column>
             <el-table-column label="发现来源" min-width="180">
               <template #default="scope">
-                <template v-if="scope.row.agentType === 'group_post'">
-                  {{ getGroupPostUrls(scope.row).slice(0, 3).join(' / ') || '-' }}
+                <template v-if="isSourceUrlAgent(scope.row.agentType)">
+                  {{ getMonitorUrls(scope.row).slice(0, 3).join(' / ') || '-' }}
                 </template>
                 <template v-else>
                   {{ parseJsonArray<string>(scope.row.keywordPool).slice(0, 4).join(' / ') || '-' }}
@@ -154,7 +157,7 @@
           <el-form-item label="Agent名称" prop="agentName">
             <el-input v-model="wizardForm.agentName" placeholder="例如：美国卫浴客户开发" />
           </el-form-item>
-          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="搜索方式" prop="searchMode">
+          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType)" label="搜索方式" prop="searchMode">
             <el-radio-group v-model="wizardForm.searchMode">
               <el-radio-button label="keyword">关键词搜索</el-radio-button>
               <el-radio-button label="link">链接搜索</el-radio-button>
@@ -163,7 +166,7 @@
           <el-form-item label="主营/出口产品" prop="exportProduct">
             <el-input v-model="wizardForm.exportProduct" placeholder="例如：Bathroom Faucet / Auto Parts" />
           </el-form-item>
-          <template v-if="wizardForm.agentType === 'group_post'">
+          <template v-if="isGroupAgent(wizardForm.agentType)">
             <el-form-item label="群组来源">
               <el-radio-group v-model="wizardState.groupPostSourceMode">
                 <el-radio-button label="manual">手动输入</el-radio-button>
@@ -197,6 +200,40 @@
               </div>
             </el-form-item>
           </template>
+          <template v-if="isCompetitorAgent(wizardForm.agentType)">
+            <el-form-item label="竞品主页来源">
+              <el-radio-group v-model="wizardState.competitorSourceMode">
+                <el-radio-button label="manual">手动输入</el-radio-button>
+                <el-radio-button label="select">资源库选择</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="wizardState.competitorSourceMode === 'manual'" label="Page链接">
+              <el-input
+                v-model="wizardState.manualCompetitorPageUrlsText"
+                type="textarea"
+                :rows="5"
+                placeholder="每行一个 Facebook Page 主页链接，例如&#10;https://www.facebook.com/pageName"
+              />
+            </el-form-item>
+            <el-form-item v-else label="选择主页">
+              <div class="w-full">
+                <el-button type="primary" @click="userSelectorVisible = true">
+                  <Icon icon="ep:plus" class="mr-5px" /> 选择潜客主页
+                </el-button>
+                <div v-if="wizardState.selectedCompetitorPages.length" class="mt-10px">
+                  <el-tag
+                    v-for="user in wizardState.selectedCompetitorPages"
+                    :key="user.id"
+                    closable
+                    class="mr-8px mb-8px"
+                    @close="removeSelectedCompetitorPage(user.id)"
+                  >
+                    {{ user.userName || user.url }}
+                  </el-tag>
+                </div>
+              </div>
+            </el-form-item>
+          </template>
           <el-form-item label="账号池" prop="accountIds">
             <el-select v-model="wizardState.accountIdList" multiple filterable class="w-full">
               <el-option
@@ -207,7 +244,7 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标国家">
+          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType) && !isPostLeadAgent(wizardForm.agentType)" label="目标国家">
             <el-select
               v-model="wizardState.targetCountryList"
               multiple
@@ -227,7 +264,7 @@
         </template>
 
         <template v-else-if="wizardStep === 1">
-          <el-form-item v-if="wizardForm.agentType !== 'group_post'" label="目标客户数量" prop="targetCustomerCount">
+          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType)" label="目标客户数量" prop="targetCustomerCount">
             <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="100000" />
           </el-form-item>
           <el-form-item label="执行频率">
@@ -244,16 +281,19 @@
               class="!w-180px"
             />
           </el-form-item>
-          <template v-if="wizardForm.agentType === 'group_post'">
+          <template v-if="isSourceUrlAgent(wizardForm.agentType)">
             <el-form-item label="采集最近">
               <div class="inline-row">
                 <el-input-number v-model="wizardState.recentDays" :min="1" :max="30" />
-                <span>天群帖</span>
+                <span>{{ isCompetitorAgent(wizardForm.agentType) ? '天主页帖子' : '天群帖' }}</span>
               </div>
             </el-form-item>
           </template>
 
           <template v-else>
+          <el-form-item v-if="isPostLeadAgent(wizardForm.agentType)" label="帖子过滤">
+            <el-checkbox v-model="wizardState.latestPosts">最新帖</el-checkbox>
+          </el-form-item>
           <el-form-item label="种子关键词" prop="seedKeywords">
             <el-input
               v-model="wizardState.seedKeywordsText"
@@ -313,7 +353,7 @@
         </template>
 
         <template v-else-if="wizardStep === 2">
-          <el-form-item label="自动评论">
+          <el-form-item v-if="wizardForm.agentType !== 'group_comment' && wizardForm.agentType !== 'competitor_buyer'" label="自动评论">
             <el-switch v-model="wizardForm.autoCommentEnabled" />
           </el-form-item>
           <el-form-item label="自动私信">
@@ -427,6 +467,15 @@
               <el-table-column label="最近活跃" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.lastPostTime || scope.row.postCreateTime) }}</template>
               </el-table-column>
+              <el-table-column label="评论内容" prop="commentContent" min-width="220" />
+              <el-table-column label="来源帖子" min-width="180">
+                <template #default="scope">
+                  <el-link v-if="scope.row.sourcePostUrl" :href="scope.row.sourcePostUrl" target="_blank" type="primary">
+                    查看帖子
+                  </el-link>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
               <el-table-column label="状态" width="110">
                 <template #default="scope">
                   <el-tag :type="getLeadTouchStatusTagType(scope.row.touchStatus)">
@@ -471,6 +520,7 @@
       </template>
     </el-drawer>
     <GroupSelector v-model="groupSelectorVisible" @confirm="handleGroupConfirm" />
+    <UserSelector v-model="userSelectorVisible" @confirm="handleCompetitorPageConfirm" />
   </div>
 </template>
 
@@ -491,7 +541,9 @@ import {
   claimAndStartPendingAiAgentDetails
 } from '@/utils/wpfAiAgentTaskPoller'
 import GroupSelector from '../collect/components/GroupSelector.vue'
+import UserSelector from '../collect/components/UserSelector.vue'
 import type { FbCollectGroup } from '@/api/facebook/fbcollectgroup'
+import type { FbCollectUser } from '@/api/facebook/collectuser'
 
 const message = useMessage()
 
@@ -506,6 +558,7 @@ const wizardFormRef = ref()
 const detailVisible = ref(false)
 const detailTab = ref('discovery')
 const groupSelectorVisible = ref(false)
+const userSelectorVisible = ref(false)
 
 const discoveryLoading = ref(false)
 const leadLoading = ref(false)
@@ -531,6 +584,13 @@ const agentEntries = [
     disabled: false
   },
   {
+    type: 'post_lead',
+    title: 'AI帖子获客',
+    icon: 'ep:document',
+    description: '从Facebook搜索结果帖子中识别潜在买家',
+    disabled: false
+  },
+  {
     type: 'group_post',
     title: 'AI群帖获客',
     icon: 'ep:chat-line-round',
@@ -542,14 +602,14 @@ const agentEntries = [
     title: 'AI群帖评论截流',
     icon: 'ep:comment',
     description: '围绕评论区高意向用户做自动截流',
-    disabled: true
+    disabled: false
   },
   {
     type: 'competitor_buyer',
-    title: 'AI竞品买家截流',
+    title: 'AI竞品监控',
     icon: 'ep:trend-charts',
     description: '从竞品买家和互动用户中识别潜客',
-    disabled: true
+    disabled: false
   }
 ]
 
@@ -600,7 +660,11 @@ const wizardState = reactive({
   groupPostSourceMode: 'select' as 'manual' | 'select',
   manualGroupUrlsText: '',
   selectedGroups: [] as FbCollectGroup[],
-  recentDays: 3
+  competitorSourceMode: 'select' as 'manual' | 'select',
+  manualCompetitorPageUrlsText: '',
+  selectedCompetitorPages: [] as FbCollectUser[],
+  recentDays: 3,
+  latestPosts: false
 })
 
 const wizardRules = {
@@ -633,10 +697,18 @@ const parseLines = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean)
 
+const isGroupAgent = (type?: string) => ['group_post', 'group_comment'].includes(type || '')
+const isCompetitorAgent = (type?: string) => type === 'competitor_buyer'
+const isPostLeadAgent = (type?: string) => type === 'post_lead'
+const isSourceUrlAgent = (type?: string) => isGroupAgent(type) || isCompetitorAgent(type)
+
 const getAgentTypeLabel = (type?: string) => {
   const map: Record<string, string> = {
     page_lead: 'AI主页获客',
-    group_post: 'AI群帖获客'
+    post_lead: 'AI帖子获客',
+    group_post: 'AI群帖获客',
+    group_comment: 'AI群帖评论截流',
+    competitor_buyer: 'AI竞品监控'
   }
   return type ? map[type] || type : '-'
 }
@@ -644,8 +716,13 @@ const getAgentTypeLabel = (type?: string) => {
 const getDiscoverySourceLabel = (sourceType?: string) => {
   const map: Record<string, string> = {
     page: '主页',
+    post_lead: '帖子获客',
     deep: '深度采集',
-    group_post: '群帖'
+    group_post: '群帖',
+    group_comment_post: '评论截流帖子',
+    group_comment: '评论截流评论',
+    competitor_post: '竞品帖子',
+    competitor_comment: '竞品评论'
   }
   return sourceType ? map[sourceType] || sourceType : '-'
 }
@@ -659,6 +736,24 @@ const getGroupPostConfig = (config?: FbAiAgentConfig) => {
   }
 }
 
+const getPostLeadConfig = (config?: FbAiAgentConfig) => {
+  if (!config?.personaConfig) return {} as any
+  try {
+    return JSON.parse(config.personaConfig)?.postLeadConfig || {}
+  } catch {
+    return {} as any
+  }
+}
+
+const getCompetitorConfig = (config?: FbAiAgentConfig) => {
+  if (!config?.personaConfig) return {} as any
+  try {
+    return JSON.parse(config.personaConfig)?.competitorConfig || {}
+  } catch {
+    return {} as any
+  }
+}
+
 const getGroupPostUrls = (config?: FbAiAgentConfig) => {
   const groupConfig = getGroupPostConfig(config)
   if (Array.isArray(groupConfig.manualGroupUrls)) {
@@ -666,6 +761,17 @@ const getGroupPostUrls = (config?: FbAiAgentConfig) => {
   }
   return (config?.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
 }
+
+const getCompetitorPageUrls = (config?: FbAiAgentConfig) => {
+  const competitorConfig = getCompetitorConfig(config)
+  if (Array.isArray(competitorConfig.manualPageUrls)) {
+    return competitorConfig.manualPageUrls.filter(Boolean)
+  }
+  return (config?.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+const getMonitorUrls = (config?: FbAiAgentConfig) =>
+  isCompetitorAgent(config?.agentType) ? getCompetitorPageUrls(config) : getGroupPostUrls(config)
 
 const formatDateTime = (value?: string | Date) => {
   if (!value) return '-'
@@ -750,7 +856,8 @@ const getLeadTypeLabel = (value?: string) => {
   const map: Record<string, string> = {
     page_lead: '主页线索',
     post_lead: '帖子线索',
-    comment_lead: '评论线索'
+    comment_lead: '评论线索',
+    competitor_comment_lead: '竞品评论线索'
   }
   return value ? map[value] || value : '-'
 }
@@ -817,6 +924,10 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     status: 0,
     ...config
   })
+  if (wizardForm.agentType === 'group_comment' || wizardForm.agentType === 'competitor_buyer') {
+    wizardForm.autoCommentEnabled = false
+    wizardForm.autoDmEnabled = true
+  }
   wizardForm.touchScoreThreshold = normalizeIntentThreshold(wizardForm.touchScoreThreshold)
   wizardState.accountIdList = (wizardForm.accountIds || '')
     .split(',')
@@ -836,28 +947,51 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     : (wizardForm.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
   wizardState.manualGroupUrlsText = groupUrls.join('\n')
   wizardState.selectedGroups = []
-  wizardState.recentDays = Number(groupConfig.recentDays || 3)
+  const competitorConfig = getCompetitorConfig(wizardForm)
+  wizardState.competitorSourceMode = competitorConfig.sourceMode || 'select'
+  const competitorUrls = Array.isArray(competitorConfig.manualPageUrls)
+    ? competitorConfig.manualPageUrls
+    : (wizardForm.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
+  wizardState.manualCompetitorPageUrlsText = competitorUrls.join('\n')
+  wizardState.selectedCompetitorPages = []
+  wizardState.recentDays = Number((isCompetitorAgent(wizardForm.agentType) ? competitorConfig.recentDays : groupConfig.recentDays) || 3)
+  wizardState.latestPosts = Boolean(getPostLeadConfig(wizardForm).latestPosts)
 }
 
 const buildSubmitData = (): FbAiAgentConfig => {
   const seedKeywords = parseLines(wizardState.seedKeywordsText)
-  const groupUrls = wizardForm.agentType === 'group_post' ? getWizardGroupPostUrls() : []
+  const groupUrls = isGroupAgent(wizardForm.agentType) ? getWizardGroupPostUrls() : []
+  const competitorUrls = isCompetitorAgent(wizardForm.agentType) ? getWizardCompetitorPageUrls() : []
+  const monitorUrls = isCompetitorAgent(wizardForm.agentType) ? competitorUrls : groupUrls
   const persona = wizardForm.personaConfig ? JSON.parse(wizardForm.personaConfig) : {}
-  if (wizardForm.agentType === 'group_post') {
+  if (isGroupAgent(wizardForm.agentType)) {
     persona.groupPostConfig = {
       sourceMode: wizardState.groupPostSourceMode,
       manualGroupUrls: groupUrls,
       recentDays: wizardState.recentDays
     }
   }
+  if (isCompetitorAgent(wizardForm.agentType)) {
+    persona.competitorConfig = {
+      sourceMode: wizardState.competitorSourceMode,
+      manualPageUrls: competitorUrls,
+      recentDays: wizardState.recentDays
+    }
+  }
+  if (isPostLeadAgent(wizardForm.agentType)) {
+    persona.postLeadConfig = {
+      latestPosts: wizardState.latestPosts
+    }
+  }
   return {
     ...wizardForm,
     agentType: wizardForm.agentType || 'page_lead',
+    searchMode: isSourceUrlAgent(wizardForm.agentType) ? 'link' : wizardForm.searchMode,
     accountIds: wizardState.accountIdList.join(','),
     targetCountries: JSON.stringify(wizardState.targetCountryList),
     seedKeywords: JSON.stringify(seedKeywords),
     keywordPool: JSON.stringify(wizardState.keywordPoolList),
-    monitorGroupIds: groupUrls.join(','),
+    monitorGroupIds: monitorUrls.join(','),
     touchScoreThreshold: normalizeIntentThreshold(wizardForm.touchScoreThreshold),
     replyDelayRange: JSON.stringify([wizardState.replyDelayMin, wizardState.replyDelayMax]),
     personaConfig: JSON.stringify(persona)
@@ -874,10 +1008,10 @@ const validateWizard = () => {
     message.warning('请输入主营/出口产品')
     return false
   }
-  if (wizardForm.agentType === 'group_post') {
-    const groupUrls = getWizardGroupPostUrls()
-    if (!groupUrls.length) {
-      message.warning('请配置监控群组')
+  if (isSourceUrlAgent(wizardForm.agentType)) {
+    const monitorUrls = isCompetitorAgent(wizardForm.agentType) ? getWizardCompetitorPageUrls() : getWizardGroupPostUrls()
+    if (!monitorUrls.length) {
+      message.warning(isCompetitorAgent(wizardForm.agentType) ? '请配置竞品主页' : '请配置监控群组')
       return false
     }
     if (!wizardForm.executeTime) {
@@ -919,6 +1053,12 @@ const getWizardGroupPostUrls = () => {
   return wizardState.groupPostSourceMode === 'select' && selectedUrls.length ? selectedUrls : manualUrls
 }
 
+const getWizardCompetitorPageUrls = () => {
+  const selectedUrls = wizardState.selectedCompetitorPages.map((user) => user.url).filter(Boolean)
+  const manualUrls = parseLines(wizardState.manualCompetitorPageUrlsText)
+  return wizardState.competitorSourceMode === 'select' && selectedUrls.length ? selectedUrls : manualUrls
+}
+
 const validateGroupPostSourceStep = () => {
   if (!wizardForm.exportProduct?.trim()) {
     message.warning('请输入主营/出口产品')
@@ -928,8 +1068,12 @@ const validateGroupPostSourceStep = () => {
     message.warning('请选择账号池')
     return false
   }
-  if (wizardForm.agentType === 'group_post' && !getWizardGroupPostUrls().length) {
+  if (isGroupAgent(wizardForm.agentType) && !getWizardGroupPostUrls().length) {
     message.warning('请配置监控群组')
+    return false
+  }
+  if (isCompetitorAgent(wizardForm.agentType) && !getWizardCompetitorPageUrls().length) {
+    message.warning('请配置竞品主页')
     return false
   }
   return true
@@ -1032,7 +1176,7 @@ const nextStep = async () => {
   if (wizardStep.value === 0 && !validateGroupPostSourceStep()) {
     return
   }
-  if (wizardStep.value === 1 && !wizardState.keywordPoolList.length) {
+  if (wizardStep.value === 1 && !isSourceUrlAgent(wizardForm.agentType) && !wizardState.keywordPoolList.length) {
     wizardState.keywordPoolList = parseLines(wizardState.seedKeywordsText)
   }
   if (wizardStep.value === 1 && !validateWizard()) {
@@ -1047,10 +1191,23 @@ const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   message.success(`已选择 ${groups.length} 个群组`)
 }
 
+const handleCompetitorPageConfirm = (users: FbCollectUser[]) => {
+  wizardState.selectedCompetitorPages = users
+  wizardState.manualCompetitorPageUrlsText = users.map((user) => user.url).filter(Boolean).join('\n')
+  message.success(`已选择 ${users.length} 个竞品主页`)
+}
+
 const removeSelectedGroup = (groupId: number) => {
   const index = wizardState.selectedGroups.findIndex((group) => group.id === groupId)
   if (index >= 0) {
     wizardState.selectedGroups.splice(index, 1)
+  }
+}
+
+const removeSelectedCompetitorPage = (userId: number | string) => {
+  const index = wizardState.selectedCompetitorPages.findIndex((user) => String(user.id) === String(userId))
+  if (index >= 0) {
+    wizardState.selectedCompetitorPages.splice(index, 1)
   }
 }
 

@@ -77,6 +77,15 @@
             <div class="text-xs text-gray-400 ml-0px">
               💡 建议值：8GB内存 → 19个窗口 | 16GB内存 → 38个窗口 | 当前系统 {{ Math.floor(getSystemMemory() / 1024) }}GB → {{ getRecommendedConcurrent() }}个
             </div>
+            <div class="mt-8px flex items-center">
+              <el-input-number
+                v-model="formData.message_realtime_reserved_slots"
+                :min="0"
+                :max="50"
+                class="!w-200px"
+              />
+              <span class="ml-10px text-gray-500 whitespace-nowrap">消息实时监控预留窗口数</span>
+            </div>
           </div>
         </el-form-item>
 
@@ -124,7 +133,8 @@ const formData = reactive({
   follow_daily_limit: 100,
   browser_disable_images: true,
   browser_disable_videos: true,
-  browser_max_concurrent: getRecommendedConcurrent()  // 默认使用当前系统推荐值
+  browser_max_concurrent: getRecommendedConcurrent(),
+  message_realtime_reserved_slots: 5
 })
 
 /** 加载配置 */
@@ -141,9 +151,10 @@ const loadConfigs = async () => {
           if (key === 'browser_disable_images' || key === 'browser_disable_videos') {
             // 布尔值字段
             formData[key] = value === 'true'
-          } else if (key === 'browser_max_concurrent') {
+          } else if (key === 'browser_max_concurrent' || key === 'message_realtime_reserved_slots') {
             // 数字字段
-            formData[key] = parseInt(value) || 12
+            const parsed = parseInt(value)
+            formData[key] = Number.isFinite(parsed) ? parsed : key === 'message_realtime_reserved_slots' ? 5 : 12
           } else {
             // 其他数字字段
             formData[key] = parseInt(value) || 0
@@ -208,7 +219,8 @@ const getConfigDescription = (key: string) => {
     follow_daily_limit: '每日关注次数限制',
     browser_disable_images: '指纹浏览器-不加载图片',
     browser_disable_videos: '指纹浏览器-不加载视频',
-    browser_max_concurrent: '指纹浏览器-最大并发窗口数'
+    browser_max_concurrent: '指纹浏览器-最大并发窗口数',
+    message_realtime_reserved_slots: '消息监控-实时账号预留窗口数'
   }
   return descriptions[key] || ''
 }

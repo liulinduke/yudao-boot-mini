@@ -41,6 +41,7 @@ import '@/plugins/tongji' // 百度统计
 import Logger from '@/utils/Logger'
 import { setupWpfOperationSync } from '@/utils/wpfOperationSync'
 import { setupWpfAiAgentTaskPoller } from '@/utils/wpfAiAgentTaskPoller'
+import { setupFbMessageWpfRelay } from '@/utils/fbMessageWpfRelay'
 
 import VueDOMPurifyHTML from 'vue-dompurify-html' // 解决v-html 的安全隐患
 
@@ -76,6 +77,7 @@ const setupAll = async () => {
 
   setupWpfOperationSync()
   setupWpfAiAgentTaskPoller()
+  setupFbMessageWpfRelay()
 
   app.use(VueDOMPurifyHTML)
 

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { formatDate } from '@/utils/formatTime'
 import * as NotifyMessageApi from '@/api/system/notify/message'
+import { FbMessageApi } from '@/api/facebook/message'
 import { useUserStoreWithOut } from '@/store/modules/user'
 import { propTypes } from '@/utils/propTypes'
 
@@ -15,19 +16,22 @@ const userStore = useUserStoreWithOut()
 const activeName = ref('notice')
 const unreadCount = ref(0) // 未读消息数量
 const list = ref<any[]>([]) // 消息列表
+const facebookUnread = reactive({ messenger: 0, notification: 0 })
 
 // 获得消息列表
 const getList = async () => {
   list.value = await NotifyMessageApi.getUnreadNotifyMessageList()
-  // 强制设置 unreadCount 为 0，避免小红点因为轮询太慢，不消除
-  unreadCount.value = 0
 }
 
 // 获得未读消息数
 const getUnreadCount = async () => {
-  NotifyMessageApi.getUnreadNotifyMessageCount().then((data) => {
-    unreadCount.value = data
-  })
+  const [systemCount, summaries] = await Promise.all([
+    NotifyMessageApi.getUnreadNotifyMessageCount(),
+    FbMessageApi.getUnreadSummary().catch(() => [])
+  ])
+  facebookUnread.messenger = summaries.reduce((total, item) => total + Number(item.messengerUnreadCount || 0), 0)
+  facebookUnread.notification = summaries.reduce((total, item) => total + Number(item.commentUnreadCount || 0), 0)
+  unreadCount.value = Number(systemCount || 0) + facebookUnread.messenger + facebookUnread.notification
 }
 
 // 跳转我的站内信
@@ -35,6 +39,15 @@ const goMyList = () => {
   push({
     name: 'MyNotifyMessage'
   })
+}
+
+const openFacebookMessageManager = () => {
+  const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
+  if (bridge?.OpenMessageManagerWindow) {
+    bridge.OpenMessageManagerWindow()
+    return
+  }
+  push({ name: 'FacebookMessage' })
 }
 
 // ========== 初始化 =========
@@ -81,6 +94,11 @@ onMounted(() => {
           </el-scrollbar>
         </ElTabPane>
       </ElTabs>
+      <div class="facebook-summary" @click="openFacebookMessageManager">
+        <Icon icon="ep:chat-dot-round" :size="20" />
+        <span>Facebook</span>
+        <span class="facebook-count">消息 {{ facebookUnread.messenger }}，通知 {{ facebookUnread.notification }}</span>
+      </div>
       <!-- 更多 -->
       <div style="margin-top: 10px; text-align: right">
         <XButton preIcon="ep:view" title="查看全部" type="primary" @click="goMyList" />
@@ -133,5 +151,26 @@ onMounted(() => {
       }
     }
   }
+}
+
+.facebook-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  cursor: pointer;
+  border: 1px solid var(--el-border-color-light);
+  color: var(--el-text-color-primary);
+
+  &:hover {
+    background: var(--el-fill-color-light);
+  }
+}
+
+.facebook-count {
+  margin-left: auto;
+  color: var(--el-color-primary);
+  font-size: 12px;
 }
 </style>

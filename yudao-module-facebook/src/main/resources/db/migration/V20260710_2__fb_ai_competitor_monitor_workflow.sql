@@ -1,0 +1,15 @@
+INSERT INTO ai_workflow
+(id, name, code, graph, remark, status, create_time, update_time, deleted, creator, updater, tenant_id)
+SELECT 2073000000000000003,
+       'FB AI 竞品监控评论询盘分析 V1',
+       'fb_ai_competitor_comment_analyze_v1',
+       '{"edges":[{"id":"edge-competitor-comment-start-llm","source":"start-competitor-comment","target":"llm-competitor-comment-analyze"}],"nodes":[{"id":"start-competitor-comment","data":{"title":"开始","parameters":[{"id":"exportProduct","name":"exportProduct","dataType":"String","required":true,"description":"用户主营/出口产品"},{"id":"persona","name":"persona","dataType":"String","required":false,"description":"业务员人设","defaultValue":"Professional"},{"id":"needDm","name":"needDm","dataType":"Boolean","required":true,"description":"是否需要私信话术","defaultValue":"true"},{"id":"touchScoreThreshold","name":"touchScoreThreshold","dataType":"Number","required":true,"description":"触达评分阈值","defaultValue":"85"},{"id":"comments","name":"comments","dataType":"Array","required":true,"description":"评论批次，建议每批 50 条"}],"description":"竞品主页评论询盘分析输入参数"},"type":"startNode","position":{"x":80,"y":120}},{"id":"llm-competitor-comment-analyze","data":{"topK":50,"topP":0.9,"llmId":1,"title":"竞品评论询盘意向分类","parameters":[{"id":"competitor-comment-param-exportProduct","ref":"start-competitor-comment.exportProduct","name":"exportProduct","refType":"ref","dataType":"String","description":"用户主营/出口产品"},{"id":"competitor-comment-param-persona","ref":"start-competitor-comment.persona","name":"persona","refType":"ref","dataType":"String","description":"业务员人设"},{"id":"competitor-comment-param-needDm","ref":"start-competitor-comment.needDm","name":"needDm","refType":"ref","dataType":"Boolean","description":"是否需要私信话术"},{"id":"competitor-comment-param-touchScoreThreshold","ref":"start-competitor-comment.touchScoreThreshold","name":"touchScoreThreshold","refType":"ref","dataType":"Number","description":"触达评分阈值"},{"id":"competitor-comment-param-comments","ref":"start-competitor-comment.comments","name":"comments","refType":"ref","dataType":"Array","description":"评论批次，建议每批 50 条"}],"userPrompt":"exportProduct={{exportProduct}}\npersona={{persona}}\nneedDm={{needDm}}\ntouchScoreThreshold={{touchScoreThreshold}}\ncomments={{comments}}","description":"一次分析最多 50 条竞品评论，并为达标评论生成私信话术","temperature":0.3,"systemPrompt":"你是一名 Facebook 外贸竞品监控评论分析专家。\n\n用户主营/出口产品：{{exportProduct}}\n\n请综合判断竞品主页帖子下的评论用户是否可能是潜在买家：\n评论内容\n来源帖子内容\n主页/帖子信息\n\n重点识别询价、问库存、问型号、问采购、问联系方式、表示需要供应商/批发/代理合作的评论。\n\n触达评分阈值：{{touchScoreThreshold}}\n\n意向等级：\nA：明确询盘，建议立即私信\nB：疑似询盘，推荐联系\nC：相关但意向弱\nD：无价值，不建议联系\n\n输出要求：\n1. 只输出 JSON 数组；\n2. 每项必须包含 id、intent、reason；\n3. 不要输出 score；\n4. reason 限制 20 字以内；\n5. needDm=true 且 A/B/C 达到阈值时可输出 dm_message；\n6. dm_message 简短自然，不要提到AI分析；\n7. 不要输出 markdown，不要输出数组外文本。","expand":true},"type":"llmNode","position":{"x":420,"y":120}}]}',
+       'Facebook AI竞品监控：评论询盘识别与私信话术默认流程',
+       0,
+       NOW(),
+       NOW(),
+       b'0',
+       '1',
+       '1',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM ai_workflow WHERE code = 'fb_ai_competitor_comment_analyze_v1' AND deleted = 0);

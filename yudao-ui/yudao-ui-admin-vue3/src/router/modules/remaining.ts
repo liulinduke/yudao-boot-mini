@@ -251,6 +251,17 @@ const remainingRouter: AppRouteRecordRaw[] = [
           canTo: true,
           activeMenu: '/facebook/agent'
         }
+      },
+      {
+        path: 'message',
+        component: () => import('@/views/facebook/message/index.vue'),
+        name: 'FacebookMessage',
+        meta: {
+          title: 'Facebook消息管理',
+          hidden: true,
+          canTo: true,
+          activeMenu: '/facebook/message'
+        }
       }
     ]
   },

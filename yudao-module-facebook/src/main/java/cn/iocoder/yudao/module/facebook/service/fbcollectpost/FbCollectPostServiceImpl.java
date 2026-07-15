@@ -112,7 +112,8 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         }
         FbCollectDO task = SpringUtils.getBean(cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper.class)
                 .selectById(detail.getTaskId());
-        boolean aiGroupPostCollect = task != null && task.getRemark() != null && task.getRemark().startsWith("AI群帖获客:");
+        boolean aiGroupPostCollect = task != null && task.getRemark() != null
+                && (task.getRemark().startsWith("AI群帖获客:") || task.getRemark().startsWith("AI帖子获客:"));
         
         int count = 0;
         if (CollUtil.isNotEmpty(results)) {

@@ -1,0 +1,15 @@
+INSERT INTO ai_workflow
+(id, name, code, graph, remark, status, create_time, update_time, deleted, creator, updater, tenant_id)
+SELECT 2072800000000000001,
+       'FB AI 帖子获客分析 V1',
+       'fb_ai_post_lead_analyze_v1',
+       '{"edges":[{"id":"edge-post-lead-start-llm","source":"start-post-lead","target":"llm-post-lead-analyze"}],"nodes":[{"id":"start-post-lead","data":{"title":"开始","parameters":[{"id":"exportProduct","name":"exportProduct","dataType":"String","required":true,"description":"用户主营/出口产品"},{"id":"persona","name":"persona","dataType":"String","required":false,"description":"业务员人设","defaultValue":"Professional"},{"id":"needComment","name":"needComment","dataType":"Boolean","required":true,"description":"是否需要评论话术","defaultValue":"false"},{"id":"needDm","name":"needDm","dataType":"Boolean","required":true,"description":"是否需要私信话术","defaultValue":"false"},{"id":"touchScoreThreshold","name":"touchScoreThreshold","dataType":"Number","required":true,"description":"触达评分阈值"},{"id":"posts","name":"posts","dataType":"Array","required":true,"description":"搜索帖子批次，建议每批50条"}],"description":"AI帖子获客批量分析输入参数"},"type":"startNode","position":{"x":80,"y":120}},{"id":"llm-post-lead-analyze","data":{"topK":50,"topP":0.9,"llmId":1,"title":"搜索帖子意向分析","parameters":[{"id":"post-param-exportProduct","ref":"start-post-lead.exportProduct","name":"exportProduct","refType":"ref","dataType":"String","description":"用户主营/出口产品"},{"id":"post-param-persona","ref":"start-post-lead.persona","name":"persona","refType":"ref","dataType":"String","description":"业务员人设"},{"id":"post-param-needComment","ref":"start-post-lead.needComment","name":"needComment","refType":"ref","dataType":"Boolean","description":"是否需要评论话术"},{"id":"post-param-needDm","ref":"start-post-lead.needDm","name":"needDm","refType":"ref","dataType":"Boolean","description":"是否需要私信话术"},{"id":"post-param-threshold","ref":"start-post-lead.touchScoreThreshold","name":"touchScoreThreshold","refType":"ref","dataType":"Number","description":"触达评分阈值"},{"id":"post-param-posts","ref":"start-post-lead.posts","name":"posts","refType":"ref","dataType":"Array","description":"搜索帖子批次"}],"userPrompt":"exportProduct={{exportProduct}}\npersona={{persona}}\nneedComment={{needComment}}\nneedDm={{needDm}}\ntouchScoreThreshold={{touchScoreThreshold}}\nposts={{posts}}","description":"只根据帖子正文判断买家意向，不做主页深度采集","temperature":0.3,"systemPrompt":"你是一名 Facebook 外贸帖子获客分析专家。\n\n请只根据每条帖子的正文判断是否存在采购、寻找供应商、批发合作或代理需求。不要根据主页资料补充判断。\n\n返回意向等级：A 高意向，B 推荐联系，C 普通线索，D 无价值。\n\n输出要求：\n1. 只输出 JSON 数组，每项包含 id、intent、reason；\n2. 不要输出 score，reason 限制20字以内；\n3. 当 needComment=true 且该等级达到 touchScoreThreshold 时输出 comment_message；\n4. 当 needDm=true 且该等级达到 touchScoreThreshold 时输出 dm_message；\n5. 未达到阈值不要输出话术；\n6. 不要输出 markdown 或数组外文本。"},"type":"llmNode","position":{"x":420,"y":120}}]}',
+       'Facebook AI帖子获客：搜索结果帖子内容分析与触达话术生成默认流程',
+       0,
+       NOW(),
+       NOW(),
+       b'0',
+       '1',
+       '1',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM ai_workflow WHERE code = 'fb_ai_post_lead_analyze_v1' AND deleted = 0);

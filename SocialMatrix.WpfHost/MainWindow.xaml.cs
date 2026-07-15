@@ -1,10 +1,17 @@
 
 using Microsoft.Web.WebView2.Core;
+using CefSharp;
+using CefSharp.Wpf;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using SocialMatrix.WpfHost.Services;
 using SocialMatrix.WpfHost.Windows;
 using System;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace SocialMatrix.WpfHost
 {
@@ -17,11 +24,26 @@ namespace SocialMatrix.WpfHost
         private CollectTaskPollingService? _collectTaskPollingService;
         private BrowserMatrixWindow? _browserMatrixWindow;
         private readonly Dictionary<string, BrowserMatrixWindow> _browserMatrixWindows = new();
-
+        private MessageManagerWindow? _messageManagerWindow;
         public MainWindow()
         {
             InitializeComponent();
             InitializeVueWebView();
+        }
+
+        public void OpenMessageManagerWindow()
+        {
+            if (_messageManagerWindow != null)
+            {
+                _messageManagerWindow.Show();
+                _messageManagerWindow.Activate();
+                return;
+            }
+
+            _messageManagerWindow = new MessageManagerWindow(this) { Owner = this };
+            _messageManagerWindow.Closed += (_, _) => _messageManagerWindow = null;
+            _messageManagerWindow.Show();
+            _messageManagerWindow.Activate();
         }
 
         /// <summary>
@@ -37,6 +59,18 @@ namespace SocialMatrix.WpfHost
                 // 创建 JS 桥接服务
                 _jsBridge = new JsBridgeService(this);
                 VueWebView.CoreWebView2.AddHostObjectToScript("wpfBridge", _jsBridge);
+                VueWebView.CoreWebView2.WebMessageReceived += (_, args) =>
+                {
+                    try
+                    {
+                        var payload = JObject.Parse(args.TryGetWebMessageAsString());
+                        _messageManagerWindow?.HandleRelayMessage(payload);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"消息管理中转响应解析失败: {ex.Message}");
+                    }
+                };
 
                 // 开发环境加载本地 dev server，生产环境加载本地文件
 #if DEBUG
@@ -58,6 +92,14 @@ namespace SocialMatrix.WpfHost
             {
                 MessageBox.Show($"WebView2 初始化失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        public void SendMessageRelayCommand(JObject command)
+        {
+            if (VueWebView.CoreWebView2 == null) return;
+            var json = command.ToString(Formatting.None).Replace("\\", "\\\\").Replace("'", "\\'");
+            var script = $"window.dispatchEvent(new CustomEvent('fb:wpf:message-command',{{detail:JSON.parse('{json}')}}));";
+            VueWebView.CoreWebView2.ExecuteScriptAsync(script);
         }
 
         private void StartCollectTaskPolling()
@@ -226,6 +268,7 @@ namespace SocialMatrix.WpfHost
         protected override void OnClosed(EventArgs e)
         {
             _collectTaskPollingService?.Dispose();
+            _messageManagerWindow?.Close();
             base.OnClosed(e);
         }
     }

@@ -84,7 +84,7 @@ export interface FbAiTouchRecord {
 }
 
 export interface FbAiLeadAnalysisSaveReq {
-  leadType: 'user' | 'post'
+  leadType: 'user' | 'post' | 'comment'
   leadId: string | number
   aiTags?: string
   intentLevel?: string

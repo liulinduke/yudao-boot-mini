@@ -38,6 +38,9 @@ export interface FbCollectUser {
   groupId: number // 分组ID
   fromResource: string // 数据来源
   config: string // 配置信息
+  commentContent?: string // 评论内容
+  sourcePostId?: string | number // 来源帖子ID
+  sourcePostUrl?: string // 来源帖子URL
   syncTime: string | Dayjs // 同步时间
   aiTags?: string // AI标签
   intentLevel?: string // 意向等级
