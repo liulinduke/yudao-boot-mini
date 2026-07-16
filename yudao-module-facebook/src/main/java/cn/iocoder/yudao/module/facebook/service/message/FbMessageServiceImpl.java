@@ -45,8 +45,22 @@ public class FbMessageServiceImpl implements FbMessageService {
 
     @Override
     public List<FbMessageMonitorAccountDO> getMonitorAccounts() {
-        return monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
+         var d= monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
                 .orderByAsc(FbMessageMonitorAccountDO::getAccountId));
+         return d;
+    }
+
+    @Override
+    public List<Map<String, String>> getMonitorCandidates() {
+        return accountMapper.selectList(new LambdaQueryWrapper<FbAccountDO>().orderByAsc(FbAccountDO::getId))
+                .stream().map(account -> {
+                    Map<String, String> item = new LinkedHashMap<>();
+                    item.put("id", String.valueOf(account.getId()));
+                    item.put("fbAccount", blankDefault(account.getFbAccount(), ""));
+                    item.put("cookie", blankDefault(account.getCookie(), ""));
+                    item.put("deviceId", account.getDeviceId() == null ? "" : String.valueOf(account.getDeviceId()));
+                    return item;
+                }).collect(Collectors.toList());
     }
 
     @Override
@@ -86,7 +100,7 @@ public class FbMessageServiceImpl implements FbMessageService {
         FbMessageMonitorAccountDO row = monitorMapper.selectById(monitorId);
         if (row == null || !"realtime".equals(row.getMode()) || !Objects.equals(row.getStatus(), 1)) return false;
         FbAccountDO account = accountMapper.selectById(row.getAccountId());
-        return account != null && accountQueueService.refreshAccountClaim(account.getFbAccount(), "message:" + row.getId(), 90);
+        return account != null && accountQueueService.refreshAccountClaim(account.getFbAccount(), "message:" + row.getId(), 3);
     }
 
     @Override
@@ -113,7 +127,7 @@ public class FbMessageServiceImpl implements FbMessageService {
         for (FbMessageMonitorAccountDO row : rows) {
             FbAccountDO account = accounts.get(row.getAccountId());
             if (account == null || excluded.contains(String.valueOf(account.getFbAccount()))) continue;
-            if (!accountQueueService.tryClaimAccount(account.getFbAccount(), "message:" + row.getId(), "realtime".equals(row.getMode()) ? 90 : 3)) continue;
+            if (!accountQueueService.tryClaimAccount(account.getFbAccount(), "message:" + row.getId(), 3)) continue;
             row.setLastCheckTime(LocalDateTime.now());
             row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, row.getCheckIntervalMinutes())));
             monitorMapper.updateById(row);
@@ -226,7 +240,7 @@ public class FbMessageServiceImpl implements FbMessageService {
         for (FbMessageMonitorAccountDO monitor : monitors) {
             int messenger = Optional.ofNullable(monitor.getMessengerUnreadCount()).orElse(0);
             int notifications = Optional.ofNullable(monitor.getNotificationUnreadCount()).orElse(0);
-            result.add(new LinkedHashMap<>(Map.of("accountId", monitor.getAccountId(),
+            result.add(new LinkedHashMap<>(Map.of("accountId", String.valueOf(monitor.getAccountId()),
                     "messengerUnreadCount", messenger, "commentUnreadCount", notifications,
                     "totalUnreadCount", messenger + notifications)));
         }
@@ -269,15 +283,69 @@ public class FbMessageServiceImpl implements FbMessageService {
 
     @Override
     public Map<String, Object> translate(FbMessageTranslateReqVO reqVO) {
-        Map<String, Object> params = new LinkedHashMap<>(); params.put("text", reqVO.getText());
-        params.put("sourceLanguage", blankDefault(reqVO.getSourceLanguage(), "auto")); params.put("targetLanguage", reqVO.getTargetLanguage());
-        params.put("context", blankDefault(reqVO.getContext(), "facebook_messenger"));
+        // 翻译工作流只需要目标语言和原文，保留请求字段仅用于兼容现有调用方。
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("targetLanguage", languageName(reqVO.getTargetLanguage()));
+        params.put("text", reqVO.getText());
         AiWorkflowDO workflow = aiWorkflowMapper.selectByCode(TRANSLATE_WORKFLOW);
         if (workflow == null) throw new IllegalStateException("翻译工作流不存在：" + TRANSLATE_WORKFLOW);
         Object raw = aiWorkflowService.executeWorkflow(workflow.getId(), params);
-        if (raw instanceof Map) return new LinkedHashMap<>((Map<String, Object>) raw);
-        if (raw instanceof CharSequence && JSONUtil.isTypeJSON(raw.toString())) return JSONUtil.toBean(raw.toString(), Map.class);
-        return Map.of("translation", String.valueOf(raw));
+        return normalizeTranslationResult(raw);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeTranslationResult(Object raw) {
+        if (raw instanceof CharSequence text && JSONUtil.isTypeJSON(text.toString())) {
+            Object parsed = JSONUtil.parseObj(text.toString());
+            if (parsed instanceof Map<?, ?>) return normalizeTranslationResult(parsed);
+        }
+        if (raw instanceof Map<?, ?> rawMap) {
+            Object choices = rawMap.get("choices");
+            if (choices instanceof Iterable<?> items) {
+                var iterator = items.iterator();
+                if (iterator.hasNext()) return normalizeTranslationResult(iterator.next());
+            }
+            Object translation = firstNonBlank(rawMap.get("translation"), rawMap.get("content"),
+                    rawMap.get("text"), rawMap.get("output"), rawMap.get("result"), rawMap.get("data"));
+            if (translation instanceof Map<?, ?> || translation instanceof CharSequence) {
+                Map<String, Object> nested = normalizeTranslationResult(translation);
+                if (nested.get("translation") != null && !String.valueOf(nested.get("translation")).isBlank()) return nested;
+            }
+            if (translation != null && !String.valueOf(translation).isBlank()) {
+                return Map.of("translation", String.valueOf(translation));
+            }
+            if (rawMap.size() == 1) return normalizeTranslationResult(rawMap.values().iterator().next());
+        }
+        return Map.of("translation", raw == null ? "" : String.valueOf(raw));
+    }
+
+    private Object firstNonBlank(Object... values) {
+        for (Object value : values) {
+            if (value != null && !String.valueOf(value).isBlank()) return value;
+        }
+        return null;
+    }
+
+    private String languageName(String value) {
+        if (value == null || value.isBlank()) return "英语";
+        return switch (value.trim().toLowerCase()) {
+            case "en", "english", "英语" -> "英语";
+            case "es", "spanish", "español", "西班牙语" -> "西班牙语";
+            case "pt", "portuguese", "português", "葡萄牙语" -> "葡萄牙语";
+            case "ar", "arabic", "العربية", "阿拉伯语" -> "阿拉伯语";
+            case "fr", "french", "français", "法语" -> "法语";
+            case "de", "german", "deutsch", "德语" -> "德语";
+            case "it", "italian", "italiano", "意大利语" -> "意大利语";
+            case "ru", "russian", "русский", "俄语" -> "俄语";
+            case "ja", "japanese", "日本語", "日语" -> "日语";
+            case "ko", "korean", "한국어", "韩语" -> "韩语";
+            case "tr", "turkish", "土耳其语" -> "土耳其语";
+            case "id", "indonesian", "bahasa indonesia", "印度尼西亚语" -> "印度尼西亚语";
+            case "th", "thai", "ไทย", "泰语" -> "泰语";
+            case "vi", "vietnamese", "tiếng việt", "越南语" -> "越南语";
+            case "zh", "chinese", "中文" -> "中文";
+            default -> value.trim();
+        };
     }
 
     @Override

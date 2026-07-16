@@ -40,7 +40,8 @@ namespace SocialMatrix.WpfHost
                 return;
             }
 
-            _messageManagerWindow = new MessageManagerWindow(this) { Owner = this };
+            // 消息管理与主窗口保持独立任务栏窗口，避免拥有窗口关系导致无法切回主界面。
+            _messageManagerWindow = new MessageManagerWindow(this);
             _messageManagerWindow.Closed += (_, _) => _messageManagerWindow = null;
             _messageManagerWindow.Show();
             _messageManagerWindow.Activate();
@@ -55,6 +56,26 @@ namespace SocialMatrix.WpfHost
             {
                 // 确保 WebView2 运行时已安装
                 await VueWebView.EnsureCoreWebView2Async();
+
+                // 消息管理由独立 WPF 窗口承载，拦截旧前端或缓存前端发起的路由导航。
+                VueWebView.CoreWebView2.NavigationStarting += (_, args) =>
+                {
+                    try
+                    {
+                        var uri = new Uri(args.Uri);
+                        var path = uri.AbsolutePath.TrimEnd('/');
+                        if (string.Equals(path, "/facebook/message", StringComparison.OrdinalIgnoreCase)
+                            && !uri.Query.Contains("detached=1", StringComparison.OrdinalIgnoreCase))
+                        {
+                            args.Cancel = true;
+                            Dispatcher.BeginInvoke(new Action(OpenMessageManagerWindow));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"消息管理路由拦截失败: {ex.Message}");
+                    }
+                };
 
                 // 创建 JS 桥接服务
                 _jsBridge = new JsBridgeService(this);
@@ -146,6 +167,11 @@ namespace SocialMatrix.WpfHost
         public int GetBrowserWindowCount()
         {
             return _browserMatrixWindows.Count;
+        }
+
+        public int GetActiveBrowserWindowCount()
+        {
+            return _browserMatrixWindows.Values.Count(window => window.IsWindowAvailable && window.GetActiveBrowserCount() > 0);
         }
 
         private BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)

@@ -254,7 +254,7 @@ const remainingRouter: AppRouteRecordRaw[] = [
       },
       {
         path: 'message',
-        component: () => import('@/views/facebook/message/index.vue'),
+        component: () => import('@/views/facebook/message/launcher.vue'),
         name: 'FacebookMessage',
         meta: {
           title: 'Facebook消息管理',

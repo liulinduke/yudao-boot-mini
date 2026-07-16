@@ -1,4 +1,3 @@
-import { FbAccountApi } from '@/api/facebook/account'
 import { FbMessageApi } from '@/api/facebook/message'
 import { GlobalConfigApi } from '@/api/facebook/globalconfig'
 
@@ -24,7 +23,7 @@ export function setupFbMessageWpfRelay() {
       let data: any
       switch (command.action) {
         case 'accounts':
-          data = (await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 500 })).list || []
+          data = await FbMessageApi.getMonitorCandidates()
           break
         case 'monitors':
           data = await FbMessageApi.getMonitorAccounts()
@@ -42,7 +41,7 @@ export function setupFbMessageWpfRelay() {
           data = await GlobalConfigApi.batchSaveConfigs(payload.items || [])
           break
         case 'claimMonitor':
-          data = await FbMessageApi.claimMonitor(payload.limit || 3)
+          data = await FbMessageApi.claimMonitor(payload.limit || 3, payload.excludeAccounts || [])
           break
         case 'heartbeat':
           data = await FbMessageApi.heartbeat(payload.monitorId)

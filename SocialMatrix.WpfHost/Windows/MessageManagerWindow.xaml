@@ -30,8 +30,6 @@
                     <ListBox x:Name="RealtimeAccountList" BorderThickness="0" SelectionChanged="AccountList_SelectionChanged" />
                     <TextBlock Text="定时检查" FontWeight="SemiBold" Margin="12,14,12,4" Foreground="#409EFF" />
                     <ListBox x:Name="ScheduledAccountList" BorderThickness="0" SelectionChanged="AccountList_SelectionChanged" />
-                    <TextBlock Text="不接收" FontWeight="SemiBold" Margin="12,14,12,4" Foreground="#909399" />
-                    <ListBox x:Name="DisabledAccountList" BorderThickness="0" SelectionChanged="AccountList_SelectionChanged" />
                   </StackPanel>
                 </ScrollViewer>
             </DockPanel>
@@ -49,28 +47,42 @@
         </Border>
 
         <Border Grid.Column="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="1,0,0,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="14">
+            <Grid>
+                <ScrollViewer VerticalAlignment="Center" VerticalScrollBarVisibility="Auto" Margin="14">
+                <StackPanel>
                     <TextBlock Text="回复（中文）" Foreground="#606266" />
-                    <TextBox x:Name="ReplyChineseBox" Height="100" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />
+                    <TextBox x:Name="ReplyChineseBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />
                     <DockPanel Margin="0,12,0,0">
                         <TextBlock Text="目标语言" VerticalAlignment="Center" />
                         <ComboBox x:Name="TargetLanguageBox" Width="160" Margin="8,0,0,0" SelectionChanged="TargetLanguageBox_SelectionChanged">
-                            <ComboBoxItem Tag="en" Content="English" />
-                            <ComboBoxItem Tag="es" Content="Español" />
-                            <ComboBoxItem Tag="pt" Content="Português" />
-                            <ComboBoxItem Tag="ar" Content="العربية" />
+                            <ComboBoxItem Tag="en" Content="英语" />
+                            <ComboBoxItem Tag="es" Content="西班牙语" />
+                            <ComboBoxItem Tag="pt" Content="葡萄牙语" />
+                            <ComboBoxItem Tag="ar" Content="阿拉伯语" />
+                            <ComboBoxItem Tag="fr" Content="法语" />
+                            <ComboBoxItem Tag="de" Content="德语" />
+                            <ComboBoxItem Tag="it" Content="意大利语" />
+                            <ComboBoxItem Tag="ru" Content="俄语" />
+                            <ComboBoxItem Tag="ja" Content="日语" />
+                            <ComboBoxItem Tag="ko" Content="韩语" />
+                            <ComboBoxItem Tag="tr" Content="土耳其语" />
+                            <ComboBoxItem Tag="id" Content="印度尼西亚语" />
+                            <ComboBoxItem Tag="th" Content="泰语" />
+                            <ComboBoxItem Tag="vi" Content="越南语" />
                             <ComboBoxItem Tag="zh" Content="中文" />
                         </ComboBox>
+                        <CheckBox x:Name="AutoTranslateCheckBox" Content="自动翻译" IsChecked="False" Margin="12,0,0,0" VerticalAlignment="Center" />
                     </DockPanel>
                     <TextBlock Text="发送内容" Foreground="#606266" Margin="0,14,0,0" />
-                    <TextBox x:Name="ReplyTranslatedBox" Height="100" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" />
-                    <DockPanel Margin="0,12,0,0">
-                        <Button Content="发送" Width="90" HorizontalAlignment="Right" Click="SendButton_Click" />
-                        <Button Content="翻译" Width="90" Margin="0,0,8,0" HorizontalAlignment="Right" Click="TranslateButton_Click" />
+                    <TextBox x:Name="ReplyTranslatedBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <DockPanel LastChildFill="False" Margin="0,12,0,0">
+                        <Button x:Name="SendButton" DockPanel.Dock="Right" Content="发送" Width="100" Height="40" Click="SendButton_Click" />
+                        <Button x:Name="TranslateButton" DockPanel.Dock="Right" Content="翻译" Width="100" Height="40" Margin="0,0,8,0" Click="TranslateButton_Click" />
+                        <ProgressBar x:Name="TranslationProgress" DockPanel.Dock="Right" Width="24" Height="24" Margin="0,8,10,8" IsIndeterminate="True" Visibility="Collapsed" />
                     </DockPanel>
                 </StackPanel>
-            </ScrollViewer>
+                </ScrollViewer>
+            </Grid>
         </Border>
       </Grid>
     </Border>

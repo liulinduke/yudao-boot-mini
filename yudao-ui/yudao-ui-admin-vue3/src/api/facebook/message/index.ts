@@ -56,6 +56,7 @@ export interface FbMessage {
 }
 
 export const FbMessageApi = {
+  getMonitorCandidates: () => request.get<any[]>({ url: '/facebook/message/monitor/candidates' }),
   getMonitorAccounts: () => request.get<FbMessageMonitorAccount[]>({ url: '/facebook/message/monitor/accounts' }),
   saveMonitorAccount: (data: FbMessageMonitorAccount) => request.post<number>({ url: '/facebook/message/monitor/accounts/save', data }),
   batchSaveMonitorAccounts: (data: FbMessageMonitorAccount[]) => request.post<boolean>({ url: '/facebook/message/monitor/accounts/batch-save', data }),

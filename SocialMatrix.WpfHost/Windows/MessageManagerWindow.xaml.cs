@@ -70,10 +70,12 @@ namespace SocialMatrix.WpfHost.Windows
             public string Kind { get; set; } = "messenger";
             public bool Completed { get; set; }
             public bool ManualView { get; set; }
+            public bool MessengerOpened { get; set; }
             public int MonitorRounds { get; set; }
             public int? LastReportedMessengerUnreadCount { get; set; }
             public int? LastReportedNotificationUnreadCount { get; set; }
             public bool? LastReportedLoggedIn { get; set; }
+            public bool BadgePersisted { get; set; }
             public Task InitializationTask { get; set; } = Task.CompletedTask;
             public HashSet<string> SeenKeys { get; } = new();
         }
@@ -84,11 +86,13 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, TaskCompletionSource<JObject>> _pending = new();
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _startupTimer;
+        private readonly DispatcherTimer _badgeTimer;
         private readonly DispatcherTimer _selectionTimer;
         private AccountRow? _currentAccount;
         private bool _loading;
         private bool _claimingMonitors;
         private bool _checkingSelection;
+        private bool _syncingAccountSelection;
         private int _requestSequence;
         private string _lastSelectedText = "";
 
@@ -96,13 +100,15 @@ namespace SocialMatrix.WpfHost.Windows
         {
             _owner = owner;
             InitializeComponent();
+            TargetLanguageBox.SelectedIndex = 0;
             RealtimeAccountList.ItemTemplate = BuildAccountTemplate();
             ScheduledAccountList.ItemTemplate = BuildAccountTemplate();
-            DisabledAccountList.ItemTemplate = BuildAccountTemplate();
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
             _timer.Tick += async (_, _) => await RunMonitorRoundAsync();
             _startupTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _startupTimer.Tick += async (_, _) => await ClaimMonitorAccountsAsync(1);
+            _badgeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _badgeTimer.Tick += async (_, _) => await PollBadgeCountsAsync();
             _selectionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
             _selectionTimer.Tick += async (_, _) => await CheckSelectionTranslationAsync();
             Loaded += async (_, _) => await LoadDataAsync();
@@ -122,20 +128,28 @@ namespace SocialMatrix.WpfHost.Windows
             name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.DisplayName)));
             name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
             stack.AppendChild(name);
+            var metaRow = new FrameworkElementFactory(typeof(StackPanel));
+            metaRow.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
             var state = new FrameworkElementFactory(typeof(TextBlock));
             state.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.State)));
             state.SetValue(TextBlock.FontSizeProperty, 12d);
-            stack.AppendChild(state);
+            state.SetValue(TextBlock.MinWidthProperty, 52d);
+            metaRow.AppendChild(state);
+            var unreadRow = new FrameworkElementFactory(typeof(StackPanel));
+            unreadRow.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
             var unread = new FrameworkElementFactory(typeof(TextBlock));
             unread.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.MessengerUnreadCount)) { StringFormat = "消息 {0}" });
             unread.SetValue(TextBlock.ForegroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(64, 158, 255)));
             unread.SetValue(TextBlock.FontSizeProperty, 12d);
-            stack.AppendChild(unread);
+            unreadRow.AppendChild(unread);
             var notices = new FrameworkElementFactory(typeof(TextBlock));
             notices.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.CommentUnreadCount)) { StringFormat = "通知 {0}" });
             notices.SetValue(TextBlock.ForegroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 90, 70)));
             notices.SetValue(TextBlock.FontSizeProperty, 12d);
-            stack.AppendChild(notices);
+            notices.SetValue(FrameworkElement.MarginProperty, new Thickness(12, 0, 0, 0));
+            unreadRow.AppendChild(notices);
+            metaRow.AppendChild(unreadRow);
+            stack.AppendChild(metaRow);
             border.AppendChild(stack);
             template.VisualTree = border;
             return template;
@@ -188,6 +202,8 @@ namespace SocialMatrix.WpfHost.Windows
                         account.Mode = monitor.Value<string>("mode") ?? "disabled";
                         account.Enabled = !"disabled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase);
                         account.State = account.Enabled ? "等待检查" : "未启用";
+                        account.MessengerUnreadCount = monitor.Value<int?>("messengerUnreadCount") ?? 0;
+                        account.CommentUnreadCount = monitor.Value<int?>("notificationUnreadCount") ?? 0;
                         account.LastCheckTime = monitor.Value<string>("lastCheckTime") ?? "";
                     }
                     _accounts.Add(account);
@@ -199,7 +215,7 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 MessageBox.Show($"消息管理数据加载失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            finally { _loading = false; _timer.Start(); _startupTimer.Start(); }
+            finally { _loading = false; _timer.Start(); _startupTimer.Start(); _badgeTimer.Start(); }
         }
 
         private async Task RunMonitorRoundAsync()
@@ -214,22 +230,22 @@ namespace SocialMatrix.WpfHost.Windows
                         if (session.MonitorId != null)
                             _ = RelayAsync("reportMonitor", new JObject
                             {
-                                ["monitorId"] = long.Parse(session.MonitorId),
+                                ["monitorId"] = session.MonitorId,
                                 ["success"] = false,
                                 ["errorMessage"] = "业务任务优先，消息监控已暂停"
                             });
                         CloseMessageBrowserAccount(session.AccountId);
                         continue;
                     }
-                    try { await PollDomAsync(session); }
-                    catch (Exception ex) { SetAccountState(session.AccountId, $"监控失败：{ex.Message}"); }
+                    // 红圈读取由 badgeTimer 每 5 秒执行，这里只处理业务任务占用。
                 }
                 foreach (var row in _accounts.Where(x => "realtime".Equals(x.Mode, StringComparison.OrdinalIgnoreCase) && x.Enabled))
                 {
+                    if (!_sessions.ContainsKey(row.Id.ToString())) continue;
                     var monitor = (JArray)await RelayAsync("monitors");
                     var item = monitor.OfType<JObject>().FirstOrDefault(x => x.Value<long>("accountId") == row.Id);
                     if (item != null && item.Value<long?>("id") is long monitorId)
-                        await RelayAsync("heartbeat", new JObject { ["monitorId"] = monitorId });
+                        await RelayAsync("heartbeat", new JObject { ["monitorId"] = monitorId.ToString() });
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"消息监控轮询失败: {ex.Message}"); }
@@ -238,7 +254,7 @@ namespace SocialMatrix.WpfHost.Windows
         private async Task ClaimMonitorAccountsAsync(int batchSize)
         {
             if (_claimingMonitors) return;
-            var availableSlots = Math.Max(0, FbFingerprintBrowserFactory.MaxConcurrentBrowsers - 5 - _owner.GetBrowserWindowCount() - _sessions.Count);
+            var availableSlots = Math.Max(0, FbFingerprintBrowserFactory.MaxConcurrentBrowsers - 5 - _owner.GetActiveBrowserWindowCount() - _sessions.Count);
             if (availableSlots == 0)
             {
                 _startupTimer.Stop();
@@ -247,7 +263,14 @@ namespace SocialMatrix.WpfHost.Windows
             _claimingMonitors = true;
             try
             {
-                var claims = (JArray)await RelayAsync("claimMonitor", new JObject { ["limit"] = Math.Min(batchSize, availableSlots) });
+                var excludedAccounts = new JArray(_sessions.Values
+                    .Select(session => _accounts.FirstOrDefault(row => row.Id.ToString() == session.AccountId)?.FbAccount)
+                    .Where(account => !string.IsNullOrWhiteSpace(account)));
+                var claims = (JArray)await RelayAsync("claimMonitor", new JObject
+                {
+                    ["limit"] = Math.Min(batchSize, availableSlots),
+                    ["excludeAccounts"] = excludedAccounts
+                });
                 if (claims.Count == 0) _startupTimer.Stop();
                 foreach (var token in claims.OfType<JObject>())
                 {
@@ -268,16 +291,25 @@ namespace SocialMatrix.WpfHost.Windows
             var url = "https://www.facebook.com/";
             var mode = claim.Value<string>("mode") ?? account.Mode;
             account.State = "正在打开浏览器";
-            OpenBrowser(account, claim.Value<string>("cookie") ?? account.Cookie, claim.Value<long?>("deviceId"), url, claim.Value<long>("monitorId"), mode);
+            var opened = OpenBrowser(account, claim.Value<string>("cookie") ?? account.Cookie, claim.Value<long?>("deviceId"), url, claim.Value<long>("monitorId"), mode);
+            if (!opened)
+            {
+                _ = RelayAsync("reportMonitor", new JObject
+                {
+                    ["monitorId"] = claim.Value<string>("monitorId") ?? claim.Value<long>("monitorId").ToString(),
+                    ["success"] = false,
+                    ["errorMessage"] = "消息监控浏览器启动失败，已释放账号锁"
+                });
+            }
         }
 
-        private void OpenBrowser(AccountRow account, string cookie, long? deviceId, string url, long? monitorId = null, string mode = "realtime", bool show = false, bool manual = false)
+        private bool OpenBrowser(AccountRow account, string cookie, long? deviceId, string url, long? monitorId = null, string mode = "realtime", bool show = false, bool manual = false)
         {
             var accountKey = account.Id.ToString();
             if (_owner.GetBrowserMatrixWindowForAccount(accountKey)?.GetActiveBrowserCount() > 0)
             {
                 account.State = "等待账号任务完成";
-                return;
+                return false;
             }
             if (!_sessions.TryGetValue(accountKey, out var session))
             {
@@ -286,10 +318,10 @@ namespace SocialMatrix.WpfHost.Windows
                 var messageLimit = "realtime".Equals(mode, StringComparison.OrdinalIgnoreCase)
                     ? Math.Max(0, maxBrowsers - reservedForBusiness)
                     : maxBrowsers;
-                if (_owner.GetBrowserWindowCount() + _sessions.Count >= messageLimit)
+                if (_owner.GetActiveBrowserWindowCount() + _sessions.Count >= messageLimit)
                 {
                     account.State = "等待浏览器槽位";
-                    return;
+                    return false;
                 }
                 var browser = FbFingerprintBrowserFactory.Create(accountKey, deviceId, out var context);
                 session = new BrowserSession { AccountId = accountKey, Browser = browser, RequestContext = context };
@@ -308,28 +340,120 @@ namespace SocialMatrix.WpfHost.Windows
             session.Kind = url.Contains("notifications", StringComparison.OrdinalIgnoreCase) ? "comment" : "messenger";
             session.Completed = false;
             if (monitorId != null) session.MonitorRounds = 0;
+            // 后台浏览器必须保持在可视树中，Hidden 不显示但允许 CefSharp 继续布局和加载页面。
+            // Collapsed 会移出布局，部分 CefSharp 页面可能一直停留在 Cookie 注入阶段。
             foreach (var other in _sessions.Values.Where(x => x.AccountId != accountKey))
-                other.Browser.Visibility = Visibility.Collapsed;
-            session.Browser.Visibility = show || _currentAccount?.Id.ToString() == accountKey ? Visibility.Visible : Visibility.Collapsed;
+                other.Browser.Visibility = Visibility.Hidden;
+            session.Browser.Visibility = show || _currentAccount?.Id.ToString() == accountKey ? Visibility.Visible : Visibility.Hidden;
             if (session.Browser.Visibility == Visibility.Visible) BrowserEmptyText.Visibility = Visibility.Collapsed;
+            return true;
         }
 
         private async Task InitializeBrowserAsync(BrowserSession session, string cookie, long? deviceId, string url)
         {
             try { await FbFingerprintBrowserFactory.InitializeAsync(session.Browser, session.AccountId, cookie, deviceId, url); }
-            catch (Exception ex) { SetAccountState(session.AccountId, $"浏览器异常：{ex.Message}"); }
+            catch (Exception ex)
+            {
+                SetAccountState(session.AccountId, $"浏览器异常：{ex.Message}");
+                if (session.MonitorId != null)
+                {
+                    _ = RelayAsync("reportMonitor", new JObject
+                    {
+                        ["monitorId"] = session.MonitorId,
+                        ["success"] = false,
+                        ["errorMessage"] = "消息监控浏览器初始化失败，已释放账号锁"
+                    });
+                }
+            }
         }
 
         private async void AccountList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_loading || (sender as ListBox)?.SelectedItem is not AccountRow row) return;
+            if (_loading || _syncingAccountSelection || sender is not ListBox list
+                || list.SelectedItem is not AccountRow row) return;
+
+            // 实时和定时是两个 ListBox，切换时清掉另一个列表的选中项，
+            // 否则切回原列表时不会再次触发 SelectionChanged。
+            _syncingAccountSelection = true;
+            try
+            {
+                if (ReferenceEquals(list, RealtimeAccountList))
+                    ScheduledAccountList.SelectedItem = null;
+                else if (ReferenceEquals(list, ScheduledAccountList))
+                    RealtimeAccountList.SelectedItem = null;
+            }
+            finally
+            {
+                _syncingAccountSelection = false;
+            }
+
             var previousAccountId = _currentAccount?.Id.ToString();
+            if ("disabled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase)) return;
+
+            BrowserSession session;
+            if (!_sessions.TryGetValue(row.Id.ToString(), out session))
+            {
+                // 新账号立即创建并显示浏览器，Cookie/页面加载在后台继续。
+                var opened = OpenBrowser(row, row.Cookie, row.DeviceId, "https://www.facebook.com/messages/", mode: row.Mode, show: true, manual: "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase));
+                if (!opened || !_sessions.TryGetValue(row.Id.ToString(), out session)) return;
+            }
+            else
+            {
+                // 已有浏览器只切换显示，不重复创建、不等待加载。
+                session.Mode = row.Mode;
+                session.ManualView = "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase);
+                ShowBrowserSession(session);
+            }
+
+            _currentAccount = row;
             if (previousAccountId != null && previousAccountId != row.Id.ToString()
                 && _sessions.TryGetValue(previousAccountId, out var previousSession) && previousSession.ManualView)
                 CloseMessageBrowserAccount(previousAccountId);
-            _currentAccount = row;
-            if (!"disabled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase))
-                OpenBrowser(row, row.Cookie, row.DeviceId, "https://www.facebook.com/messages/", mode: row.Mode, show: true, manual: "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase));
+
+            if (!session.MessengerOpened) _ = OpenMessengerOnFirstViewAsync(session);
+        }
+
+        private void ShowBrowserSession(BrowserSession session)
+        {
+            foreach (var other in _sessions.Values.Where(x => x.AccountId != session.AccountId))
+                other.Browser.Visibility = Visibility.Hidden;
+            session.Browser.Visibility = Visibility.Visible;
+            BrowserEmptyText.Visibility = Visibility.Collapsed;
+        }
+
+        private async Task OpenMessengerOnFirstViewAsync(BrowserSession session)
+        {
+            try
+            {
+                await session.InitializationTask;
+                if (session.MessengerOpened) return;
+                if (await IsFacebookLoginPageAsync(session))
+                {
+                    session.MessengerOpened = true;
+                    SetAccountState(session.AccountId, "Cookie失效");
+                    return;
+                }
+                var address = session.Browser.Address ?? "";
+                if (!address.Contains("facebook.com/messages", StringComparison.OrdinalIgnoreCase))
+                    session.Browser.Load("https://www.facebook.com/messages/");
+                session.MessengerOpened = true;
+            }
+            catch (Exception ex)
+            {
+                SetAccountState(session.AccountId, $"Messenger打开失败：{ex.Message}");
+            }
+        }
+
+        private async Task<bool> IsFacebookLoginPageAsync(BrowserSession session)
+        {
+            var address = session.Browser.Address ?? "";
+            if (address.Contains("/login", StringComparison.OrdinalIgnoreCase)
+                || address.Contains("checkpoint", StringComparison.OrdinalIgnoreCase)) return true;
+            if (!session.Browser.CanExecuteJavascriptInMainFrame) return false;
+            var result = await session.Browser.EvaluateScriptAsync(@"(function(){
+                return !!document.querySelector('input[name=""email""], input[name=""pass""], form[action*=""login""]');
+            })();");
+            return result.Success && result.Result is bool isLogin && isLogin;
         }
 
         private async void OpenMonitorConfig_Click(object sender, RoutedEventArgs e)
@@ -372,8 +496,7 @@ namespace SocialMatrix.WpfHost.Windows
             var keyword = AccountSearchBox?.Text?.Trim() ?? "";
             var rows = _accounts.Where(x => string.IsNullOrEmpty(keyword) || x.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
             RealtimeAccountList.ItemsSource = rows.Where(x => x.Mode == "realtime").ToList();
-            ScheduledAccountList.ItemsSource = rows.Where(x => x.Mode == "scheduled").ToList();
-            DisabledAccountList.ItemsSource = rows.Where(x => x.Mode == "disabled").ToList();
+            ScheduledAccountList.ItemsSource = rows.Where(x => x.Mode == "scheduled" && x.TotalUnreadCount > 0).ToList();
         }
 
         private async Task SaveMonitorAsync(AccountRow row, string mode)
@@ -382,7 +505,7 @@ namespace SocialMatrix.WpfHost.Windows
             row.State = mode == "disabled" ? "未启用" : "等待检查";
             await RelayAsync("saveMonitor", new JObject
             {
-                ["accountId"] = row.Id,
+                ["accountId"] = row.Id.ToString(),
                 ["mode"] = mode,
                 ["checkIntervalMinutes"] = 30,
                 ["status"] = 1
@@ -391,8 +514,15 @@ namespace SocialMatrix.WpfHost.Windows
             RefreshAccountGroups();
         }
 
-        private async void ReplyChineseBox_LostFocus(object sender, RoutedEventArgs e) => await TranslateReplySafelyAsync();
-        private async void TargetLanguageBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => await TranslateReplySafelyAsync();
+        private async void ReplyChineseBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (AutoTranslateCheckBox.IsChecked == true) await TranslateReplySafelyAsync();
+        }
+
+        private async void TargetLanguageBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (AutoTranslateCheckBox.IsChecked == true) await TranslateReplySafelyAsync();
+        }
         private async void TranslateButton_Click(object sender, RoutedEventArgs e) => await TranslateReplySafelyAsync();
 
         private async Task TranslateReplySafelyAsync()
@@ -403,27 +533,47 @@ namespace SocialMatrix.WpfHost.Windows
             }
             catch (Exception ex)
             {
-                ReplyTranslatedBox.Text = ReplyChineseBox.Text;
+                ReplyTranslatedBox.Text = "";
                 System.Diagnostics.Debug.WriteLine($"消息翻译失败: {ex.Message}");
-                MessageBox.Show($"翻译失败，将保留原文：{ex.Message}", "翻译提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show($"翻译失败，请稍后重试：{ex.Message}", "翻译提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
         private async Task TranslateReplyAsync()
         {
+            if (TranslationProgress.Visibility == Visibility.Visible) return;
             var text = ReplyChineseBox.Text.Trim();
             if (text.Length == 0) { ReplyTranslatedBox.Text = ""; return; }
-            var target = (TargetLanguageBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en";
+            var target = (TargetLanguageBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "英语";
             if (!text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
             {
                 ReplyTranslatedBox.Text = text;
                 return;
             }
-            var result = (JObject)await RelayAsync("translate", new JObject
+            TranslationProgress.Visibility = Visibility.Visible;
+            TranslateButton.IsEnabled = false;
+            SendButton.IsEnabled = false;
+            try
             {
-                ["text"] = text, ["sourceLanguage"] = "zh", ["targetLanguage"] = target, ["context"] = "facebook_messenger_reply"
-            });
-            ReplyTranslatedBox.Text = result.Value<string>("translation") ?? text;
+                var request = RelayAsync("translate", new JObject
+                {
+                    ["text"] = text, ["sourceLanguage"] = "zh", ["targetLanguage"] = target, ["context"] = "facebook_messenger_reply"
+                });
+                var completed = await Task.WhenAny(request, Task.Delay(TimeSpan.FromSeconds(10)));
+                if (completed != request) throw new TimeoutException("翻译超过10秒未完成");
+                var result = await request;
+                ReplyTranslatedBox.Text = result.Value<string>("translation")
+                    ?? result.SelectToken("data.translation")?.ToString()
+                    ?? result.SelectToken("data.content")?.ToString()
+                    ?? result.Value<string>("content")
+                    ?? text;
+            }
+            finally
+            {
+                TranslationProgress.Visibility = Visibility.Collapsed;
+                TranslateButton.IsEnabled = true;
+                SendButton.IsEnabled = !string.IsNullOrWhiteSpace(ReplyTranslatedBox.Text);
+            }
         }
 
         private async void SendButton_Click(object sender, RoutedEventArgs e)
@@ -452,7 +602,7 @@ namespace SocialMatrix.WpfHost.Windows
                 if (!sent) return;
                 await RelayAsync("ingest", new JObject
                 {
-                    ["accountId"] = account.Id,
+                    ["accountId"] = account.Id.ToString(),
                     ["conversationKey"] = conversation.ConversationKey,
                     ["targetUserId"] = conversation.TargetUserId,
                     ["targetName"] = conversation.TargetName,
@@ -641,6 +791,7 @@ namespace SocialMatrix.WpfHost.Windows
         private void CloseMessageBrowserAccount(string accountId)
         {
             if (!_sessions.Remove(accountId, out var session)) return;
+            _ = PersistBadgeAsync(session);
             BrowserHost.Children.Remove(session.Browser);
             var browser = session.Browser;
             var requestContext = session.RequestContext;
@@ -657,10 +808,11 @@ namespace SocialMatrix.WpfHost.Windows
         {
             foreach (var session in _sessions.Values.ToList())
             {
+                _ = PersistBadgeAsync(session);
                 if (session.MonitorId != null)
                     _ = RelayAsync("reportMonitor", new JObject
                     {
-                        ["monitorId"] = long.Parse(session.MonitorId),
+                        ["monitorId"] = session.MonitorId,
                         ["success"] = false,
                         ["errorMessage"] = "消息管理窗口已关闭"
                     });
@@ -668,7 +820,42 @@ namespace SocialMatrix.WpfHost.Windows
             }
             _timer.Stop();
             _startupTimer.Stop();
+            _badgeTimer.Stop();
             _selectionTimer.Stop();
+        }
+
+        private async Task PollBadgeCountsAsync()
+        {
+            foreach (var session in _sessions.Values.ToList())
+            {
+                if (_owner.GetBrowserMatrixWindowForAccount(session.AccountId)?.GetActiveBrowserCount() > 0)
+                    continue;
+                try { await PollDomAsync(session); }
+                catch (Exception ex) { SetAccountState(session.AccountId, $"红圈读取失败：{ex.Message}"); }
+            }
+        }
+
+        private async Task PersistBadgeAsync(BrowserSession session)
+        {
+            if (session.BadgePersisted) return;
+            var account = _accounts.FirstOrDefault(x => x.Id.ToString() == session.AccountId);
+            if (account == null) return;
+            session.BadgePersisted = true;
+            try
+            {
+                await RelayAsync("reportUnreadBadges", new JObject
+                {
+                    ["accountId"] = account.Id.ToString(),
+                    ["messengerUnreadCount"] = account.MessengerUnreadCount,
+                    ["notificationUnreadCount"] = account.CommentUnreadCount,
+                    ["loggedIn"] = session.LastReportedLoggedIn != false
+                });
+            }
+            catch (Exception ex)
+            {
+                session.BadgePersisted = false;
+                System.Diagnostics.Debug.WriteLine($"保存消息未读数失败: {ex.Message}");
+            }
         }
 
         private async Task CheckSelectionTranslationAsync()
@@ -770,31 +957,25 @@ return {loggedIn:true,messengerUnreadCount:messenger,commentUnreadCount:count(['
             var account = _accounts.FirstOrDefault(x => x.Id.ToString() == session.AccountId);
             if (account != null)
             {
+                var hadUnread = account.TotalUnreadCount > 0;
                 account.MessengerUnreadCount = counts.Value<int?>("messengerUnreadCount") ?? 0;
                 account.CommentUnreadCount = counts.Value<int?>("commentUnreadCount") ?? 0;
                 var loggedIn = counts.Value<bool?>("loggedIn") != false;
-                account.State = !loggedIn ? "Cookie失效" : "realtime".Equals(account.Mode, StringComparison.OrdinalIgnoreCase) ? "在线（30秒刷新）" : "检查完成";
+                account.State = !loggedIn ? "Cookie失效" : "realtime".Equals(account.Mode, StringComparison.OrdinalIgnoreCase) ? "在线" : "检查完成";
                 account.RefreshUnread();
-                if (session.LastReportedMessengerUnreadCount != account.MessengerUnreadCount
-                    || session.LastReportedNotificationUnreadCount != account.CommentUnreadCount
-                    || session.LastReportedLoggedIn != loggedIn)
-                {
-                    session.LastReportedMessengerUnreadCount = account.MessengerUnreadCount;
-                    session.LastReportedNotificationUnreadCount = account.CommentUnreadCount;
-                    session.LastReportedLoggedIn = loggedIn;
-                    _ = RelayAsync("reportUnreadBadges", new JObject
-                    {
-                        ["accountId"] = account.Id,
-                        ["messengerUnreadCount"] = account.MessengerUnreadCount,
-                        ["notificationUnreadCount"] = account.CommentUnreadCount,
-                        ["loggedIn"] = loggedIn
-                    });
-                }
+                session.LastReportedMessengerUnreadCount = account.MessengerUnreadCount;
+                session.LastReportedNotificationUnreadCount = account.CommentUnreadCount;
+                session.LastReportedLoggedIn = loggedIn;
+                if ("scheduled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase)
+                    && hadUnread != (account.TotalUnreadCount > 0))
+                    RefreshAccountGroups();
             }
-            if (session.Mode == "scheduled" && !session.Completed)
+            // 用户手动点击的定时账号需要保留页面，只有后台领取的定时检查才自动关闭。
+            if (session.Mode == "scheduled" && !session.ManualView && !session.Completed)
             {
+                await PersistBadgeAsync(session);
                 session.Completed = true;
-                if (session.MonitorId != null) _ = RelayAsync("reportMonitor", new JObject { ["monitorId"] = long.Parse(session.MonitorId), ["success"] = true });
+                if (session.MonitorId != null) _ = RelayAsync("reportMonitor", new JObject { ["monitorId"] = session.MonitorId, ["success"] = true });
                 Dispatcher.BeginInvoke(new Action(() => CloseMessageBrowserAccount(session.AccountId)));
             }
         }

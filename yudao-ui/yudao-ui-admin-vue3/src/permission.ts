@@ -60,6 +60,17 @@ const whiteList = [
 router.beforeEach(async (to, from, next) => {
   start()
   loadStart()
+  // system_menu 的 facebook/message/index、component_name=Message 是 FB 消息管理菜单。
+  // 菜单只作为 WPF 窗口入口，取消 Vue 聊天页的导航。
+  if ((to.name === 'Message' || to.path === '/facebook/fb-message') && to.query.detached !== '1') {
+    const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
+    if (bridge?.OpenMessageManagerWindow) {
+      bridge.OpenMessageManagerWindow()
+      // 菜单只是 WPF 窗口入口，取消 Vue 路由导航，保持当前页面不变。
+      next(false)
+      return
+    }
+  }
   if (getAccessToken()) {
     if (to.path === '/login') {
       next({ path: '/' })

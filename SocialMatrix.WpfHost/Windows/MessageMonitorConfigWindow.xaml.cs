@@ -117,7 +117,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
                 var items = new JArray(_rows.Select(x => new JObject
                 {
-                    ["accountId"] = x.Id, ["mode"] = x.Mode,
+                    ["accountId"] = x.Id.ToString(), ["mode"] = x.Mode,
                     ["checkIntervalMinutes"] = Math.Max(1, x.Interval), ["status"] = 1
                 }));
                 await _saveMonitors(items);

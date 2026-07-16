@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.facebook.dal.dataobject.message;
 
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
@@ -16,7 +18,9 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class FbMessageMonitorAccountDO extends TenantBaseDO {
     @TableId
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long accountId;
     private String mode;
     private Integer checkIntervalMinutes;

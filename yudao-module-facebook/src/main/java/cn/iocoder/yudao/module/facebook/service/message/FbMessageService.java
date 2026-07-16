@@ -10,6 +10,7 @@ import java.util.Map;
 
 public interface FbMessageService {
     List<FbMessageMonitorAccountDO> getMonitorAccounts();
+    List<Map<String, String>> getMonitorCandidates();
     Long saveMonitorAccount(@Valid FbMessageMonitorAccountSaveReqVO reqVO);
     void batchSaveMonitorAccounts(List<FbMessageMonitorAccountSaveReqVO> reqVOList);
     List<FbMessageMonitorClaimRespVO> claimMonitorAccounts(FbMessageMonitorClaimReqVO reqVO);

@@ -31,6 +31,11 @@ public class FbMessageController {
     @PreAuthorize("@ss.hasPermission('facebook:message:query')")
     public CommonResult<List<FbMessageMonitorAccountDO>> getMonitorAccounts() { return success(messageService.getMonitorAccounts()); }
 
+    @GetMapping("/monitor/candidates")
+    @Operation(summary = "获取消息监控可选账号")
+    @PreAuthorize("@ss.hasPermission('facebook:message:query')")
+    public CommonResult<List<Map<String, String>>> getMonitorCandidates() { return success(messageService.getMonitorCandidates()); }
+
     @PostMapping("/monitor/accounts/save")
     @Operation(summary = "保存消息监控账号")
     @PreAuthorize("@ss.hasPermission('facebook:message:update')")

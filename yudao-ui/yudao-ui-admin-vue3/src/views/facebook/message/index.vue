@@ -1,4 +1,5 @@
 <template>
+  <template v-if="isDetached">
   <ContentWrap class="message-manager">
     <div class="message-toolbar">
       <div class="message-title">Facebook消息管理</div>
@@ -112,16 +113,18 @@
           </div>
           <div class="reply-composer">
             <div class="composer-label">回复（中文）</div>
-            <el-input v-model="replyChinese" type="textarea" :rows="3" placeholder="输入中文回复" @blur="translateReply" />
+            <el-input v-model="replyChinese" type="textarea" :rows="3" placeholder="输入中文回复" @blur="autoTranslate && translateReply()" />
             <div class="composer-target-row">
               <span>目标语言：{{ targetLanguageLabel }}</span>
-              <el-select v-model="replyTargetLanguage" size="small" @change="translateReply">
+              <el-switch v-model="autoTranslate" inline-prompt active-text="自动翻译" inactive-text="手动翻译" />
+              <el-select v-model="replyTargetLanguage" size="small" @change="autoTranslate && translateReply()">
                 <el-option v-for="language in languages" :key="language.value" :label="language.label" :value="language.value" />
               </el-select>
             </div>
             <el-input v-model="replyTranslated" type="textarea" :rows="3" placeholder="目标语言回复，可编辑" />
             <div class="composer-actions">
               <el-button @click="scriptSelectorVisible = true"><Icon icon="ep:collection" class="mr-5px" />话术库</el-button>
+              <el-button :loading="translating" @click="translateReply">翻译</el-button>
               <el-button type="primary" :loading="sending" :disabled="!replyTranslated.trim()" @click="sendMessage">
                 <Icon icon="ep:promotion" class="mr-5px" />发送
               </el-button>
@@ -133,6 +136,7 @@
   </ContentWrap>
 
   <ScriptSelector v-if="scriptSelectorVisible" v-model="scriptSelectorVisible" @confirm="applyScript" />
+  </template>
 </template>
 
 <script setup lang="ts">
@@ -158,6 +162,8 @@ const selectedAccount = ref<FbAccount>()
 const selectedConversation = ref<FbMessageConversation>()
 const replyChinese = ref('')
 const replyTranslated = ref('')
+const autoTranslate = ref(false)
+const translating = ref(false)
 const replyTargetLanguage = ref('en')
 const scriptSelectorVisible = ref(false)
 const browserPanelRef = ref<HTMLElement>()
@@ -170,9 +176,13 @@ const finishedMonitors = new Set<string>()
 const activeMonitorIds = new Map<string, string>()
 
 const languages = [
-  { value: 'en', label: 'English' }, { value: 'es', label: 'Español' },
-  { value: 'pt', label: 'Português' }, { value: 'ar', label: 'العربية' },
-  { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' },
+  { value: 'en', label: '英语' }, { value: 'es', label: '西班牙语' },
+  { value: 'pt', label: '葡萄牙语' }, { value: 'ar', label: '阿拉伯语' },
+  { value: 'fr', label: '法语' }, { value: 'de', label: '德语' },
+  { value: 'it', label: '意大利语' }, { value: 'ru', label: '俄语' },
+  { value: 'ja', label: '日语' }, { value: 'ko', label: '韩语' },
+  { value: 'tr', label: '土耳其语' }, { value: 'id', label: '印度尼西亚语' },
+  { value: 'th', label: '泰语' }, { value: 'vi', label: '越南语' },
   { value: 'zh', label: '中文' }
 ]
 
@@ -277,13 +287,26 @@ const saveInterval = async (account: FbAccount, minutes: number) => {
 }
 
 const translateReply = async () => {
+  if (translating.value) return
   const text = replyChinese.value.trim()
   if (!text || !/[\u3400-\u9fff]/.test(text)) {
     if (text) replyTranslated.value = text
     return
   }
-  const result = await FbMessageApi.translate({ text, sourceLanguage: 'zh', targetLanguage: replyTargetLanguage.value, context: 'facebook_messenger_reply' })
-  replyTranslated.value = result.translation || ''
+  translating.value = true
+  try {
+    const request = FbMessageApi.translate({ text, sourceLanguage: 'zh', targetLanguage: targetLanguageLabel.value, context: 'facebook_messenger_reply' })
+    const result = await Promise.race([
+      request,
+      new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('翻译超过10秒未完成')), 10000))
+    ])
+    replyTranslated.value = result.translation || ''
+  } catch (error) {
+    replyTranslated.value = ''
+    message.error(error instanceof Error ? error.message : '翻译失败，请稍后重试')
+  } finally {
+    translating.value = false
+  }
 }
 
 const retryTranslation = async (item: FbMessage) => {
@@ -321,7 +344,7 @@ const sendMessage = async () => {
       targetUrl: selectedConversation.value.targetUrl,
       conversationKey: selectedConversation.value.conversationKey,
       text: replyTranslated.value.trim(),
-      targetLanguage: replyTargetLanguage.value
+      targetLanguage: targetLanguageLabel.value
     })
     replyChinese.value = ''; replyTranslated.value = ''
     await loadMessages()
@@ -415,9 +438,10 @@ const refreshRealtimeMonitors = async () => {
 }
 
 onMounted(async () => {
-  if (!isDetached.value && getBridge()?.OpenMessageManagerWindow) {
-    getBridge()?.OpenMessageManagerWindow?.()
-    await router.replace('/index')
+  const bridge = getBridge()
+  if (!isDetached.value && bridge?.OpenMessageManagerWindow) {
+    await router.replace({ name: 'Index' })
+    bridge.OpenMessageManagerWindow()
     return
   }
   window.addEventListener('fb:message:received', handleIncomingMessage)
