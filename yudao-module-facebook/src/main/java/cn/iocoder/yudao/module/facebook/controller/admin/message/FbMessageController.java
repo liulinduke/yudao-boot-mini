@@ -31,6 +31,11 @@ public class FbMessageController {
     @PreAuthorize("@ss.hasPermission('facebook:message:query')")
     public CommonResult<List<FbMessageMonitorAccountDO>> getMonitorAccounts() { return success(messageService.getMonitorAccounts()); }
 
+    @GetMapping("/monitor/pool")
+    @Operation(summary = "获取消息接收池账号")
+    @PreAuthorize("@ss.hasPermission('facebook:message:query')")
+    public CommonResult<List<FbMessageMonitorAccountDO>> getMonitorPool() { return success(messageService.getMonitorPool()); }
+
     @GetMapping("/monitor/candidates")
     @Operation(summary = "获取消息监控可选账号")
     @PreAuthorize("@ss.hasPermission('facebook:message:query')")
@@ -48,6 +53,31 @@ public class FbMessageController {
         messageService.batchSaveMonitorAccounts(reqVOList);
         return success(true);
     }
+
+    @PostMapping("/monitor/pool/add")
+    @Operation(summary = "加入消息接收池")
+    @PreAuthorize("@ss.hasPermission('facebook:message:update')")
+    public CommonResult<Boolean> addPool(@Valid @RequestBody FbMessageMonitorPoolReqVO reqVO) { messageService.addMonitorPool(reqVO); return success(true); }
+
+    @PostMapping("/monitor/pool/remove")
+    @Operation(summary = "移出消息接收池")
+    @PreAuthorize("@ss.hasPermission('facebook:message:update')")
+    public CommonResult<Boolean> removePool(@Valid @RequestBody FbMessageMonitorPoolReqVO reqVO) { messageService.removeMonitorPool(reqVO); return success(true); }
+
+    @PostMapping("/monitor/batch-state")
+    @Operation(summary = "批量更新消息监控状态")
+    @PreAuthorize("@ss.hasPermission('facebook:message:update')")
+    public CommonResult<Boolean> batchState(@Valid @RequestBody FbMessageMonitorBatchStateReqVO reqVO) { messageService.batchUpdateMonitorState(reqVO); return success(true); }
+
+    @PostMapping("/monitor/interval")
+    @Operation(summary = "保存消息定时接收间隔")
+    @PreAuthorize("@ss.hasPermission('facebook:message:update')")
+    public CommonResult<Boolean> updateMonitorInterval(@Valid @RequestBody FbMessageMonitorIntervalReqVO reqVO) { messageService.updateMonitorIntervals(reqVO); return success(true); }
+
+    @PostMapping("/monitor/normalize-runtime")
+    @Operation(summary = "重置消息监控运行状态")
+    @PreAuthorize("@ss.hasPermission('facebook:message:update')")
+    public CommonResult<Boolean> normalizeRuntime() { messageService.normalizeMonitorRuntimeStates(); return success(true); }
 
     @PostMapping("/monitor/claim")
     @Operation(summary = "领取消息检查账号")

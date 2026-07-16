@@ -8,4 +8,6 @@ import java.util.List;
 public class FbMessageMonitorClaimReqVO {
     private Integer limit;
     private List<String> excludeAccounts;
+    private List<String> accountIds;
+    private Boolean manual;
 }

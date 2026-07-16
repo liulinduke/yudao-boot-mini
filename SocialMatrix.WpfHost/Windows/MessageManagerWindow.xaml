@@ -19,16 +19,20 @@
         <Border Grid.Column="0" Background="White" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="12">
-                    <TextBlock Text="消息管理" FontSize="18" FontWeight="SemiBold" />
-                    <TextBlock Text="账号监控" Foreground="#909399" Margin="0,4,0,10" />
-                    <Button Content="消息接收账号配置" Height="30" Margin="0,0,0,8" Click="OpenMonitorConfig_Click" />
+                        <TextBlock Margin="0,0,0,8" Text="消息管理" FontSize="18" FontWeight="SemiBold" />
+                    <WrapPanel Margin="0,0,0,8">
+                        <Button Content="+" Width="36" Height="32" Margin="0,0,6,6" FontSize="18" FontWeight="SemiBold" ToolTip="管理接收账号" Click="ManagePool_Click" />
+                        <Button Content="上线" Width="72" Height="32" Margin="0,0,6,6" Click="BringOnline_Click" />
+                        <Button Content="下线" Width="72" Height="32" Margin="0,0,0,6" Click="SetScheduled_Click" />
+                    </WrapPanel>
                     <TextBox x:Name="AccountSearchBox" Height="30" Padding="8,4" TextChanged="AccountSearchBox_TextChanged" />
                 </StackPanel>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="SelectedCountText" Text="已选 0 个" Foreground="#909399" Margin="12,8,12,10" />
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <StackPanel>
-                    <TextBlock Text="实时在线" FontWeight="SemiBold" Margin="12,4,12,4" Foreground="#1B8F77" />
+                    <TextBlock Text="在线" FontWeight="SemiBold" Margin="12,4,12,4" Foreground="#1B8F77" />
                     <ListBox x:Name="RealtimeAccountList" BorderThickness="0" SelectionChanged="AccountList_SelectionChanged" />
-                    <TextBlock Text="定时检查" FontWeight="SemiBold" Margin="12,14,12,4" Foreground="#409EFF" />
+                    <TextBlock Text="离线" FontWeight="SemiBold" Margin="12,14,12,4" Foreground="#409EFF" />
                     <ListBox x:Name="ScheduledAccountList" BorderThickness="0" SelectionChanged="AccountList_SelectionChanged" />
                   </StackPanel>
                 </ScrollViewer>
@@ -41,7 +45,10 @@
                 <Border x:Name="SelectionTranslationPopup" Visibility="Collapsed" IsHitTestVisible="False"
                         HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="360" Padding="10,7"
                         Background="#1F2937" CornerRadius="4" Panel.ZIndex="20">
-                    <TextBlock x:Name="SelectionTranslationText" Foreground="White" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal">
+                        <ProgressBar x:Name="SelectionTranslationProgress" Width="18" Height="18" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,8,0" />
+                        <TextBlock x:Name="SelectionTranslationText" Foreground="White" TextWrapping="Wrap" />
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>
@@ -50,7 +57,18 @@
             <Grid>
                 <ScrollViewer VerticalAlignment="Center" VerticalScrollBarVisibility="Auto" Margin="14">
                 <StackPanel>
-                    <TextBlock Text="回复（中文）" Foreground="#606266" />
+                    <TextBlock Text="快捷话术" FontWeight="SemiBold" FontSize="15" />
+                    <DockPanel Margin="0,8,0,0">
+                        <Button x:Name="ScriptSearchButton" DockPanel.Dock="Right" Content="搜索" Width="64" Height="30" Margin="8,0,0,0" Click="ScriptSearchButton_Click" />
+                        <TextBox x:Name="ScriptSearchBox" Height="30" Padding="8,4" ToolTip="搜索话术标题" />
+                    </DockPanel>
+                    <ListBox x:Name="ScriptList" Height="210" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,8,0,14" SelectionChanged="ScriptList_SelectionChanged" />
+                    <DockPanel Margin="0,0,0,14">
+                        <Button x:Name="ScriptNextButton" DockPanel.Dock="Right" Content="下一页" Width="64" Height="28" Click="ScriptNextButton_Click" />
+                        <Button x:Name="ScriptPreviousButton" DockPanel.Dock="Right" Content="上一页" Width="64" Height="28" Margin="0,0,6,0" Click="ScriptPreviousButton_Click" />
+                        <TextBlock x:Name="ScriptPageText" Text="第 1 页" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="回复" Foreground="#606266" />
                     <TextBox x:Name="ReplyChineseBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />
                     <DockPanel Margin="0,12,0,0">
                         <TextBlock Text="目标语言" VerticalAlignment="Center" />

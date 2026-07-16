@@ -1,11 +1,17 @@
 import { FbMessageApi } from '@/api/facebook/message'
 import { GlobalConfigApi } from '@/api/facebook/globalconfig'
+import { ScriptApi } from '@/api/facebook/script'
 
 let initialized = false
 
 export function setupFbMessageWpfRelay() {
   if (initialized) return
   initialized = true
+  // WPF starts after the authenticated Vue shell is ready, so tenant context exists here.
+  // Do not run this from the backend ApplicationReady event: that phase has no tenant.
+  if (window.chrome?.webview) {
+    void FbMessageApi.normalizeMonitorRuntime().catch(() => undefined)
+  }
   window.addEventListener('fb:wpf:message-command', async (event: any) => {
     const command = event.detail || {}
     const send = (ok: boolean, data?: any, error?: string) => {
@@ -28,6 +34,27 @@ export function setupFbMessageWpfRelay() {
         case 'monitors':
           data = await FbMessageApi.getMonitorAccounts()
           break
+        case 'monitorPool':
+          data = await FbMessageApi.getMonitorPool()
+          break
+        case 'scripts':
+          data = await ScriptApi.getScriptPage(payload)
+          break
+        case 'normalizeRuntime':
+          data = await FbMessageApi.normalizeMonitorRuntime()
+          break
+        case 'addMonitorPool':
+          data = await FbMessageApi.addMonitorPool(payload.accountIds || [], Number(payload.checkIntervalMinutes) || 30)
+          break
+        case 'removeMonitorPool':
+          data = await FbMessageApi.removeMonitorPool(payload.accountIds || [])
+          break
+        case 'batchMonitorState':
+          data = await FbMessageApi.batchMonitorState(payload.accountIds || [], payload.state, payload.checkIntervalMinutes, Boolean(payload.preserveOnline))
+          break
+        case 'updateMonitorIntervals':
+          data = await FbMessageApi.updateMonitorIntervals(payload.accountIds || [], Number(payload.checkIntervalMinutes) || 30)
+          break
         case 'saveMonitor':
           data = await FbMessageApi.saveMonitorAccount(payload)
           break
@@ -41,7 +68,7 @@ export function setupFbMessageWpfRelay() {
           data = await GlobalConfigApi.batchSaveConfigs(payload.items || [])
           break
         case 'claimMonitor':
-          data = await FbMessageApi.claimMonitor(payload.limit || 3, payload.excludeAccounts || [])
+          data = await FbMessageApi.claimMonitor(payload.limit || 3, payload.excludeAccounts || [], payload.accountIds || [], Boolean(payload.manual))
           break
         case 'heartbeat':
           data = await FbMessageApi.heartbeat(payload.monitorId)

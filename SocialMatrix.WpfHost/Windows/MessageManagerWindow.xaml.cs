@@ -26,6 +26,10 @@ namespace SocialMatrix.WpfHost.Windows
             public string Cookie { get; set; } = "";
             public long? DeviceId { get; set; }
             public string DisplayName => string.IsNullOrWhiteSpace(FbAccount) ? Id.ToString() : FbAccount;
+            public int ReceiveEnabled { get; set; }
+            public int OnlineStatus { get; set; }
+            private bool _selected;
+            private bool _isCurrent;
             private bool _enabled;
             private string _mode = "disabled";
             private string _state = "未启用";
@@ -34,6 +38,8 @@ namespace SocialMatrix.WpfHost.Windows
             public int TotalUnreadCount => MessengerUnreadCount + CommentUnreadCount;
             public string LastCheckTime { get; set; } = "";
             public bool Enabled { get => _enabled; set { _enabled = value; OnChanged(); } }
+            public bool IsSelected { get => _selected; set { _selected = value; OnChanged(); } }
+            public bool IsCurrent { get => _isCurrent; set { _isCurrent = value; OnChanged(); } }
             public string Mode { get => _mode; set { _mode = value; OnChanged(); } }
             public string State { get => _state; set { _state = value; OnChanged(); } }
             public event PropertyChangedEventHandler? PropertyChanged;
@@ -58,6 +64,12 @@ namespace SocialMatrix.WpfHost.Windows
             public string LastMessagePreview { get; set; } = "";
             public string LastMessageTime { get; set; } = "";
             public string DisplayText => $"{(string.IsNullOrWhiteSpace(TargetName) ? TargetUserId : TargetName)}  {LastMessagePreview}";
+        }
+
+        private sealed class ScriptRow
+        {
+            public string Title { get; set; } = "";
+            public string Content { get; set; } = "";
         }
 
         private sealed class BrowserSession
@@ -94,6 +106,9 @@ namespace SocialMatrix.WpfHost.Windows
         private bool _checkingSelection;
         private bool _syncingAccountSelection;
         private int _requestSequence;
+        private int _scriptPage = 1;
+        private const int ScriptPageSize = 10;
+        private int _scriptTotal;
         private string _lastSelectedText = "";
 
         public MessageManagerWindow(MainWindow owner)
@@ -103,6 +118,15 @@ namespace SocialMatrix.WpfHost.Windows
             TargetLanguageBox.SelectedIndex = 0;
             RealtimeAccountList.ItemTemplate = BuildAccountTemplate();
             ScheduledAccountList.ItemTemplate = BuildAccountTemplate();
+            ScriptList.ItemTemplate = BuildScriptTemplate();
+            var listItemStyle = new Style(typeof(ListBoxItem));
+            listItemStyle.Setters.Add(new Setter(Control.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
+            listItemStyle.Setters.Add(new Setter(Control.ForegroundProperty, System.Windows.Media.Brushes.Black));
+            listItemStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+            listItemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            listItemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+            RealtimeAccountList.ItemContainerStyle = listItemStyle;
+            ScheduledAccountList.ItemContainerStyle = listItemStyle;
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
             _timer.Tick += async (_, _) => await RunMonitorRoundAsync();
             _startupTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -121,13 +145,33 @@ namespace SocialMatrix.WpfHost.Windows
             var template = new DataTemplate();
             var border = new FrameworkElementFactory(typeof(Border));
             border.SetValue(Border.PaddingProperty, new Thickness(10, 7, 8, 7));
-            border.SetValue(Border.BorderBrushProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240)));
-            border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
+            border.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+            var rowStyle = new Style(typeof(Border));
+            rowStyle.Setters.Add(new Setter(Border.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
+            rowStyle.Setters.Add(new Setter(Border.BorderBrushProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240))));
+            rowStyle.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1)));
+            var currentRowTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding(nameof(AccountRow.IsCurrent)),
+                Value = true
+            };
+            currentRowTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(198, 229, 255))));
+            rowStyle.Triggers.Add(currentRowTrigger);
+            border.SetValue(FrameworkElement.StyleProperty, rowStyle);
             var stack = new FrameworkElementFactory(typeof(StackPanel));
+            var titleRow = new FrameworkElementFactory(typeof(StackPanel));
+            titleRow.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+            var check = new FrameworkElementFactory(typeof(CheckBox));
+            check.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding(nameof(AccountRow.IsSelected)) { Mode = System.Windows.Data.BindingMode.TwoWay });
+            check.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
+            check.AddHandler(CheckBox.CheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
+            check.AddHandler(CheckBox.UncheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
+            titleRow.AppendChild(check);
             var name = new FrameworkElementFactory(typeof(TextBlock));
             name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.DisplayName)));
             name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
-            stack.AppendChild(name);
+            titleRow.AppendChild(name);
+            stack.AppendChild(titleRow);
             var metaRow = new FrameworkElementFactory(typeof(StackPanel));
             metaRow.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
             var state = new FrameworkElementFactory(typeof(TextBlock));
@@ -153,6 +197,91 @@ namespace SocialMatrix.WpfHost.Windows
             border.AppendChild(stack);
             template.VisualTree = border;
             return template;
+        }
+
+        private DataTemplate BuildScriptTemplate()
+        {
+            var template = new DataTemplate();
+            var panel = new FrameworkElementFactory(typeof(StackPanel));
+            panel.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 6, 8, 6));
+
+            var title = new FrameworkElementFactory(typeof(TextBlock));
+            title.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(ScriptRow.Title)));
+            title.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            panel.AppendChild(title);
+
+            var content = new FrameworkElementFactory(typeof(TextBlock));
+            content.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(ScriptRow.Content)));
+            content.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            content.SetValue(TextBlock.MaxHeightProperty, 42d);
+            content.SetValue(TextBlock.ForegroundProperty, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(96, 98, 102)));
+            panel.AppendChild(content);
+
+            template.VisualTree = panel;
+            return template;
+        }
+
+        private void AccountSelectionChanged(object sender, RoutedEventArgs e)
+        {
+            SelectedCountText.Text = $"已选 {_accounts.Count(x => x.IsSelected)} 个";
+        }
+
+        private async Task LoadScriptsAsync()
+        {
+            try
+            {
+                var result = await RelayAsync("scripts", new JObject
+                {
+                    ["pageNo"] = _scriptPage,
+                    ["pageSize"] = ScriptPageSize,
+                    ["scriptTitle"] = ScriptSearchBox.Text.Trim()
+                });
+                var list = result is JObject obj ? obj["list"] as JArray : result as JArray;
+                _scriptTotal = result is JObject pageResult ? pageResult.Value<int?>("total") ?? 0 : list?.Count ?? 0;
+                ScriptList.ItemsSource = list?.OfType<JObject>().Select(x => new ScriptRow
+                {
+                    Title = x.Value<string>("scriptTitle") ?? "未命名话术",
+                    Content = x.Value<string>("scriptContent") ?? ""
+                }).Where(x => !string.IsNullOrWhiteSpace(x.Content)).ToList() ?? new List<ScriptRow>();
+                var pageCount = Math.Max(1, (int)Math.Ceiling(_scriptTotal / (double)ScriptPageSize));
+                ScriptPageText.Text = $"第 {_scriptPage} / {pageCount} 页";
+                ScriptPreviousButton.IsEnabled = _scriptPage > 1;
+                ScriptNextButton.IsEnabled = _scriptPage < pageCount;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"话术库加载失败: {ex.Message}");
+                ScriptList.ItemsSource = Array.Empty<ScriptRow>();
+            }
+        }
+
+        private async void ScriptSearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            _scriptPage = 1;
+            await LoadScriptsAsync();
+        }
+
+        private async void ScriptPreviousButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_scriptPage <= 1) return;
+            _scriptPage--;
+            await LoadScriptsAsync();
+        }
+
+        private async void ScriptNextButton_Click(object sender, RoutedEventArgs e)
+        {
+            var pageCount = Math.Max(1, (int)Math.Ceiling(_scriptTotal / (double)ScriptPageSize));
+            if (_scriptPage >= pageCount) return;
+            _scriptPage++;
+            await LoadScriptsAsync();
+        }
+
+        private void ScriptList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count == 0 || e.AddedItems[0] is not ScriptRow script) return;
+            ReplyChineseBox.Text = script.Content;
+            ReplyTranslatedBox.Text = script.Content;
+            SendButton.IsEnabled = !string.IsNullOrWhiteSpace(script.Content);
         }
 
         public void HandleRelayMessage(JObject message)
@@ -199,16 +328,24 @@ namespace SocialMatrix.WpfHost.Windows
                     };
                     if (monitorMap.TryGetValue(account.Id, out var monitor))
                     {
+                        account.ReceiveEnabled = monitor.Value<int?>("receiveEnabled") ?? 0;
+                        account.OnlineStatus = monitor.Value<int?>("onlineStatus") ?? 0;
                         account.Mode = monitor.Value<string>("mode") ?? "disabled";
-                        account.Enabled = !"disabled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase);
-                        account.State = account.Enabled ? "等待检查" : "未启用";
+                        account.Enabled = account.ReceiveEnabled == 1;
+                        account.State = account.OnlineStatus == 1 ? "在线" : "离线";
                         account.MessengerUnreadCount = monitor.Value<int?>("messengerUnreadCount") ?? 0;
                         account.CommentUnreadCount = monitor.Value<int?>("notificationUnreadCount") ?? 0;
                         account.LastCheckTime = monitor.Value<string>("lastCheckTime") ?? "";
                     }
                     _accounts.Add(account);
                 }
+                foreach (var session in _sessions.Values.ToList())
+                {
+                    var row = _accounts.FirstOrDefault(x => x.Id.ToString() == session.AccountId);
+                    if (row == null || row.ReceiveEnabled != 1) CloseMessageBrowserAccount(session.AccountId);
+                }
                 RefreshAccountGroups();
+                await LoadScriptsAsync();
                 await RunMonitorRoundAsync();
             }
             catch (Exception ex)
@@ -239,7 +376,7 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                     // 红圈读取由 badgeTimer 每 5 秒执行，这里只处理业务任务占用。
                 }
-                foreach (var row in _accounts.Where(x => "realtime".Equals(x.Mode, StringComparison.OrdinalIgnoreCase) && x.Enabled))
+                foreach (var row in _accounts.Where(x => x.ReceiveEnabled == 1 && x.OnlineStatus == 1))
                 {
                     if (!_sessions.ContainsKey(row.Id.ToString())) continue;
                     var monitor = (JArray)await RelayAsync("monitors");
@@ -251,13 +388,12 @@ namespace SocialMatrix.WpfHost.Windows
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"消息监控轮询失败: {ex.Message}"); }
         }
 
-        private async Task ClaimMonitorAccountsAsync(int batchSize)
+        private async Task ClaimMonitorAccountsAsync(int batchSize, IEnumerable<string>? accountIds = null, bool manual = false)
         {
             if (_claimingMonitors) return;
             var availableSlots = Math.Max(0, FbFingerprintBrowserFactory.MaxConcurrentBrowsers - 5 - _owner.GetActiveBrowserWindowCount() - _sessions.Count);
             if (availableSlots == 0)
             {
-                _startupTimer.Stop();
                 return;
             }
             _claimingMonitors = true;
@@ -269,14 +405,16 @@ namespace SocialMatrix.WpfHost.Windows
                 var claims = (JArray)await RelayAsync("claimMonitor", new JObject
                 {
                     ["limit"] = Math.Min(batchSize, availableSlots),
-                    ["excludeAccounts"] = excludedAccounts
+                    ["excludeAccounts"] = excludedAccounts,
+                    ["accountIds"] = accountIds == null ? new JArray() : new JArray(accountIds),
+                    ["manual"] = manual
                 });
-                if (claims.Count == 0) _startupTimer.Stop();
                 foreach (var token in claims.OfType<JObject>())
                 {
                     var accountId = token.Value<long>("accountId").ToString();
                     var row = _accounts.FirstOrDefault(x => x.Id.ToString() == accountId);
                     if (row == null) continue;
+                    if (manual) row.OnlineStatus = 1;
                     row.State = "正在启动";
                     StartMonitor(row, token);
                 }
@@ -335,7 +473,7 @@ namespace SocialMatrix.WpfHost.Windows
                 session.InitializationTask = InitializeBrowserAsync(session, cookie, deviceId, url);
             }
             session.MonitorId = monitorId?.ToString();
-            session.Mode = mode;
+            session.Mode = account.OnlineStatus == 1 ? "realtime" : mode;
             session.ManualView = manual;
             session.Kind = url.Contains("notifications", StringComparison.OrdinalIgnoreCase) ? "comment" : "messenger";
             session.Completed = false;
@@ -387,7 +525,6 @@ namespace SocialMatrix.WpfHost.Windows
                 _syncingAccountSelection = false;
             }
 
-            var previousAccountId = _currentAccount?.Id.ToString();
             if ("disabled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase)) return;
 
             BrowserSession session;
@@ -400,16 +537,29 @@ namespace SocialMatrix.WpfHost.Windows
             else
             {
                 // 已有浏览器只切换显示，不重复创建、不等待加载。
-                session.Mode = row.Mode;
-                session.ManualView = "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase);
+                session.Mode = row.OnlineStatus == 1 ? "realtime" : row.Mode;
+                session.ManualView = row.OnlineStatus == 0 && "scheduled".Equals(row.Mode, StringComparison.OrdinalIgnoreCase);
                 ShowBrowserSession(session);
             }
 
-            _currentAccount = row;
-            if (previousAccountId != null && previousAccountId != row.Id.ToString()
-                && _sessions.TryGetValue(previousAccountId, out var previousSession) && previousSession.ManualView)
-                CloseMessageBrowserAccount(previousAccountId);
+            if (_currentAccount != null && !ReferenceEquals(_currentAccount, row))
+                _currentAccount.IsCurrent = false;
+            row.IsCurrent = true;
+            if (row.OnlineStatus != 1)
+            {
+                await RelayAsync("batchMonitorState", new JObject
+                {
+                    ["accountIds"] = new JArray(row.Id.ToString()),
+                    ["state"] = "online"
+                });
+                row.OnlineStatus = 1;
+                row.State = "在线";
+                session.Mode = "realtime";
+                session.ManualView = false;
+                RefreshAccountGroups();
+            }
 
+            _currentAccount = row;
             if (!session.MessengerOpened) _ = OpenMessengerOnFirstViewAsync(session);
         }
 
@@ -456,62 +606,79 @@ namespace SocialMatrix.WpfHost.Windows
             return result.Success && result.Result is bool isLogin && isLogin;
         }
 
-        private async void OpenMonitorConfig_Click(object sender, RoutedEventArgs e)
+        private List<AccountRow> GetSelectedPoolAccounts()
         {
-            var window = new MessageMonitorConfigWindow(
+            return _accounts.Where(x => x.ReceiveEnabled == 1 && x.IsSelected).ToList();
+        }
+
+        private async void BringOnline_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = GetSelectedPoolAccounts()
+                .Where(x => x.OnlineStatus != 1)
+                .ToList();
+            if (selected.Count == 0) { MessageBox.Show("请先勾选要上线的账号。", "提示", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            var newCount = selected.Count(x => !_sessions.ContainsKey(x.Id.ToString()));
+            var available = Math.Max(0, FbFingerprintBrowserFactory.MaxConcurrentBrowsers - 5 - _owner.GetActiveBrowserWindowCount() - _sessions.Count);
+            if (newCount > available)
+            {
+                MessageBox.Show($"可用消息浏览器槽位不足，需要 {newCount} 个，当前只有 {available} 个。整批未执行。", "上线失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            await RelayAsync("batchMonitorState", new JObject
+            {
+                ["accountIds"] = new JArray(selected.Select(x => x.Id.ToString())),
+                ["state"] = "online"
+            });
+            foreach (var row in selected)
+            {
+                row.OnlineStatus = 1;
+                row.State = "等待上线";
+                if (_sessions.TryGetValue(row.Id.ToString(), out var session)) { session.Mode = "realtime"; session.ManualView = false; }
+            }
+            await ClaimMonitorAccountsAsync(newCount, selected.Select(x => x.Id.ToString()), true);
+            RefreshAccountGroups();
+        }
+
+        private async void SetScheduled_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = GetSelectedPoolAccounts();
+            if (selected.Count == 0) { MessageBox.Show("请先勾选要切换的账号。", "提示", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            foreach (var row in selected)
+            {
+                if (_sessions.ContainsKey(row.Id.ToString())) CloseMessageBrowserAccount(row.Id.ToString());
+                row.OnlineStatus = 0;
+                row.Mode = "scheduled";
+                row.State = "离线";
+                row.IsSelected = false;
+            }
+            await RelayAsync("batchMonitorState", new JObject
+            {
+                ["accountIds"] = new JArray(selected.Select(x => x.Id.ToString())),
+                ["state"] = "scheduled"
+            });
+            RefreshAccountGroups();
+        }
+
+        private async void ManagePool_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new MessageReceivePoolWindow(
                 async () => (JArray)await RelayAsync("accounts"),
                 async () => (JArray)await RelayAsync("monitors"),
-                async items =>
-                {
-                    foreach (var item in items.OfType<JObject>())
-                        await RelayAsync("saveMonitor", item);
-                    return new JValue(true);
-                },
-                async () => (JArray)await RelayAsync("globalConfigs"),
-                async items => await RelayAsync("saveGlobalConfigs", new JObject { ["items"] = items })) { Owner = this };
+                async (ids, interval) => await RelayAsync("addMonitorPool", new JObject { ["accountIds"] = ids, ["checkIntervalMinutes"] = interval }),
+                async (ids, interval) => await RelayAsync("updateMonitorIntervals", new JObject { ["accountIds"] = ids, ["checkIntervalMinutes"] = interval }),
+                async ids => await RelayAsync("removeMonitorPool", new JObject { ["accountIds"] = ids })) { Owner = this };
             window.ShowDialog();
             await LoadDataAsync();
         }
-
-        private async void AccountEnabledChanged(object sender, RoutedEventArgs e)
-        {
-            if (_loading || sender is not CheckBox check || check.DataContext is not AccountRow row) return;
-            row.Enabled = check.IsChecked == true;
-            await SaveMonitorAsync(row, row.Enabled ? "realtime" : "disabled");
-        }
-
-        private async void AccountModeChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_loading || sender is not ComboBox combo || combo.DataContext is not AccountRow row || combo.SelectedValue == null) return;
-            var mode = combo.SelectedValue.ToString() ?? "disabled";
-            if (mode == row.Mode) return;
-            row.Mode = mode;
-            row.Enabled = mode != "disabled";
-            await SaveMonitorAsync(row, mode);
-        }
-
 
         private void RefreshAccountGroups()
         {
             var keyword = AccountSearchBox?.Text?.Trim() ?? "";
             var rows = _accounts.Where(x => string.IsNullOrEmpty(keyword) || x.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
-            RealtimeAccountList.ItemsSource = rows.Where(x => x.Mode == "realtime").ToList();
-            ScheduledAccountList.ItemsSource = rows.Where(x => x.Mode == "scheduled" && x.TotalUnreadCount > 0).ToList();
-        }
-
-        private async Task SaveMonitorAsync(AccountRow row, string mode)
-        {
-            row.Mode = mode;
-            row.State = mode == "disabled" ? "未启用" : "等待检查";
-            await RelayAsync("saveMonitor", new JObject
-            {
-                ["accountId"] = row.Id.ToString(),
-                ["mode"] = mode,
-                ["checkIntervalMinutes"] = 30,
-                ["status"] = 1
-            });
-            if (mode == "disabled") CloseMessageBrowserAccount(row.Id.ToString());
-            RefreshAccountGroups();
+            RealtimeAccountList.ItemsSource = rows.Where(x => x.ReceiveEnabled == 1 && x.OnlineStatus == 1)
+                .OrderByDescending(x => x.TotalUnreadCount).ThenBy(x => x.DisplayName).ToList();
+            ScheduledAccountList.ItemsSource = rows.Where(x => x.ReceiveEnabled == 1 && x.OnlineStatus == 0)
+                .OrderByDescending(x => x.TotalUnreadCount).ThenBy(x => x.DisplayName).ToList();
         }
 
         private async void ReplyChineseBox_LostFocus(object sender, RoutedEventArgs e)
@@ -860,7 +1027,8 @@ namespace SocialMatrix.WpfHost.Windows
 
         private async Task CheckSelectionTranslationAsync()
         {
-            if (_checkingSelection || _currentAccount == null
+            if (_checkingSelection) return;
+            if (_currentAccount == null
                 || !_sessions.TryGetValue(_currentAccount.Id.ToString(), out var session)
                 || session.Browser.Visibility != Visibility.Visible
                 || !session.Browser.CanExecuteJavascriptInMainFrame)
@@ -886,10 +1054,12 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
                 if (text == _lastSelectedText && SelectionTranslationPopup.Visibility == Visibility.Visible) return;
 
                 _lastSelectedText = text;
-                SelectionTranslationText.Text = "翻译中...";
+                SelectionTranslationText.Text = "";
+                SelectionTranslationProgress.Visibility = Visibility.Visible;
                 ShowSelectionTranslation(selection.Value<double?>("left") ?? 20, selection.Value<double?>("top") ?? 20);
                 if (text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
                 {
+                    SelectionTranslationProgress.Visibility = Visibility.Collapsed;
                     SelectionTranslationText.Text = text;
                     return;
                 }
@@ -901,7 +1071,14 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
                     ["context"] = "facebook_messenger_selection"
                 });
                 if (_lastSelectedText == text)
+                {
+                    SelectionTranslationProgress.Visibility = Visibility.Collapsed;
                     SelectionTranslationText.Text = translated.Value<string>("translation") ?? text;
+                }
+                else
+                {
+                    HideSelectionTranslation();
+                }
             }
             catch (Exception ex)
             {
@@ -921,6 +1098,7 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
         private void HideSelectionTranslation()
         {
             _lastSelectedText = "";
+            SelectionTranslationProgress.Visibility = Visibility.Collapsed;
             SelectionTranslationPopup.Visibility = Visibility.Collapsed;
         }
 
@@ -961,14 +1139,12 @@ return {loggedIn:true,messengerUnreadCount:messenger,commentUnreadCount:count(['
                 account.MessengerUnreadCount = counts.Value<int?>("messengerUnreadCount") ?? 0;
                 account.CommentUnreadCount = counts.Value<int?>("commentUnreadCount") ?? 0;
                 var loggedIn = counts.Value<bool?>("loggedIn") != false;
-                account.State = !loggedIn ? "Cookie失效" : "realtime".Equals(account.Mode, StringComparison.OrdinalIgnoreCase) ? "在线" : "检查完成";
+                account.State = !loggedIn ? "Cookie失效" : account.OnlineStatus == 1 ? "在线" : "离线";
                 account.RefreshUnread();
                 session.LastReportedMessengerUnreadCount = account.MessengerUnreadCount;
                 session.LastReportedNotificationUnreadCount = account.CommentUnreadCount;
                 session.LastReportedLoggedIn = loggedIn;
-                if ("scheduled".Equals(account.Mode, StringComparison.OrdinalIgnoreCase)
-                    && hadUnread != (account.TotalUnreadCount > 0))
-                    RefreshAccountGroups();
+                if (account.ReceiveEnabled == 1 && hadUnread != (account.TotalUnreadCount > 0)) RefreshAccountGroups();
             }
             // 用户手动点击的定时账号需要保留页面，只有后台领取的定时检查才自动关闭。
             if (session.Mode == "scheduled" && !session.ManualView && !session.Completed)

@@ -51,6 +51,14 @@ public class FbMessageServiceImpl implements FbMessageService {
     }
 
     @Override
+    public List<FbMessageMonitorAccountDO> getMonitorPool() {
+        return monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
+                .eq(FbMessageMonitorAccountDO::getReceiveEnabled, 1)
+                .eq(FbMessageMonitorAccountDO::getStatus, 1)
+                .orderByAsc(FbMessageMonitorAccountDO::getAccountId));
+    }
+
+    @Override
     public List<Map<String, String>> getMonitorCandidates() {
         return accountMapper.selectList(new LambdaQueryWrapper<FbAccountDO>().orderByAsc(FbAccountDO::getId))
                 .stream().map(account -> {
@@ -73,14 +81,20 @@ public class FbMessageServiceImpl implements FbMessageService {
         }
         String previousMode = obj.getMode();
         String requestedMode = normalizeMode(reqVO.getMode());
+        int receiveEnabled = reqVO.getReceiveEnabled() == null
+                ? ("disabled".equals(requestedMode) ? 0 : 1) : reqVO.getReceiveEnabled();
+        int onlineStatus = reqVO.getOnlineStatus() == null
+                ? ("realtime".equals(reqVO.getMode()) ? 1 : 0) : reqVO.getOnlineStatus();
         obj.setAccountId(reqVO.getAccountId());
+        obj.setReceiveEnabled(receiveEnabled);
+        obj.setOnlineStatus(receiveEnabled == 1 ? onlineStatus : 0);
         obj.setMode(requestedMode);
         obj.setCheckIntervalMinutes(Math.max(1, reqVO.getCheckIntervalMinutes() == null ? 30 : reqVO.getCheckIntervalMinutes()));
         obj.setStatus(reqVO.getStatus() == null ? 1 : reqVO.getStatus());
         if (obj.getNextCheckTime() == null || "disabled".equals(obj.getMode()) || !Objects.equals(previousMode, requestedMode)) {
-            obj.setNextCheckTime("disabled".equals(obj.getMode()) ? null : LocalDateTime.now());
+            obj.setNextCheckTime("disabled".equals(obj.getMode()) ? null : LocalDateTime.now().plusMinutes(obj.getCheckIntervalMinutes()));
         }
-        if ("disabled".equals(obj.getMode())) {
+        if (receiveEnabled == 0) {
             FbAccountDO account = accountMapper.selectById(obj.getAccountId());
             if (account != null) accountQueueService.releaseRunning(account.getFbAccount());
         }
@@ -96,9 +110,104 @@ public class FbMessageServiceImpl implements FbMessageService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void addMonitorPool(FbMessageMonitorPoolReqVO reqVO) {
+        int interval = Math.max(1, Optional.ofNullable(reqVO.getCheckIntervalMinutes()).orElse(30));
+        for (Long accountId : reqVO.getAccountIds()) {
+            FbMessageMonitorAccountDO row = monitorMapper.selectByAccountId(accountId);
+            if (row == null) {
+                row = new FbMessageMonitorAccountDO();
+                row.setAccountId(accountId);
+                row.setMode("scheduled");
+                row.setCheckIntervalMinutes(interval);
+                row.setNextCheckTime(LocalDateTime.now().plusMinutes(interval));
+                row.setStatus(1);
+                row.setReceiveEnabled(1);
+                row.setOnlineStatus(0);
+                monitorMapper.insert(row);
+            } else {
+                // 已在接收池的账号，无论当前是否 Cookie 失效，都不能因为新增账号而改变在线状态。
+                boolean alreadyInPool = Objects.equals(row.getReceiveEnabled(), 1);
+                row.setReceiveEnabled(1);
+                if (!alreadyInPool) {
+                    row.setOnlineStatus(0);
+                    row.setMode("scheduled");
+                    row.setStatus(1);
+                }
+                if (row.getCheckIntervalMinutes() == null) row.setCheckIntervalMinutes(interval);
+                if (row.getNextCheckTime() == null) row.setNextCheckTime(LocalDateTime.now().plusMinutes(row.getCheckIntervalMinutes()));
+                monitorMapper.updateById(row);
+            }
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void removeMonitorPool(FbMessageMonitorPoolReqVO reqVO) {
+        for (Long accountId : reqVO.getAccountIds()) {
+            FbMessageMonitorAccountDO row = monitorMapper.selectByAccountId(accountId);
+            if (row == null) continue;
+            row.setReceiveEnabled(0);
+            row.setOnlineStatus(0);
+            row.setMode("disabled");
+            row.setStatus(0);
+            monitorMapper.updateById(row);
+            FbAccountDO account = accountMapper.selectById(accountId);
+            if (account != null) accountQueueService.releaseRunning(account.getFbAccount());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchUpdateMonitorState(FbMessageMonitorBatchStateReqVO reqVO) {
+        String state = reqVO.getState();
+        if (!Set.of("online", "scheduled").contains(state)) throw new IllegalArgumentException("消息监控状态不正确");
+        boolean preserveOnline = Boolean.TRUE.equals(reqVO.getPreserveOnline());
+        for (Long accountId : reqVO.getAccountIds()) {
+            FbMessageMonitorAccountDO row = monitorMapper.selectByAccountId(accountId);
+            if (row == null || !Objects.equals(row.getReceiveEnabled(), 1)) continue;
+            if (!preserveOnline) {
+                row.setOnlineStatus("online".equals(state) ? 1 : 0);
+                row.setMode("scheduled");
+                row.setStatus(1);
+            }
+            if (reqVO.getCheckIntervalMinutes() != null) row.setCheckIntervalMinutes(Math.max(1, reqVO.getCheckIntervalMinutes()));
+            monitorMapper.updateById(row);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateMonitorIntervals(FbMessageMonitorIntervalReqVO reqVO) {
+        int interval = Math.max(1, Optional.ofNullable(reqVO.getCheckIntervalMinutes()).orElse(30));
+        for (Long accountId : reqVO.getAccountIds()) {
+            FbMessageMonitorAccountDO row = monitorMapper.selectByAccountId(accountId);
+            if (row == null || !Objects.equals(row.getReceiveEnabled(), 1)) continue;
+            row.setCheckIntervalMinutes(interval);
+            monitorMapper.updateById(row);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void normalizeMonitorRuntimeStates() {
+        List<FbMessageMonitorAccountDO> rows = monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>());
+        for (FbMessageMonitorAccountDO row : rows) {
+            boolean enabled = Objects.equals(row.getReceiveEnabled(), 1)
+                    || "realtime".equals(row.getMode()) || "scheduled".equals(row.getMode());
+            row.setReceiveEnabled(enabled ? 1 : 0);
+            row.setOnlineStatus(0);
+            row.setMode(enabled ? "scheduled" : "disabled");
+            row.setStatus(enabled ? 1 : 0);
+            if (enabled && row.getNextCheckTime() == null) row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, Optional.ofNullable(row.getCheckIntervalMinutes()).orElse(30))));
+            monitorMapper.updateById(row);
+        }
+    }
+
+    @Override
     public boolean refreshMonitor(Long monitorId) {
         FbMessageMonitorAccountDO row = monitorMapper.selectById(monitorId);
-        if (row == null || !"realtime".equals(row.getMode()) || !Objects.equals(row.getStatus(), 1)) return false;
+        if (row == null || !Objects.equals(row.getReceiveEnabled(), 1) || !Objects.equals(row.getOnlineStatus(), 1) || !Objects.equals(row.getStatus(), 1)) return false;
         FbAccountDO account = accountMapper.selectById(row.getAccountId());
         return account != null && accountQueueService.refreshAccountClaim(account.getFbAccount(), "message:" + row.getId(), 3);
     }
@@ -109,14 +218,20 @@ public class FbMessageServiceImpl implements FbMessageService {
         int limit = Math.max(1, Math.min(reqVO.getLimit() == null ? 3 : reqVO.getLimit(), 50));
         Set<String> excluded = Optional.ofNullable(reqVO.getExcludeAccounts()).orElse(List.of())
                 .stream().filter(Objects::nonNull).collect(Collectors.toSet());
-        List<FbMessageMonitorAccountDO> rows = monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
-                .in(FbMessageMonitorAccountDO::getMode, "realtime", "scheduled")
-                .eq(FbMessageMonitorAccountDO::getStatus, 1)
-                // 实时在线账号每次消息窗口启动都应立即领取；只有定时检查账号受 nextCheckTime 限制。
-                .and(w -> w.eq(FbMessageMonitorAccountDO::getMode, "realtime")
-                        .or(q -> q.eq(FbMessageMonitorAccountDO::getMode, "scheduled")
-                                .and(x -> x.isNull(FbMessageMonitorAccountDO::getNextCheckTime)
-                                        .or().le(FbMessageMonitorAccountDO::getNextCheckTime, LocalDateTime.now()))))
+        boolean manual = Boolean.TRUE.equals(reqVO.getManual()) && reqVO.getAccountIds() != null && !reqVO.getAccountIds().isEmpty();
+        LambdaQueryWrapper<FbMessageMonitorAccountDO> query = new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
+                .eq(FbMessageMonitorAccountDO::getReceiveEnabled, 1)
+                .eq(FbMessageMonitorAccountDO::getStatus, 1);
+        if (manual) {
+            query.in(FbMessageMonitorAccountDO::getAccountId, reqVO.getAccountIds())
+                    .eq(FbMessageMonitorAccountDO::getOnlineStatus, 1);
+        } else {
+            query.eq(FbMessageMonitorAccountDO::getOnlineStatus, 0)
+                    .eq(FbMessageMonitorAccountDO::getMode, "scheduled")
+                    .and(x -> x.isNull(FbMessageMonitorAccountDO::getNextCheckTime)
+                            .or().le(FbMessageMonitorAccountDO::getNextCheckTime, LocalDateTime.now()));
+        }
+        List<FbMessageMonitorAccountDO> rows = monitorMapper.selectList(query
                 .orderByAsc(FbMessageMonitorAccountDO::getMode)
                 .orderByAsc(FbMessageMonitorAccountDO::getNextCheckTime)
                 .last("LIMIT " + limit));
@@ -129,7 +244,7 @@ public class FbMessageServiceImpl implements FbMessageService {
             if (account == null || excluded.contains(String.valueOf(account.getFbAccount()))) continue;
             if (!accountQueueService.tryClaimAccount(account.getFbAccount(), "message:" + row.getId(), 3)) continue;
             row.setLastCheckTime(LocalDateTime.now());
-            row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, row.getCheckIntervalMinutes())));
+            if (!manual) row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, row.getCheckIntervalMinutes())));
             monitorMapper.updateById(row);
             FbMessageMonitorClaimRespVO item = new FbMessageMonitorClaimRespVO();
             item.setMonitorId(row.getId()); item.setAccountId(row.getAccountId());
@@ -149,6 +264,7 @@ public class FbMessageServiceImpl implements FbMessageService {
         FbMessageMonitorAccountDO row = monitorMapper.selectById(monitorId);
         if (row == null) return;
         row.setStatus(1);
+        row.setOnlineStatus(0);
         row.setErrorMessage(success ? null : errorMessage);
         if (success) row.setLastSuccessTime(LocalDateTime.now());
         monitorMapper.updateById(row);
@@ -160,7 +276,7 @@ public class FbMessageServiceImpl implements FbMessageService {
     @Transactional(rollbackFor = Exception.class)
     public void reportUnreadBadges(FbMessageMonitorBadgeReportReqVO reqVO) {
         FbMessageMonitorAccountDO row = monitorMapper.selectByAccountId(reqVO.getAccountId());
-        if (row == null) return;
+        if (row == null || !Objects.equals(row.getReceiveEnabled(), 1)) return;
         row.setMessengerUnreadCount(Math.max(0, Optional.ofNullable(reqVO.getMessengerUnreadCount()).orElse(0)));
         row.setNotificationUnreadCount(Math.max(0, Optional.ofNullable(reqVO.getNotificationUnreadCount()).orElse(0)));
         row.setLastBadgeCheckTime(LocalDateTime.now());
@@ -234,7 +350,7 @@ public class FbMessageServiceImpl implements FbMessageService {
     @Override
     public List<Map<String, Object>> getUnreadSummary() {
         List<FbMessageMonitorAccountDO> monitors = monitorMapper.selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
-                .in(FbMessageMonitorAccountDO::getMode, "realtime", "scheduled")
+                .eq(FbMessageMonitorAccountDO::getReceiveEnabled, 1)
                 .eq(FbMessageMonitorAccountDO::getStatus, 1));
         List<Map<String, Object>> result = new ArrayList<>();
         for (FbMessageMonitorAccountDO monitor : monitors) {
@@ -369,7 +485,7 @@ public class FbMessageServiceImpl implements FbMessageService {
         return taskId;
     }
 
-    private String normalizeMode(String mode) { return Set.of("realtime", "scheduled", "disabled").contains(mode) ? mode : "disabled"; }
+    private String normalizeMode(String mode) { return "disabled".equals(mode) ? "disabled" : "scheduled"; }
     private String blankDefault(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
     private LocalDateTime parseTime(String value) {
         if (value == null || value.isBlank()) return LocalDateTime.now();

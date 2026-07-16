@@ -22,6 +22,8 @@ public class FbMessageMonitorAccountDO extends TenantBaseDO {
     private Long id;
     @JsonSerialize(using = ToStringSerializer.class)
     private Long accountId;
+    private Integer receiveEnabled;
+    private Integer onlineStatus;
     private String mode;
     private Integer checkIntervalMinutes;
     private LocalDateTime nextCheckTime;

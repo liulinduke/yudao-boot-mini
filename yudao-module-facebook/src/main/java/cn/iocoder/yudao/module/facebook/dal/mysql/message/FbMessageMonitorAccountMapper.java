@@ -16,7 +16,7 @@ public interface FbMessageMonitorAccountMapper extends BaseMapperX<FbMessageMoni
 
     default List<FbMessageMonitorAccountDO> selectEnabledList() {
         return selectList(new LambdaQueryWrapper<FbMessageMonitorAccountDO>()
-                .in(FbMessageMonitorAccountDO::getMode, "realtime", "scheduled")
+                .eq(FbMessageMonitorAccountDO::getReceiveEnabled, 1)
                 .eq(FbMessageMonitorAccountDO::getStatus, 1)
                 .orderByAsc(FbMessageMonitorAccountDO::getNextCheckTime));
     }
