@@ -17,7 +17,8 @@ declare global {
                 expectedCount: number,
                 taskType: number,
                 config?: string,
-                isOperation?: boolean
+                isOperation?: boolean,
+                deviceId?: string
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
@@ -80,19 +81,20 @@ export function startBrowserCollect(
   expectedCount: number,
   taskType: number = 1,
   config?: string,
-  isOperation: boolean = false
+  isOperation: boolean = false,
+  deviceId?: string
 ): void {
   try {
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
       if (config) {
         try {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId)
         } catch (e) {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
         }
       } else {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId)
       }
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')

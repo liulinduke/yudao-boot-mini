@@ -33,7 +33,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
         /// <param name="config">配置JSON字符串（可选）</param>
         /// <param name="isOperation">是否为运营任务（true=运营任务如加组/私信/转帖，false=采集任务）</param>
-        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false)
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null)
         {
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
@@ -43,13 +43,15 @@ namespace SocialMatrix.WpfHost.Services
 
             Application.Current.Dispatcher.Invoke(() =>
             {
+                long? parsedDeviceId = long.TryParse(deviceId, out var value) ? value : null;
                 _mainWindow.CreateBrowserForAccount(detailId, accountId,
                     string.IsNullOrEmpty(cookie) ? null : cookie,
                     string.IsNullOrEmpty(searchUrl) ? null : searchUrl,
                     expectedCount,
                     taskType: taskType,
                     config: config,
-                    isOperation: isOperation);
+                    isOperation: isOperation,
+                    deviceId: parsedDeviceId);
             });
         }
 

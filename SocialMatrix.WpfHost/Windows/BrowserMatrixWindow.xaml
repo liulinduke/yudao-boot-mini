@@ -7,10 +7,6 @@
         WindowStartupLocation="CenterScreen">
     
     <Grid>
-        <!-- 滚动容器，支持超过 12 个浏览器 -->
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <!-- 动态网格布局，会根据浏览器数量自动调整 -->
-            <WrapPanel x:Name="BrowserGrid" Margin="10" Orientation="Horizontal" />
-        </ScrollViewer>
+        <TabControl x:Name="BrowserTabs" Margin="0" />
     </Grid>
 </Window>

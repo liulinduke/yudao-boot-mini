@@ -20,6 +20,7 @@ namespace SocialMatrix.WpfHost.Windows
     public partial class BrowserMatrixWindow : Window
     {
         private readonly Dictionary<string, ChromiumWebBrowser> _browsers = new();
+        private readonly Dictionary<string, System.Windows.Controls.TabItem> _browserTabs = new();
         private readonly Dictionary<string, bool> _browserInitialized = new(); // 跟踪指纹注入状态
         private readonly Dictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
         private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
@@ -137,6 +138,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
             _browsers.Clear();
+            _browserTabs.Clear();
 
             System.Diagnostics.Debug.WriteLine($"✅ 所有资源清理完成");
         }
@@ -220,14 +222,6 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
 
-            // 检查是否超过最大并发数
-            if (_browsers.Count >= _maxConcurrentBrowsers)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ 已达到最大并发数限制 ({_maxConcurrentBrowsers})，无法为账号 {accountId} 创建新浏览器");
-                OnCollectionError?.Invoke(accountId, $"已达到最大并发数限制 ({_maxConcurrentBrowsers})，请先关闭一些浏览器窗口");
-                return;
-            }
-
             // 如果浏览器已存在，检查是否需要重新采集
             if (_browsers.ContainsKey(accountId))
             {
@@ -258,6 +252,14 @@ namespace SocialMatrix.WpfHost.Windows
                 return;
             }
 
+            // 只有创建新账号 Tab 时才占用新的浏览器槽位
+            if (_browsers.Count >= _maxConcurrentBrowsers)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 已达到最大并发数限制 ({_maxConcurrentBrowsers})，无法为账号 {accountId} 创建新浏览器");
+                OnCollectionError?.Invoke(accountId, $"已达到最大并发数限制 ({_maxConcurrentBrowsers})，请先关闭一些浏览器窗口");
+                return;
+            }
+
             // 为每个账号创建独立的 RequestContext（实现完全隔离）
             var browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, out var requestContext);
             _requestContexts[accountId] = requestContext;
@@ -271,9 +273,17 @@ namespace SocialMatrix.WpfHost.Windows
             browser.MenuHandler = new CustomMenuHandler();
 #endif
 
-            // 创建容器（StackPanel）来包含 URL 标签和浏览器
-            var container = new System.Windows.Controls.StackPanel();
+            // 创建 Tab 内容容器：顶部显示 URL，浏览器占满剩余空间
+            var container = new System.Windows.Controls.Grid();
             container.Tag = accountId; // 保存 accountId 以便后续查找
+            container.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+            {
+                Height = new System.Windows.GridLength(18)
+            });
+            container.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
+            {
+                Height = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star)
+            });
 
             // 创建 URL 显示标签
             var urlLabel = new System.Windows.Controls.TextBlock
@@ -296,12 +306,22 @@ namespace SocialMatrix.WpfHost.Windows
                 });
             };
 
+            System.Windows.Controls.Grid.SetRow(urlLabel, 0);
+            System.Windows.Controls.Grid.SetRow(browser, 1);
             container.Children.Add(urlLabel);
             container.Children.Add(browser);
 
             _browsers[accountId] = browser;
             _accountTaskTypes[accountId] = taskType; // 保存账号对应的任务类型
-            BrowserGrid.Children.Add(container);
+            var tab = new System.Windows.Controls.TabItem
+            {
+                Header = accountId,
+                Content = container,
+                Tag = accountId
+            };
+            _browserTabs[accountId] = tab;
+            BrowserTabs.Items.Add(tab);
+            BrowserTabs.SelectedItem = tab;
 
             // 更新布局
             UpdateLayout();
@@ -500,39 +520,18 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 更新布局 - 固定2列布局,每行2个浏览器
+        /// 更新当前 Tab 内浏览器尺寸
         /// </summary>
         private void UpdateLayout()
         {
-            int count = _browsers.Count;
-            if (count == 0) return;
-
-            double gridWidth = BrowserGrid.ActualWidth > 0 ? BrowserGrid.ActualWidth : 1180;
-            double windowHeight = this.ActualHeight > 0 ? this.ActualHeight : 700;
-
-            const double UrlLabelHeight = 18;
-            const double MarginPadding = 20;
-
-            double browserWidth;
-            double browserHeight;
-
-            // 每个账号独立一个浏览器窗口，占满整个窗口空间
-            browserWidth = gridWidth - MarginPadding;
-            browserHeight = windowHeight - MarginPadding - UrlLabelHeight;
-
-            // 应用布局
-            foreach (var container in BrowserGrid.Children.OfType<System.Windows.Controls.StackPanel>())
+            foreach (var browser in _browsers.Values)
             {
-                if (container.Children.Count >= 2 &&
-                    container.Children[1] is ChromiumWebBrowser browser)
-                {
-                    browser.Width = browserWidth;
-                    browser.Height = browserHeight;
-                    browser.Margin = new System.Windows.Thickness(0);
-                }
+                browser.Width = double.NaN;
+                browser.Height = double.NaN;
+                browser.HorizontalAlignment = HorizontalAlignment.Stretch;
+                browser.VerticalAlignment = VerticalAlignment.Stretch;
+                browser.Margin = new System.Windows.Thickness(0);
             }
-
-            System.Diagnostics.Debug.WriteLine($"📐 布局更新: {count}个账号, 浏览器尺寸{browserWidth:F0}x{browserHeight:F0}px");
         }
 
         /// <summary>
@@ -542,11 +541,7 @@ namespace SocialMatrix.WpfHost.Windows
         {
             if (_browsers.TryGetValue(accountId, out var browser))
             {
-                // 查找并移除容器
-                var container = BrowserGrid.Children.OfType<System.Windows.Controls.StackPanel>()
-                    .FirstOrDefault(c => c.Tag?.ToString() == accountId);
-
-                if (container != null)
+                if (_browserTabs.TryGetValue(accountId, out var tab))
                 {
                     // 释放浏览器
                     browser.Dispose();
@@ -560,7 +555,8 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine($"🗑️ 已释放账号 {accountId} 的请求上下文");
                     }
 
-                    BrowserGrid.Children.Remove(container);
+                    BrowserTabs.Items.Remove(tab);
+                    _browserTabs.Remove(accountId);
 
                     // 更新布局
                     UpdateLayout();
@@ -965,6 +961,11 @@ namespace SocialMatrix.WpfHost.Windows
                         }
                         break;
 
+                    case 17:
+                        System.Diagnostics.Debug.WriteLine($"🌱 执行养号任务...");
+                        await ExecuteWarmupTaskAsync(browser, accountId, config);
+                        break;
+
                     default:
                         System.Diagnostics.Debug.WriteLine($"⚠️ 未知运营任务类型: taskType={taskType}");
                         OnCollectionError?.Invoke(accountId, $"不支持的任务类型: {taskType}");
@@ -976,6 +977,186 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine($"❌ 运营任务执行异常: {ex.Message}\n{ex.StackTrace}");
                 OnCollectionError?.Invoke(accountId, $"运营任务异常: {ex.Message}");
             }
+        }
+
+        private async Task ExecuteWarmupTaskAsync(ChromiumWebBrowser browser, string accountId, string? configJson)
+        {
+            var config = string.IsNullOrWhiteSpace(configJson)
+                ? new Newtonsoft.Json.Linq.JObject()
+                : Newtonsoft.Json.Linq.JObject.Parse(configJson);
+            var actions = config["actions"] is Newtonsoft.Json.Linq.JArray actionArray
+                ? actionArray.Values<string>().Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                : new List<string>();
+
+            if (actions.Count == 0)
+            {
+                OnCollectionError?.Invoke(accountId, "未选择养号动作");
+                return;
+            }
+
+            int durationMinutes = Math.Clamp(config.Value<int?>("durationMinutes") ?? 20, 1, 1440);
+            int minStaySeconds = Math.Clamp(config.Value<int?>("minStaySeconds") ?? 15, 3, 3600);
+            int maxStaySeconds = Math.Clamp(config.Value<int?>("maxStaySeconds") ?? 45, minStaySeconds, 3600);
+            int maxFriendProfiles = Math.Clamp(config.Value<int?>("maxFriendProfiles") ?? 5, 1, 100);
+            int maxReels = Math.Clamp(config.Value<int?>("maxReels") ?? 20, 1, 500);
+            bool enableLike = config.Value<bool?>("enableLike") ?? false;
+            int likeProbability = Math.Clamp(config.Value<int?>("likeProbability") ?? 0, 0, 100);
+            var random = new Random();
+            var deadline = DateTime.UtcNow.AddMinutes(durationMinutes);
+            int friendProfiles = 0;
+            int reels = 0;
+
+            System.Diagnostics.Debug.WriteLine($"🌱 养号配置: actions={string.Join(',', actions)}, duration={durationMinutes}m");
+
+            try
+            {
+                while (DateTime.UtcNow < deadline)
+                {
+                    var round = actions.OrderBy(_ => random.Next()).ToList();
+                    foreach (var action in round)
+                    {
+                        if (DateTime.UtcNow >= deadline || browser.IsDisposed)
+                            break;
+
+                        switch (action.ToLowerInvariant())
+                        {
+                            case "feed_scroll":
+                                await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com", 30000);
+                                await RunWarmupScriptAsync(browser, GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds));
+                                break;
+                            case "safe_click":
+                                await RunWarmupScriptAsync(browser, GenerateWarmupSafeClickScript(minStaySeconds, maxStaySeconds));
+                                break;
+                            case "friend_profile":
+                                if (friendProfiles >= maxFriendProfiles) break;
+                                await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/friends", 30000);
+                                var profileResult = await browser.EvaluateScriptAsync(GenerateWarmupFriendLinkScript());
+                                var profileUrl = profileResult.Success ? profileResult.Result?.ToString() : null;
+                                if (!string.IsNullOrWhiteSpace(profileUrl))
+                                {
+                                    await NavigateBrowserToUrlAsync(browser, accountId, profileUrl, 30000);
+                                    await RunWarmupScriptAsync(browser, GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds));
+                                    friendProfiles++;
+                                    await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/friends", 30000);
+                                }
+                                break;
+                            case "reels":
+                                if (reels >= maxReels) break;
+                                await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/reel", 30000);
+                                await RunWarmupScriptAsync(browser, GenerateWarmupReelsScript(minStaySeconds, maxStaySeconds, enableLike, likeProbability));
+                                reels++;
+                                break;
+                        }
+
+                        if (DateTime.UtcNow < deadline)
+                            await Task.Delay(random.Next(1000, 3500));
+                    }
+
+                    if (friendProfiles >= maxFriendProfiles && reels >= maxReels &&
+                        actions.All(action => action.Equals("friend_profile", StringComparison.OrdinalIgnoreCase) || action.Equals("reels", StringComparison.OrdinalIgnoreCase)))
+                        break;
+                }
+
+                var detailId = _accountDetailIds.TryGetValue(accountId, out var currentDetailId) ? currentDetailId : (CurrentDetailId ?? "");
+                OnCollectionComplete?.Invoke(detailId, accountId, "{\"success\":true,\"type\":\"warmup\"}", 17);
+                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 养号任务完成");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 养号任务失败: {ex.Message}");
+                OnCollectionError?.Invoke(accountId, $"养号任务失败: {ex.Message}");
+            }
+        }
+
+        private static async Task RunWarmupScriptAsync(ChromiumWebBrowser browser, string script)
+        {
+            if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame) return;
+            var result = await browser.EvaluateScriptAsync(script);
+            if (!result.Success)
+                System.Diagnostics.Debug.WriteLine($"⚠️ 养号脚本执行失败: {result.Message}");
+        }
+
+        private static string GenerateWarmupFeedScript(int minStaySeconds, int maxStaySeconds)
+        {
+            return $@"(async function() {{
+                const delay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+                const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                const steps = delay(3, 7);
+                for (let i = 0; i < steps; i++) {{
+                    window.scrollBy({{ top: delay(350, 900) * (Math.random() > 0.18 ? 1 : -1), behavior: 'auto' }});
+                    await wait(delay(180, 520));
+                }}
+                await wait(delay({minStaySeconds * 1000}, {maxStaySeconds * 1000}));
+                return true;
+            }})();";
+        }
+
+        private static string GenerateWarmupSafeClickScript(int minStaySeconds, int maxStaySeconds)
+        {
+            return $@"(async function() {{
+                const delay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+                const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                const forbidden = /log ?out|delete|remove|send|invite|add friend|comment|like|share|举报|删除|退出|发送|加好友/i;
+                const candidates = Array.from(document.querySelectorAll('a[href], button, [role=""button""]')).filter(el => {{
+                    const rect = el.getBoundingClientRect();
+                    const text = (el.innerText || el.getAttribute('aria-label') || '').trim();
+                    return rect.width > 20 && rect.height > 16 && rect.top >= 40 && rect.bottom <= window.innerHeight - 20 && !forbidden.test(text);
+                }});
+                if (candidates.length === 0) return false;
+                const el = candidates[Math.floor(Math.random() * candidates.length)];
+                const rect = el.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                const startX = Math.random() * window.innerWidth;
+                const startY = Math.random() * window.innerHeight;
+                const steps = delay(6, 12);
+                for (let i = 1; i <= steps; i++) {{
+                    const t = i / steps;
+                    const cx = (startX + x) / 2 + delay(-80, 80);
+                    const cy = (startY + y) / 2 + delay(-80, 80);
+                    document.dispatchEvent(new MouseEvent('mousemove', {{ bubbles: true, clientX: startX * (1-t) + 2 * cx * (1-t) * t + x * t * t, clientY: startY * (1-t) + 2 * cy * (1-t) * t + y * t * t }}));
+                    await wait(delay(20, 60));
+                }}
+                await wait(delay(120, 350));
+                el.dispatchEvent(new MouseEvent('mousedown', {{ bubbles: true, clientX: x, clientY: y }}));
+                await wait(delay(60, 180));
+                el.dispatchEvent(new MouseEvent('mouseup', {{ bubbles: true, clientX: x, clientY: y }}));
+                el.click();
+                await wait(delay({minStaySeconds * 1000}, {maxStaySeconds * 1000}));
+                return true;
+            }})();";
+        }
+
+        private static string GenerateWarmupFriendLinkScript()
+        {
+            return @"(function() {
+                const links = Array.from(document.querySelectorAll('a[href]')).filter(a => {
+                    const href = a.href || '';
+                    const rect = a.getBoundingClientRect();
+                    return rect.width > 20 && rect.height > 20 && rect.top >= 0 && rect.bottom <= window.innerHeight &&
+                        /facebook\\.com\\/(profile\\.php\\?id=|[A-Za-z0-9.]+$)/i.test(href) &&
+                        !/\\/friends|\\/home|\\/groups|\\/watch|\\/reel|\\/marketplace/i.test(href);
+                });
+                if (!links.length) return '';
+                return links[Math.floor(Math.random() * links.length)].href;
+            })();";
+        }
+
+        private static string GenerateWarmupReelsScript(int minStaySeconds, int maxStaySeconds, bool enableLike, int likeProbability)
+        {
+            var likeCode = enableLike && likeProbability > 0
+                ? $"if (Math.random() * 100 < {likeProbability}) {{ const like = Array.from(document.querySelectorAll('[aria-label]')).find(el => /like|赞/i.test(el.getAttribute('aria-label') || '')); if (like) like.click(); }}"
+                : "";
+            return $@"(async function() {{
+                const delay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+                const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                await wait(delay({minStaySeconds * 1000}, {maxStaySeconds * 1000}));
+                {likeCode}
+                const next = Array.from(document.querySelectorAll('[aria-label], [role=""button""]')).find(el => /next|下一个|下一条/i.test(el.getAttribute('aria-label') || el.innerText || ''));
+                if (next) next.click(); else window.scrollBy({{ top: delay(500, 900), behavior: 'auto' }});
+                await wait(delay(500, 1600));
+                return true;
+            }})();";
         }
 
         /// <summary>

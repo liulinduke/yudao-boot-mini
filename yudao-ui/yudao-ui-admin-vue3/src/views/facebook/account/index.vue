@@ -163,6 +163,14 @@
           >
             <Icon icon="ep:promotion" class="mr-5px" /> 登录
           </el-button>
+          <el-button
+            type="success"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openWarmupDialog"
+          >
+            <Icon icon="ep:cpu" class="mr-5px" /> 养号
+          </el-button>
         </div>
 
         <!-- 列表 -->
@@ -248,6 +256,7 @@
   
   <!-- 批量修改代理弹窗 -->
   <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
+  <FbAccountWarmupDialog ref="warmupDialogRef" />
 </template>
 
 <script setup lang="ts">
@@ -262,6 +271,7 @@ import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
 import FbAccountImportDialog from './FbAccountImportDialog.vue'
 import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
 import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
+import FbAccountWarmupDialog from './FbAccountWarmupDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
@@ -304,6 +314,7 @@ const cookieImportDialogRef = ref()
 
 // 批量修改代理相关
 const batchUpdateProxyDialogRef = ref()
+const warmupDialogRef = ref()
 const loginRunning = ref(false)
 
 /** 查询列表 */
@@ -514,6 +525,11 @@ const openCookieImportDialog = () => {
 /** 打开批量修改代理对话框 */
 const openBatchUpdateProxyDialog = () => {
   batchUpdateProxyDialogRef.value.open(checkedIds.value)
+}
+
+const openWarmupDialog = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  warmupDialogRef.value.open(selectedAccounts)
 }
 
 /** 初始化 **/

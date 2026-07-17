@@ -133,7 +133,7 @@ namespace SocialMatrix.WpfHost
         /// 为指定账号创建浏览器实例（供 Vue 调用）
         /// </summary>
         public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null,
-            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false)
+            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false, long? deviceId = null)
         {
             // 记录配置信息
             if (!string.IsNullOrEmpty(config))
@@ -142,7 +142,7 @@ namespace SocialMatrix.WpfHost
             }
 
             if (!_browserMatrixWindows.ContainsKey(accountId) &&
-                _browserMatrixWindows.Count >= BrowserMatrixWindow.MaxConcurrentBrowsers)
+                GetBrowserWindowCount() >= BrowserMatrixWindow.MaxConcurrentBrowsers)
             {
                 UpdateStatus($"已达到最大并发窗口数 ({BrowserMatrixWindow.MaxConcurrentBrowsers})，无法为账号 {accountId} 创建窗口");
                 return;
@@ -150,9 +150,9 @@ namespace SocialMatrix.WpfHost
 
             var browserMatrixWindow = GetOrCreateBrowserMatrixWindow(accountId);
 
-            // 在矩阵窗口中创建浏览器并启动自动化采集（每个 WPF 窗口只承载一个账号）
+            // 在统一矩阵窗口的账号 Tab 中创建浏览器并启动自动化任务
             browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
-                cookie, searchUrl, expectedCount, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation);
+                cookie, searchUrl, expectedCount, deviceId: deviceId, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation);
             
             UpdateStatus($"已为账号 {accountId} 启动自动化采集 (明细ID: {detailId}, 类型: {taskType})");
         }
@@ -166,21 +166,21 @@ namespace SocialMatrix.WpfHost
 
         public int GetBrowserWindowCount()
         {
-            return _browserMatrixWindows.Count;
+            return _browserMatrixWindow?.GetActiveBrowserCount() ?? 0;
         }
 
         public int GetActiveBrowserWindowCount()
         {
-            return _browserMatrixWindows.Values.Count(window => window.IsWindowAvailable && window.GetActiveBrowserCount() > 0);
+            return GetBrowserWindowCount();
         }
 
         private BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)
         {
-            if (_browserMatrixWindows.TryGetValue(accountId, out var existingWindow) && existingWindow.IsWindowAvailable)
+            if (_browserMatrixWindow != null && _browserMatrixWindow.IsWindowAvailable)
             {
-                _browserMatrixWindow = existingWindow;
-                System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的 BrowserMatrixWindow 已存在，复用该账号窗口");
-                return existingWindow;
+                _browserMatrixWindows[accountId] = _browserMatrixWindow;
+                System.Diagnostics.Debug.WriteLine($"⚠️ 复用统一 BrowserMatrixWindow，账号 {accountId} 使用独立 Tab");
+                return _browserMatrixWindow;
             }
 
             var browserMatrixWindow = new BrowserMatrixWindow();
@@ -189,10 +189,8 @@ namespace SocialMatrix.WpfHost
 
             browserMatrixWindow.Closed += (_, _) =>
             {
-                if (_browserMatrixWindows.TryGetValue(accountId, out var current) && ReferenceEquals(current, browserMatrixWindow))
-                {
-                    _browserMatrixWindows.Remove(accountId);
-                }
+                foreach (var key in _browserMatrixWindows.Where(pair => ReferenceEquals(pair.Value, browserMatrixWindow)).Select(pair => pair.Key).ToList())
+                    _browserMatrixWindows.Remove(key);
                 if (ReferenceEquals(_browserMatrixWindow, browserMatrixWindow))
                 {
                     _browserMatrixWindow = null;
@@ -213,7 +211,7 @@ namespace SocialMatrix.WpfHost
             RegisterAccountLoginWindowEvents(browserMatrixWindow);
             browserMatrixWindow.Show();
             browserMatrixWindow.Activate();
-            System.Diagnostics.Debug.WriteLine($"✅ 已为账号 {accountId} 创建独立 BrowserMatrixWindow");
+            System.Diagnostics.Debug.WriteLine($"✅ 已创建统一 BrowserMatrixWindow，账号 {accountId} 将使用独立 Tab");
 
             return browserMatrixWindow;
         }
@@ -268,13 +266,13 @@ namespace SocialMatrix.WpfHost
             if (_browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow))
             {
                 browserMatrixWindow.CloseBrowser(accountId);
+                _browserMatrixWindows.Remove(accountId);
                 UpdateStatus($"已关闭账号 {accountId} 的浏览器");
                 
                 // 如果没有活跃浏览器，关闭窗口
                 if (browserMatrixWindow.GetActiveBrowserCount() == 0)
                 {
                     browserMatrixWindow.Close();
-                    _browserMatrixWindows.Remove(accountId);
                     if (ReferenceEquals(_browserMatrixWindow, browserMatrixWindow))
                     {
                         _browserMatrixWindow = null;
