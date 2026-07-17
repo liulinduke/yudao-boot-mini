@@ -46,7 +46,6 @@
                         HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="360" Padding="10,7"
                         Background="#1F2937" CornerRadius="4" Panel.ZIndex="20">
                     <StackPanel Orientation="Horizontal">
-                        <ProgressBar x:Name="SelectionTranslationProgress" Width="18" Height="18" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,8,0" />
                         <TextBlock x:Name="SelectionTranslationText" Foreground="White" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
@@ -54,23 +53,31 @@
         </Border>
 
         <Border Grid.Column="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="1,0,0,0">
-            <Grid>
-                <ScrollViewer VerticalAlignment="Center" VerticalScrollBarVisibility="Auto" Margin="14">
-                <StackPanel>
-                    <TextBlock Text="快捷话术" FontWeight="SemiBold" FontSize="15" />
-                    <DockPanel Margin="0,8,0,0">
-                        <Button x:Name="ScriptSearchButton" DockPanel.Dock="Right" Content="搜索" Width="64" Height="30" Margin="8,0,0,0" Click="ScriptSearchButton_Click" />
-                        <TextBox x:Name="ScriptSearchBox" Height="30" Padding="8,4" ToolTip="搜索话术标题" />
-                    </DockPanel>
-                    <ListBox x:Name="ScriptList" Height="210" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,8,0,14" SelectionChanged="ScriptList_SelectionChanged" />
-                    <DockPanel Margin="0,0,0,14">
-                        <Button x:Name="ScriptNextButton" DockPanel.Dock="Right" Content="下一页" Width="64" Height="28" Click="ScriptNextButton_Click" />
-                        <Button x:Name="ScriptPreviousButton" DockPanel.Dock="Right" Content="上一页" Width="64" Height="28" Margin="0,0,6,0" Click="ScriptPreviousButton_Click" />
-                        <TextBlock x:Name="ScriptPageText" Text="第 1 页" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </DockPanel>
-                    <TextBlock Text="回复" Foreground="#606266" />
-                    <TextBox x:Name="ReplyChineseBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />
-                    <DockPanel Margin="0,12,0,0">
+            <Grid Margin="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="快捷话术" FontWeight="SemiBold" FontSize="15" />
+                        <DockPanel Margin="0,8,0,0">
+                            <Button x:Name="ScriptSearchButton" DockPanel.Dock="Right" Content="搜索" Width="64" Height="30" Margin="8,0,0,0" Click="ScriptSearchButton_Click" />
+                            <TextBox x:Name="ScriptSearchBox" Height="30" Padding="8,4" ToolTip="搜索话术标题" />
+                        </DockPanel>
+                        <ListBox x:Name="ScriptList" Height="360" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,8,0,14" SelectionChanged="ScriptList_SelectionChanged" />
+                        <DockPanel Margin="0,0,0,14">
+                            <Button x:Name="ScriptNextButton" DockPanel.Dock="Right" Content="下一页" Width="64" Height="28" Click="ScriptNextButton_Click" />
+                            <Button x:Name="ScriptPreviousButton" DockPanel.Dock="Right" Content="上一页" Width="64" Height="28" Margin="0,0,6,0" Click="ScriptPreviousButton_Click" />
+                            <TextBlock x:Name="ScriptPageText" Text="第 1 页" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border Grid.Row="1" BorderBrush="#E5E7EB" BorderThickness="0,1,0,0" Padding="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="回复" Foreground="#606266" />
+                        <TextBox x:Name="ReplyChineseBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />
+                        <DockPanel Margin="0,12,0,0">
                         <TextBlock Text="目标语言" VerticalAlignment="Center" />
                         <ComboBox x:Name="TargetLanguageBox" Width="160" Margin="8,0,0,0" SelectionChanged="TargetLanguageBox_SelectionChanged">
                             <ComboBoxItem Tag="en" Content="英语" />
@@ -90,16 +97,16 @@
                             <ComboBoxItem Tag="zh" Content="中文" />
                         </ComboBox>
                         <CheckBox x:Name="AutoTranslateCheckBox" Content="自动翻译" IsChecked="False" Margin="12,0,0,0" VerticalAlignment="Center" />
-                    </DockPanel>
-                    <TextBlock Text="发送内容" Foreground="#606266" Margin="0,14,0,0" />
-                    <TextBox x:Name="ReplyTranslatedBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" />
-                    <DockPanel LastChildFill="False" Margin="0,12,0,0">
+                        </DockPanel>
+                        <TextBlock Text="发送内容" Foreground="#606266" Margin="0,14,0,0" />
+                        <TextBox x:Name="ReplyTranslatedBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        <DockPanel LastChildFill="False" Margin="0,12,0,0">
                         <Button x:Name="SendButton" DockPanel.Dock="Right" Content="发送" Width="100" Height="40" Click="SendButton_Click" />
                         <Button x:Name="TranslateButton" DockPanel.Dock="Right" Content="翻译" Width="100" Height="40" Margin="0,0,8,0" Click="TranslateButton_Click" />
                         <ProgressBar x:Name="TranslationProgress" DockPanel.Dock="Right" Width="24" Height="24" Margin="0,8,10,8" IsIndeterminate="True" Visibility="Collapsed" />
-                    </DockPanel>
-                </StackPanel>
-                </ScrollViewer>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Border>
       </Grid>

@@ -61,7 +61,7 @@ const formData = ref({
   scriptTitle: '',
   scriptContent: '',
   contentType: 1,
-  attachments: '',
+  attachments: '[]',
   sendSequence: false,
   sort: 0,
   remark: ''
@@ -122,7 +122,7 @@ const resetForm = () => {
     scriptTitle: '',
     scriptContent: '',
     contentType: 1,
-    attachments: '',
+    attachments: '[]',
     sendSequence: false,
     sort: 0,
     remark: ''

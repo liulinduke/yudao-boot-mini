@@ -29,6 +29,7 @@ public class FbScriptServiceImpl implements FbScriptService {
     @Override
     public Long createScript(FbScriptSaveReqVO createReqVO) {
         FbScriptDO script = BeanUtils.toBean(createReqVO, FbScriptDO.class);
+        script.setAttachments(normalizeAttachments(createReqVO.getAttachments()));
         scriptMapper.insert(script);
         return script.getId();
     }
@@ -37,6 +38,7 @@ public class FbScriptServiceImpl implements FbScriptService {
     public void updateScript(FbScriptSaveReqVO updateReqVO) {
         validateScriptExists(updateReqVO.getId());
         FbScriptDO updateObj = BeanUtils.toBean(updateReqVO, FbScriptDO.class);
+        updateObj.setAttachments(normalizeAttachments(updateReqVO.getAttachments()));
         scriptMapper.updateById(updateObj);
     }
 
@@ -70,6 +72,10 @@ public class FbScriptServiceImpl implements FbScriptService {
         if (scriptMapper.selectById(id) == null) {
             throw exception(SCRIPT_NOT_EXISTS);
         }
+    }
+
+    private String normalizeAttachments(String attachments) {
+        return attachments == null || attachments.isBlank() ? "[]" : attachments;
     }
 
 }

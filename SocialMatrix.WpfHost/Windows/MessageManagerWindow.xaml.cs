@@ -110,6 +110,13 @@ namespace SocialMatrix.WpfHost.Windows
         private const int ScriptPageSize = 10;
         private int _scriptTotal;
         private string _lastSelectedText = "";
+        private string _selectionCandidateText = "";
+        private DateTime _selectionCandidateChangedAt = DateTime.MinValue;
+        private double _selectionCandidateLeft = 20;
+        private double _selectionCandidateTop = 20;
+        private bool _selectionTranslationInFlight;
+        private readonly Dictionary<string, string> _selectionTranslationCache = new(StringComparer.Ordinal);
+        private const int SelectionDebounceMilliseconds = 600;
 
         public MessageManagerWindow(MainWindow owner)
         {
@@ -1033,6 +1040,8 @@ namespace SocialMatrix.WpfHost.Windows
                 || session.Browser.Visibility != Visibility.Visible
                 || !session.Browser.CanExecuteJavascriptInMainFrame)
             {
+                _selectionCandidateText = "";
+                _selectionCandidateChangedAt = DateTime.MinValue;
                 HideSelectionTranslation();
                 return;
             }
@@ -1050,19 +1059,47 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
                 if (!result.Success || result.Result == null) { HideSelectionTranslation(); return; }
                 var selection = JObject.Parse(JsonConvert.SerializeObject(result.Result));
                 var text = selection.Value<string>("text")?.Trim() ?? "";
-                if (text.Length == 0) { HideSelectionTranslation(); return; }
+                if (text.Length == 0)
+                {
+                    _selectionCandidateText = "";
+                    _selectionCandidateChangedAt = DateTime.MinValue;
+                    HideSelectionTranslation();
+                    return;
+                }
+
+                _selectionCandidateLeft = selection.Value<double?>("left") ?? 20;
+                _selectionCandidateTop = selection.Value<double?>("top") ?? 20;
+                if (!string.Equals(text, _selectionCandidateText, StringComparison.Ordinal))
+                {
+                    _selectionCandidateText = text;
+                    _selectionCandidateChangedAt = DateTime.UtcNow;
+                    HideSelectionTranslation();
+                    return;
+                }
+                if ((DateTime.UtcNow - _selectionCandidateChangedAt).TotalMilliseconds < SelectionDebounceMilliseconds)
+                    return;
+                if (_selectionTranslationInFlight) return;
                 if (text == _lastSelectedText && SelectionTranslationPopup.Visibility == Visibility.Visible) return;
 
                 _lastSelectedText = text;
-                SelectionTranslationText.Text = "";
-                SelectionTranslationProgress.Visibility = Visibility.Visible;
-                ShowSelectionTranslation(selection.Value<double?>("left") ?? 20, selection.Value<double?>("top") ?? 20);
-                if (text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
+                if (_selectionTranslationCache.TryGetValue(text, out var cachedTranslation))
                 {
-                    SelectionTranslationProgress.Visibility = Visibility.Collapsed;
-                    SelectionTranslationText.Text = text;
+                    SelectionTranslationText.Text = cachedTranslation;
+                    ShowSelectionTranslation(_selectionCandidateLeft, _selectionCandidateTop);
                     return;
                 }
+
+                if (text.Any(character => character >= '\u3400' && character <= '\u9FFF'))
+                {
+                    SelectionTranslationText.Text = text;
+                    _selectionTranslationCache[text] = text;
+                    ShowSelectionTranslation(_selectionCandidateLeft, _selectionCandidateTop);
+                    return;
+                }
+
+                SelectionTranslationText.Text = "正在翻译...";
+                ShowSelectionTranslation(_selectionCandidateLeft, _selectionCandidateTop);
+                _selectionTranslationInFlight = true;
                 var translated = (JObject)await RelayAsync("translate", new JObject
                 {
                     ["text"] = text,
@@ -1070,14 +1107,11 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
                     ["targetLanguage"] = "zh",
                     ["context"] = "facebook_messenger_selection"
                 });
-                if (_lastSelectedText == text)
+                if (_selectionCandidateText == text)
                 {
-                    SelectionTranslationProgress.Visibility = Visibility.Collapsed;
-                    SelectionTranslationText.Text = translated.Value<string>("translation") ?? text;
-                }
-                else
-                {
-                    HideSelectionTranslation();
+                    var translation = translated.Value<string>("translation") ?? text;
+                    _selectionTranslationCache[text] = translation;
+                    SelectionTranslationText.Text = translation;
                 }
             }
             catch (Exception ex)
@@ -1085,7 +1119,11 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
                 System.Diagnostics.Debug.WriteLine($"划词翻译失败: {ex.Message}");
                 HideSelectionTranslation();
             }
-            finally { _checkingSelection = false; }
+            finally
+            {
+                _selectionTranslationInFlight = false;
+                _checkingSelection = false;
+            }
         }
 
         private void ShowSelectionTranslation(double left, double top)
@@ -1098,7 +1136,6 @@ return {text:selected,left:rect?.left||20,top:(rect?.bottom||20)+8};
         private void HideSelectionTranslation()
         {
             _lastSelectedText = "";
-            SelectionTranslationProgress.Visibility = Visibility.Collapsed;
             SelectionTranslationPopup.Visibility = Visibility.Collapsed;
         }
 
