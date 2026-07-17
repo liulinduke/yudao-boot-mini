@@ -7,8 +7,9 @@ import { propTypes } from '@/utils/propTypes'
 
 defineOptions({ name: 'Message' })
 
-defineProps({
-  color: propTypes.string.def('')
+const props = defineProps({
+  color: propTypes.string.def(''),
+  placement: propTypes.string.def('bottom')
 })
 
 const { push } = useRouter()
@@ -29,9 +30,16 @@ const getUnreadCount = async () => {
     NotifyMessageApi.getUnreadNotifyMessageCount(),
     FbMessageApi.getUnreadSummary().catch(() => [])
   ])
-  facebookUnread.messenger = summaries.reduce((total, item) => total + Number(item.messengerUnreadCount || 0), 0)
-  facebookUnread.notification = summaries.reduce((total, item) => total + Number(item.commentUnreadCount || 0), 0)
-  unreadCount.value = Number(systemCount || 0) + facebookUnread.messenger + facebookUnread.notification
+  facebookUnread.messenger = summaries.reduce(
+    (total, item) => total + Number(item.messengerUnreadCount || 0),
+    0
+  )
+  facebookUnread.notification = summaries.reduce(
+    (total, item) => total + Number(item.commentUnreadCount || 0),
+    0
+  )
+  unreadCount.value =
+    Number(systemCount || 0) + facebookUnread.messenger + facebookUnread.notification
 }
 
 // 跳转我的站内信
@@ -69,10 +77,16 @@ onMounted(() => {
 </script>
 <template>
   <div class="message">
-    <ElPopover :width="400" placement="bottom" trigger="click">
+    <ElPopover :width="400" :placement="props.placement" trigger="click">
       <template #reference>
         <ElBadge :is-dot="unreadCount > 0" class="item">
-          <Icon :size="18" class="cursor-pointer" icon="ep:bell" :color="color" @click="getList" />
+          <Icon
+            :size="18"
+            class="cursor-pointer"
+            icon="ep:bell"
+            :color="props.color"
+            @click="getList"
+          />
         </ElBadge>
       </template>
       <ElTabs v-model="activeName">
@@ -97,7 +111,9 @@ onMounted(() => {
       <div class="facebook-summary" @click="openFacebookMessageManager">
         <Icon icon="ep:chat-dot-round" :size="20" />
         <span>Facebook</span>
-        <span class="facebook-count">消息 {{ facebookUnread.messenger }}，通知 {{ facebookUnread.notification }}</span>
+        <span class="facebook-count"
+          >消息 {{ facebookUnread.messenger }}，通知 {{ facebookUnread.notification }}</span
+        >
       </div>
       <!-- 更多 -->
       <div style="margin-top: 10px; text-align: right">

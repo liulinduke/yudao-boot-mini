@@ -10,6 +10,7 @@ import { cloneDeep } from 'lodash-es'
 import { filterMenusPath, initTabMap, tabPathMap } from './helper'
 import { useDesign } from '@/hooks/web/useDesign'
 import { isUrl } from '@/utils/is'
+import SidebarTools from '@/layout/components/SidebarTools.vue'
 
 const { getPrefixCls, variables } = useDesign()
 
@@ -139,7 +140,7 @@ export default defineComponent({
         id={`${variables.namespace}-menu`}
         class={[
           prefixCls,
-          'relative bg-[var(--left-menu-bg-color)] layout-border__right',
+          'relative flex flex-col bg-[var(--left-menu-bg-color)] layout-border__right',
           {
             'w-[var(--tab-menu-max-width)]': !unref(collapse),
             'w-[var(--tab-menu-min-width)]': unref(collapse)
@@ -147,7 +148,7 @@ export default defineComponent({
         ]}
         onMouseleave={mouseleave}
       >
-        <ElScrollbar class="!h-[calc(100%-var(--tab-menu-collapse-height))]">
+        <ElScrollbar class="!h-auto flex-1 min-h-0">
           <div>
             {() => {
               return unref(tabRouters).map((v) => {
@@ -184,6 +185,9 @@ export default defineComponent({
             }}
           </div>
         </ElScrollbar>
+        <div class="relative z-12 w-[calc(100%-1px)]">
+          <SidebarTools includeCollapse={false}></SidebarTools>
+        </div>
         <div
           class={[
             `${prefixCls}--collapse`,

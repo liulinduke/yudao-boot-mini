@@ -11,6 +11,7 @@ using SocialMatrix.WpfHost.Services;
 using SocialMatrix.WpfHost.Windows;
 using System;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 
 namespace SocialMatrix.WpfHost
@@ -25,10 +26,134 @@ namespace SocialMatrix.WpfHost
         private BrowserMatrixWindow? _browserMatrixWindow;
         private readonly Dictionary<string, BrowserMatrixWindow> _browserMatrixWindows = new();
         private MessageManagerWindow? _messageManagerWindow;
+        private bool _isWorkAreaMaximized;
+        private Rect _normalWindowBounds;
+        private bool _titleBarMouseDown;
+        private Point _titleBarMouseDownPoint;
+
         public MainWindow()
         {
             InitializeComponent();
+            MaximizeToWorkArea();
             InitializeVueWebView();
+        }
+
+        private void WindowHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                _titleBarMouseDown = false;
+                Mouse.Capture(null);
+                ToggleWindowState();
+                e.Handled = true;
+                return;
+            }
+
+            _titleBarMouseDown = true;
+            _titleBarMouseDownPoint = e.GetPosition(this);
+            ((UIElement)sender).CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void WindowHeader_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_titleBarMouseDown || e.LeftButton != MouseButtonState.Pressed)
+            {
+                return;
+            }
+
+            var currentPoint = e.GetPosition(this);
+            var movedEnough = Math.Abs(currentPoint.X - _titleBarMouseDownPoint.X) >= SystemParameters.MinimumHorizontalDragDistance
+                || Math.Abs(currentPoint.Y - _titleBarMouseDownPoint.Y) >= SystemParameters.MinimumVerticalDragDistance;
+            if (!movedEnough)
+            {
+                return;
+            }
+
+            _titleBarMouseDown = false;
+            Mouse.Capture(null);
+
+            if (_isWorkAreaMaximized)
+            {
+                var screenPoint = PointToScreen(_titleBarMouseDownPoint);
+                var restoreBounds = _normalWindowBounds;
+                var maximizedWidth = ActualWidth;
+
+                RestoreFromWorkArea();
+                Left = screenPoint.X - restoreBounds.Width * _titleBarMouseDownPoint.X / maximizedWidth;
+                Top = screenPoint.Y - _titleBarMouseDownPoint.Y;
+            }
+
+            DragMove();
+        }
+
+        private void WindowHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            _titleBarMouseDown = false;
+            Mouse.Capture(null);
+        }
+
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleWindowState();
+        }
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        private void ToggleWindowState()
+        {
+            if (_isWorkAreaMaximized)
+            {
+                RestoreFromWorkArea();
+            }
+            else
+            {
+                MaximizeToWorkArea();
+            }
+        }
+
+        private void MaximizeToWorkArea()
+        {
+            if (_isWorkAreaMaximized)
+            {
+                return;
+            }
+
+            _normalWindowBounds = new Rect(Left, Top, Width, Height);
+            var workArea = SystemParameters.WorkArea;
+            ResizeMode = ResizeMode.NoResize;
+            Left = workArea.Left;
+            Top = workArea.Top;
+            Width = workArea.Width;
+            Height = workArea.Height;
+            _isWorkAreaMaximized = true;
+            MaximizeButton.Content = "❐";
+            MaximizeButton.ToolTip = "还原";
+        }
+
+        private void RestoreFromWorkArea()
+        {
+            if (!_isWorkAreaMaximized)
+            {
+                return;
+            }
+
+            Left = _normalWindowBounds.Left;
+            Top = _normalWindowBounds.Top;
+            Width = _normalWindowBounds.Width;
+            Height = _normalWindowBounds.Height;
+            ResizeMode = ResizeMode.CanResize;
+            _isWorkAreaMaximized = false;
+            MaximizeButton.Content = "□";
+            MaximizeButton.ToolTip = "最大化";
         }
 
         public void OpenMessageManagerWindow()

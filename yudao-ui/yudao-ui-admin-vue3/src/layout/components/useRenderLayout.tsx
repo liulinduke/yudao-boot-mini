@@ -5,6 +5,7 @@ import { TabMenu } from '@/layout/components/TabMenu'
 import { TagsView } from '@/layout/components/TagsView'
 import { Logo } from '@/layout/components/Logo'
 import AppView from './AppView.vue'
+import SidebarTools from './SidebarTools.vue'
 import ToolHeader from './ToolHeader.vue'
 import { ElScrollbar } from 'element-plus'
 import { useDesign } from '@/hooks/web/useDesign'
@@ -41,7 +42,7 @@ export const useRenderLayout = () => {
       <>
         <div
           class={[
-            'absolute top-0 left-0 h-full layout-border__right',
+            'absolute top-0 left-0 h-full layout-border__right flex flex-col',
             { '!fixed z-3000': mobile.value }
           ]}
         >
@@ -58,7 +59,8 @@ export const useRenderLayout = () => {
               style="transition: all var(--transition-time-02);"
             ></Logo>
           ) : undefined}
-          <Menu class={[{ '!h-[calc(100%-var(--logo-height))]': logo.value }]}></Menu>
+          <Menu class={[{ '!h-auto flex-1 min-h-0': logo.value }]}></Menu>
+          <SidebarTools />
         </div>
         <div
           class={[
@@ -74,43 +76,10 @@ export const useRenderLayout = () => {
           ]}
           style="transition: all var(--transition-time-02);"
         >
-          <ElScrollbar
-            v-loading={pageLoading.value}
-            class={[
-              `${prefixCls}-content-scrollbar`,
-              {
-                '!h-[calc(100%-var(--top-tool-height)-var(--tags-view-height))] mt-[calc(var(--top-tool-height)+var(--tags-view-height))]':
-                  fixedHeader.value
-              }
-            ]}
-          >
-            <div
-              class={[
-                {
-                  'fixed top-0 left-0 z-10': fixedHeader.value,
-                  'w-[calc(100%-var(--left-menu-min-width))] !left-[var(--left-menu-min-width)]':
-                    collapse.value && fixedHeader.value && !mobile.value,
-                  'w-[calc(100%-var(--left-menu-max-width))] !left-[var(--left-menu-max-width)]':
-                    !collapse.value && fixedHeader.value && !mobile.value,
-                  '!w-full !left-0': mobile.value
-                }
-              ]}
-              style="transition: all var(--transition-time-02);"
-            >
-              <ToolHeader
-                class={[
-                  'bg-[var(--top-header-bg-color)]',
-                  {
-                    'layout-border__bottom': !tagsView.value
-                  }
-                ]}
-              ></ToolHeader>
-
-              {tagsView.value ? (
-                <TagsView class="layout-border__top layout-border__bottom"></TagsView>
-              ) : undefined}
-            </div>
-
+          <ElScrollbar v-loading={pageLoading.value} class={`${prefixCls}-content-scrollbar`}>
+            {tagsView.value ? (
+              <TagsView class="layout-border__top layout-border__bottom"></TagsView>
+            ) : undefined}
             <AppView></AppView>
           </ElScrollbar>
         </div>
@@ -223,12 +192,7 @@ export const useRenderLayout = () => {
   const renderCutMenu = () => {
     return (
       <>
-        <div class="relative flex items-center bg-[var(--top-header-bg-color)] layout-border__bottom">
-          {logo.value ? <Logo class="custom-hover !pr-15px"></Logo> : undefined}
-
-          <ToolHeader class="flex-1"></ToolHeader>
-        </div>
-        <div class="absolute left-0 top-[var(--logo-height)] h-[calc(100%-var(--logo-height))] w-full flex">
+        <div class="absolute left-0 top-0 h-full w-full flex">
           <TabMenu></TabMenu>
           <div
             class={[
@@ -263,13 +227,13 @@ export const useRenderLayout = () => {
                     'relative layout-border__bottom',
                     {
                       '!fixed top-0 left-0 z-10': fixedHeader.value,
-                      'w-[calc(100%-var(--tab-menu-min-width))] !left-[var(--tab-menu-min-width)] mt-[var(--logo-height)]':
+                      'w-[calc(100%-var(--tab-menu-min-width))] !left-[var(--tab-menu-min-width)]':
                         collapse.value && fixedHeader.value && !fixedMenu.value,
-                      'w-[calc(100%-var(--tab-menu-max-width))] !left-[var(--tab-menu-max-width)] mt-[var(--logo-height)]':
+                      'w-[calc(100%-var(--tab-menu-max-width))] !left-[var(--tab-menu-max-width)]':
                         !collapse.value && fixedHeader.value && !fixedMenu.value,
-                      'w-[calc(100%-var(--tab-menu-min-width)-var(--left-menu-max-width))] !left-[calc(var(--tab-menu-min-width)+var(--left-menu-max-width))] mt-[var(--logo-height)]':
+                      'w-[calc(100%-var(--tab-menu-min-width)-var(--left-menu-max-width))] !left-[calc(var(--tab-menu-min-width)+var(--left-menu-max-width))]':
                         collapse.value && fixedHeader.value && fixedMenu.value,
-                      'w-[calc(100%-var(--tab-menu-max-width)-var(--left-menu-max-width))] !left-[calc(var(--tab-menu-max-width)+var(--left-menu-max-width))] mt-[var(--logo-height)]':
+                      'w-[calc(100%-var(--tab-menu-max-width)-var(--left-menu-max-width))] !left-[calc(var(--tab-menu-max-width)+var(--left-menu-max-width))]':
                         !collapse.value && fixedHeader.value && fixedMenu.value
                     }
                   ]}

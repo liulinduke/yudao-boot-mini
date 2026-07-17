@@ -5,11 +5,28 @@ import avatarImg from '@/assets/imgs/avatar.jpg'
 import { useDesign } from '@/hooks/web/useDesign'
 import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUserStore } from '@/store/modules/user'
-import LockDialog from './components/LockDialog.vue'
-import LockPage from './components/LockPage.vue'
-import { useLockStore } from '@/store/modules/lock'
+import TenantVisit from '@/layout/components/TenantVisit/index.vue'
 
 defineOptions({ name: 'UserInfo' })
+
+const props = defineProps({
+  placement: {
+    type: String,
+    default: 'bottom-end'
+  },
+  showName: {
+    type: Boolean,
+    default: true
+  },
+  compact: {
+    type: Boolean,
+    default: false
+  },
+  hoverable: {
+    type: Boolean,
+    default: true
+  }
+})
 
 const { t } = useI18n()
 
@@ -26,14 +43,6 @@ const prefixCls = getPrefixCls('user-info')
 const avatar = computed(() => userStore.user.avatar || avatarImg)
 const userName = computed(() => userStore.user.nickname ?? 'Admin')
 
-// 锁定屏幕
-const lockStore = useLockStore()
-const getIsLock = computed(() => lockStore.getLockInfo?.isLock ?? false)
-const dialogVisible = ref<boolean>(false)
-const lockScreen = () => {
-  dialogVisible.value = true
-}
-
 const loginOut = async () => {
   try {
     await ElMessageBox.confirm(t('common.loginOutMessage'), t('common.reminder'), {
@@ -49,32 +58,38 @@ const loginOut = async () => {
 const toProfile = async () => {
   push('/user/profile')
 }
-const toDocument = () => {
-  window.open('https://doc.iocoder.cn/')
-}
 </script>
 
 <template>
-  <ElDropdown class="custom-hover" :class="prefixCls" trigger="click">
+  <ElDropdown
+    :class="[prefixCls, { 'custom-hover': props.hoverable }]"
+    trigger="click"
+    :placement="props.placement"
+  >
     <div class="flex items-center">
-      <ElAvatar :src="avatar" alt="" class="w-[calc(var(--logo-height)-25px)] rounded-[50%]" />
-      <span class="pl-[5px] text-14px text-[var(--top-header-text-color)] <lg:hidden">
+      <ElAvatar
+        :src="avatar"
+        alt=""
+        :class="[
+          'rounded-[50%]',
+          props.compact ? '!w-28px !h-28px' : 'w-[calc(var(--logo-height)-25px)]'
+        ]"
+      />
+      <span
+        v-if="props.showName"
+        class="pl-[5px] text-14px text-[var(--top-header-text-color)] <lg:hidden"
+      >
         {{ userName }}
       </span>
     </div>
     <template #dropdown>
       <ElDropdownMenu>
+        <div class="user-tenant-switch">
+          <TenantVisit />
+        </div>
         <ElDropdownItem>
           <Icon icon="ep:tools" />
           <div @click="toProfile">{{ t('common.profile') }}</div>
-        </ElDropdownItem>
-        <ElDropdownItem>
-          <Icon icon="ep:menu" />
-          <div @click="toDocument">{{ t('common.document') }}</div>
-        </ElDropdownItem>
-        <ElDropdownItem divided>
-          <Icon icon="ep:lock" />
-          <div @click="lockScreen">{{ t('lock.lockScreen') }}</div>
         </ElDropdownItem>
         <ElDropdownItem divided @click="loginOut">
           <Icon icon="ep:switch-button" />
@@ -83,31 +98,15 @@ const toDocument = () => {
       </ElDropdownMenu>
     </template>
   </ElDropdown>
-
-  <LockDialog v-if="dialogVisible" v-model="dialogVisible" />
-
-  <teleport to="body">
-    <transition name="fade-bottom" mode="out-in">
-      <LockPage v-if="getIsLock" />
-    </transition>
-  </teleport>
 </template>
 
 <style scoped lang="scss">
-.fade-bottom-enter-active,
-.fade-bottom-leave-active {
-  transition:
-    opacity 0.25s,
-    transform 0.3s;
+.user-tenant-switch {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
-.fade-bottom-enter-from {
-  opacity: 0;
-  transform: translateY(-10%);
-}
-
-.fade-bottom-leave-to {
-  opacity: 0;
-  transform: translateY(10%);
+:deep(.user-tenant-switch .el-select) {
+  width: 180px !important;
 }
 </style>
