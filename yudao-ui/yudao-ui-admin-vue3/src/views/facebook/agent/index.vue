@@ -526,7 +526,7 @@
 
 <script setup lang="ts" name="FbAiAgent">
 defineOptions({ name: 'FbAiAgent' })
-import { dateFormatter } from '@/utils/formatTime'
+import { formatDate } from '@/utils/formatTime'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { FbAccountApi, type FbAccount } from '@/api/facebook/account'
@@ -775,7 +775,7 @@ const getMonitorUrls = (config?: FbAiAgentConfig) =>
 
 const formatDateTime = (value?: string | Date) => {
   if (!value) return '-'
-  return dateFormatter(value)
+  return formatDate(value instanceof Date ? value : new Date(value))
 }
 
 const formatRunLogLine = (item: FbAiAgentRunLog) => {

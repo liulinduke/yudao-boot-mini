@@ -63,11 +63,7 @@
             </el-link>
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item
-            v-if="isRepostLikeTask"
-            label="执行项"
-            :span="3"
-          >
+          <el-descriptions-item v-if="isRepostLikeTask" label="执行项" :span="3">
             <div v-if="repostActionTags.length > 0" class="flex flex-wrap gap-1">
               <el-tag v-for="tag in repostActionTags" :key="tag" size="small">{{ tag }}</el-tag>
             </div>
@@ -81,10 +77,7 @@
 
       <!-- 转帖结果（转帖任务直接展示，不显示任务明细 Tab） -->
       <el-card
-        v-if="
-          formType === 'view' &&
-          isRepostLikeTask
-        "
+        v-if="formType === 'view' && isRepostLikeTask && taskDetail?.task?.taskType !== 16"
         class="mb-4"
       >
         <template #header>
@@ -139,10 +132,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-empty
-          v-if="repostResultList.length === 0"
-          :description="repostResultEmptyText"
-        />
+        <el-empty v-if="repostResultList.length === 0" :description="repostResultEmptyText" />
       </el-card>
 
       <!-- 发群帖结果（发群帖任务直接展示，不显示任务明细 Tab） -->
@@ -347,7 +337,6 @@
           </el-table>
           <!-- 其他运营任务明细 -->
           <el-table v-else :data="detailList" stripe border max-height="500">
-            <el-table-column label="明细ID" prop="id" width="100" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
             <el-table-column v-if="taskDetail?.task?.taskType !== 9" label="期望/已采" width="120">
               <template #default="scope">
@@ -383,7 +372,6 @@
         <!-- Tab 2: 采集结果（仅链接加组显示） -->
         <el-tab-pane v-if="taskDetail?.task?.taskType === 9" label="👥 加组结果" name="results">
           <el-table :data="resultList" stripe border max-height="500">
-            <el-table-column label="Facebook ID" prop="accountId" width="180" />
             <el-table-column label="FB账号" prop="fbAccount" width="150" />
             <el-table-column
               label="用户链接"
@@ -419,6 +407,42 @@
             </el-table-column>
           </el-table>
           <el-empty v-if="resultList.length === 0" description="暂无加组数据" />
+        </el-tab-pane>
+
+        <!-- 刷粉结果与任务明细并列展示 -->
+        <el-tab-pane v-if="taskDetail?.task?.taskType === 16" label="刷粉结果" name="follow-results">
+          <el-table :data="repostResultList" stripe border max-height="500">
+            <el-table-column label="执行账号" min-width="160" show-overflow-tooltip>
+              <template #default="scope">
+                <div class="font-medium">{{ scope.row.fbAccount || scope.row.accountId || '-' }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标主页" min-width="280" show-overflow-tooltip>
+              <template #default="scope">
+                {{ scope.row.targetUrl || scope.row.postUrl || scope.row.targetName || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="scope">
+                <el-tag v-if="scope.row.status === 0" type="info" size="small">待处理</el-tag>
+                <el-tag v-else-if="scope.row.status === 1" type="success" size="small">成功</el-tag>
+                <el-tag v-else-if="scope.row.status === 2" type="danger" size="small">失败</el-tag>
+                <el-tag v-else-if="scope.row.status === 3" type="warning" size="small">待确认</el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="结果说明" min-width="220" show-overflow-tooltip>
+              <template #default="scope">
+                {{ scope.row.remark || scope.row.failReason || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="执行时间" width="170">
+              <template #default="scope">
+                {{ formatDate(scope.row.executeTime || scope.row.createTime) }}
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="repostResultList.length === 0" description="暂无刷粉执行记录" />
         </el-tab-pane>
       </el-tabs>
     </div>

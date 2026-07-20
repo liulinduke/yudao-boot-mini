@@ -3,10 +3,12 @@ package cn.iocoder.yudao.module.facebook.service.dashboard;
 import cn.iocoder.yudao.module.facebook.controller.admin.dashboard.vo.FbDashboardHomeRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUserDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -29,6 +31,8 @@ public class FbDashboardServiceImpl implements FbDashboardService {
     @Resource
     private FbCollectUserMapper collectUserMapper;
     @Resource
+    private FbCollectMapper collectMapper;
+    @Resource
     private FbAiTouchRecordMapper touchRecordMapper;
     @Resource
     private FbOperationTaskMapper operationTaskMapper;
@@ -44,13 +48,20 @@ public class FbDashboardServiceImpl implements FbDashboardService {
         List<FbCollectUserDO> todayLeads = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .ge(FbCollectUserDO::getCreateTime, todayStart)
                 .lt(FbCollectUserDO::getCreateTime, tomorrowStart));
+        List<Long> aiCollectTaskIds = getAiCollectTaskIds();
+        List<FbCollectUserDO> todayAiLeads = aiCollectTaskIds.isEmpty()
+                ? List.of()
+                : collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                        .in(FbCollectUserDO::getTaskId, aiCollectTaskIds)
+                        .ge(FbCollectUserDO::getCreateTime, todayStart)
+                        .lt(FbCollectUserDO::getCreateTime, tomorrowStart));
         long analyzedCount = countAnalyzed(todayStart, tomorrowStart);
         long generatedTouchCount = countGeneratedTouch(todayStart, tomorrowStart);
         long touchedCount = countTouched(todayStart, tomorrowStart);
 
         FbDashboardHomeRespVO response = new FbDashboardHomeRespVO();
         response.setAiResult(FbDashboardHomeRespVO.AiResult.builder()
-                .autoCollectedLeadCount((long) todayLeads.size())
+                .autoCollectedLeadCount((long) todayAiLeads.size())
                 .autoAnalyzedCustomerCount(analyzedCount)
                 .generatedInteractionSuggestionCount(generatedTouchCount)
                 .autoTouchedCount(touchedCount)
@@ -174,5 +185,18 @@ public class FbDashboardServiceImpl implements FbDashboardService {
         return touchRecordMapper.selectCount(new LambdaQueryWrapper<FbAiTouchRecordDO>()
                 .ge(FbAiTouchRecordDO::getCreateTime, start)
                 .lt(FbAiTouchRecordDO::getCreateTime, end));
+    }
+
+    /**
+     * AI Agent 创建的采集任务统一以 AI 开头，普通社媒采集任务不参与 AI 成果统计。
+     */
+    private List<Long> getAiCollectTaskIds() {
+        return collectMapper.selectList(new LambdaQueryWrapper<FbCollectDO>()
+                        .select(FbCollectDO::getId)
+                        .like(FbCollectDO::getRemark, "AI"))
+                .stream()
+                .map(FbCollectDO::getId)
+                .filter(id -> id != null)
+                .toList();
     }
 }

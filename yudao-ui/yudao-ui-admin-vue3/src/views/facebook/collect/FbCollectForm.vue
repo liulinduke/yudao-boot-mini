@@ -6,13 +6,13 @@
   >
     <div v-loading="formLoading">
       <!-- 主表信息 -->
-      <el-card class="mb-4" v-if="formType === 'view' && taskDetail">
+      <el-card v-if="formType === 'view' && taskDetail" class="collect-task-summary mb-4">
         <template #header>
           <div class="card-header">
             <span>📋 任务基本信息</span>
           </div>
         </template>
-        <el-descriptions :column="3" border>
+        <el-descriptions :column="3" border label-width="118px">
           <el-descriptions-item label="任务ID">{{ taskDetail.id }}</el-descriptions-item>
           <el-descriptions-item label="任务类型">
             <el-tag v-if="taskDetail.taskType === 12" type="success">深度采集</el-tag>
@@ -245,7 +245,9 @@
                   {{ user.userName || user.url }}
                 </el-tag>
               </div>
-              <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择潜客，请点击上方按钮选择 </div>
+              <div v-else class="text-gray-400 text-sm mt-2">
+                暂未选择潜客，请点击上方按钮选择
+              </div>
             </div>
           </el-form-item>
         </template>
@@ -458,7 +460,6 @@
           <el-checkbox-group v-model="relationTypes">
             <el-checkbox label="followers">粉丝</el-checkbox>
             <el-checkbox label="following">关注</el-checkbox>
-            <el-checkbox label="friends">好友</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
 
@@ -505,7 +506,11 @@
           </div>
         </el-form-item>
 
-        <el-form-item v-if="formData.taskType !== 11 && formData.taskType !== 12" label="期望数量" prop="expectedCount">
+        <el-form-item
+          v-if="formData.taskType !== 11 && formData.taskType !== 12"
+          label="期望数量"
+          prop="expectedCount"
+        >
           <el-input-number
             v-model="formData.expectedCount"
             :min="1"
@@ -658,13 +663,23 @@
             <el-table-column label="所在地" prop="city" width="120" />
             <el-table-column label="居住地" prop="location" width="120" />
             <el-table-column label="性别" prop="gender" width="90" />
-            <el-table-column label="简介/状态" prop="profileStatus" min-width="220" show-overflow-tooltip />
+            <el-table-column
+              label="简介/状态"
+              prop="profileStatus"
+              min-width="220"
+              show-overflow-tooltip
+            />
             <el-table-column label="最近发帖" prop="lastPostTime" width="160">
               <template #default="scope">
                 {{ formatDate(scope.row.lastPostTime) }}
               </template>
             </el-table-column>
-            <el-table-column label="最近帖子摘要" prop="lastPostSummary" min-width="260" show-overflow-tooltip />
+            <el-table-column
+              label="最近帖子摘要"
+              prop="lastPostSummary"
+              min-width="260"
+              show-overflow-tooltip
+            />
           </el-table>
 
           <!-- 个人主页采集结果显示（默认） -->
@@ -980,11 +995,12 @@ const loadUserList = async (taskId: number) => {
         })
       } else {
         // 个人主页采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
-        const sourceUserIds = taskType === 12
-          ? detailList.value
-              .map((item: any) => item.sourceUserId)
-              .filter((id: any) => id !== undefined && id !== null && id !== '')
-          : []
+        const sourceUserIds =
+          taskType === 12
+            ? detailList.value
+                .map((item: any) => item.sourceUserId)
+                .filter((id: any) => id !== undefined && id !== null && id !== '')
+            : []
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
@@ -1054,6 +1070,8 @@ const submitForm = async () => {
       data.searchUrl = normalizeDeepCollectUrls(data.searchUrl || '')
       data.searchType = 0
       data.expectedCount = 1
+    } else if (data.taskType === 8) {
+      data.searchUrl = normalizeUserRelationUrls(data.searchUrl || '')
     }
     let urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
 
@@ -1106,7 +1124,12 @@ __CONFIG__:${JSON.stringify(config)}`
     }
 
     // 一次性创建任务和所有明细
-    let details: Array<{ detailId: number; fbAccount: string; searchUrl: string; sourceUserId?: number | string }> = []
+    let details: Array<{
+      detailId: number
+      fbAccount: string
+      searchUrl: string
+      sourceUserId?: number | string
+    }> = []
     if (formType.value === 'create') {
       const result = await FbCollectApi.createFbCollect(taskData)
       // 后端返回 FbCollectCreateRespVO，包含 taskId 和 details 列表
@@ -1455,7 +1478,10 @@ const handleDeepInputModeChange = (mode: 'manual' | 'select') => {
 }
 
 const refreshDeepUserUrls = () => {
-  formData.value.searchUrl = selectedDeepUsers.value.map((user) => user.url).filter(Boolean).join('\n')
+  formData.value.searchUrl = selectedDeepUsers.value
+    .map((user) => user.url)
+    .filter(Boolean)
+    .join('\n')
 }
 
 const removeSelectedDeepUser = (userId: number) => {
@@ -1494,34 +1520,48 @@ const removeSelectedUser = (userId: number) => {
 
 /** 生成同行采集链接 */
 const generateUserRelationUrls = () => {
+  formData.value.searchUrl = normalizeUserRelationUrls(
+    selectedUsers.value
+      .map((user) => user.url)
+      .filter(Boolean)
+      .join('\n')
+  )
+}
+
+/**
+ * 为同行采集链接补齐关系页参数。
+ * 手动输入常见形式：profile.php?id=xxx、profile.php?id=xxx&、已带旧sk参数的链接。
+ */
+const normalizeUserRelationUrls = (rawUrls: string) => {
+  const relations = relationTypes.value.filter((value) =>
+    ['followers', 'following', 'friends'].includes(value)
+  )
+  if (!relations.length) return rawUrls
+
   const urls: string[] = []
-
-  selectedUsers.value.forEach((user) => {
-    // 保留原始URL（包括查询参数）
-    const originalUrl = user.url
-    // 判断URL是否已有查询参数
-    const hasQuery = originalUrl.includes('?')
-
-    // 根据选中的关系类型生成不同的链接
-    relationTypes.value.forEach((relationType) => {
-      let param = ''
-      if (relationType === 'followers') {
-        param = 'sk=followers'
-      } else if (relationType === 'following') {
-        param = 'sk=following'
-      } else if (relationType === 'friends') {
-        param = 'sk=friends'
-      }
-
-      if (param) {
-        // 如果已有查询参数用 &，否则用 ?
-        const separator = hasQuery ? '&' : '?'
-        urls.push(`${originalUrl}${separator}${param}`)
+  rawUrls
+    .split(/\r?\n/)
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .forEach((rawUrl) => {
+      try {
+        const parsed = new URL(rawUrl)
+        relations.forEach((relation) => {
+          const nextUrl = new URL(parsed.toString())
+          nextUrl.searchParams.set('sk', relation)
+          urls.push(nextUrl.toString())
+        })
+      } catch {
+        // 非标准链接保留原文，只做尾部清理，避免阻断整个任务提交。
+        const baseUrl = rawUrl.replace(/[?&]+$/, '')
+        relations.forEach((relation) => {
+          const separator = baseUrl.includes('?') ? '&' : '?'
+          urls.push(`${baseUrl}${separator}sk=${relation}`)
+        })
       }
     })
-  })
 
-  formData.value.searchUrl = urls.join('\n')
+  return urls.join('\n')
 }
 
 /** 确认用户选择（组件回调） */
@@ -1633,3 +1673,29 @@ watch(
   { deep: true }
 )
 </script>
+
+<style scoped lang="scss">
+.collect-task-summary {
+  :deep(.el-descriptions__table) {
+    table-layout: fixed;
+  }
+
+  :deep(.el-descriptions__cell) {
+    padding: 10px 14px;
+  }
+
+  :deep(.el-descriptions__label) {
+    min-width: 118px;
+    white-space: nowrap;
+  }
+
+  :deep(.el-descriptions__content) {
+    min-width: 170px;
+    white-space: nowrap;
+  }
+
+  :deep(.el-progress) {
+    min-width: 150px;
+  }
+}
+</style>

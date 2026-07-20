@@ -374,7 +374,7 @@ const functions = [
     type: 'user-relations',
     title: '同行采集',
     icon: 'ep:user-group',
-    description: '采集粉丝/关注/好友',
+    description: '采集粉丝/关注',
     disabled: false
   },
   {
@@ -554,7 +554,10 @@ const handleExport = async () => {
   }
 }
 
-const continueNextCollectDetailOrClose = async (accountId?: string | number, currentDetailId?: string | number) => {
+const continueNextCollectDetailOrClose = async (
+  accountId?: string | number,
+  currentDetailId?: string | number
+) => {
   if (!accountId) return
   const fbAccount = String(accountId)
   try {
@@ -709,7 +712,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('fb:collect:saved', getList)
 })
-
 </script>
 
 <style scoped lang="scss">

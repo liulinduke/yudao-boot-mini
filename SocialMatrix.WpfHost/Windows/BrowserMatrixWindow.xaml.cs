@@ -139,6 +139,13 @@ namespace SocialMatrix.WpfHost.Windows
             }
             _browsers.Clear();
             _browserTabs.Clear();
+            _browserInitialized.Clear();
+            _accountTaskTypes.Clear();
+            _accountDetailIds.Clear();
+            _dmOperationParams.Clear();
+            _dmTaskIds.Clear();
+            _accountIsOperation.Clear();
+            _dmSendingAccounts.Clear();
 
             System.Diagnostics.Debug.WriteLine($"✅ 所有资源清理完成");
         }
@@ -223,6 +230,12 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             // 如果浏览器已存在，检查是否需要重新采集
+            if (_browsers.TryGetValue(accountId, out var staleBrowser) && staleBrowser.IsDisposed)
+            {
+                System.Diagnostics.Debug.WriteLine($"♻️ 账号 {accountId} 的浏览器已失效，清理旧 Tab 后重新创建");
+                RemoveBrowserState(accountId, disposeBrowser: false);
+            }
+
             if (_browsers.ContainsKey(accountId))
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 的浏览器已存在");
@@ -539,31 +552,39 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         public void CloseBrowser(string accountId)
         {
+            if (!_browsers.ContainsKey(accountId)) return;
+            RemoveBrowserState(accountId, disposeBrowser: true);
+            System.Diagnostics.Debug.WriteLine($"✅ 已关闭账号 {accountId} 的浏览器");
+        }
+
+        private void RemoveBrowserState(string accountId, bool disposeBrowser)
+        {
             if (_browsers.TryGetValue(accountId, out var browser))
             {
-                if (_browserTabs.TryGetValue(accountId, out var tab))
+                if (disposeBrowser && !browser.IsDisposed)
                 {
-                    // 释放浏览器
                     browser.Dispose();
-                    _browsers.Remove(accountId);
-
-                    // 释放 RequestContext
-                    if (_requestContexts.TryGetValue(accountId, out var requestContext))
-                    {
-                        requestContext.Dispose();
-                        _requestContexts.Remove(accountId);
-                        System.Diagnostics.Debug.WriteLine($"🗑️ 已释放账号 {accountId} 的请求上下文");
-                    }
-
-                    BrowserTabs.Items.Remove(tab);
-                    _browserTabs.Remove(accountId);
-
-                    // 更新布局
-                    UpdateLayout();
-
-                    System.Diagnostics.Debug.WriteLine($"✅ 已关闭账号 {accountId} 的浏览器");
                 }
+                _browsers.Remove(accountId);
             }
+
+            if (_requestContexts.TryGetValue(accountId, out var requestContext))
+            {
+                try { requestContext.Dispose(); } catch { }
+                _requestContexts.Remove(accountId);
+                System.Diagnostics.Debug.WriteLine($"🗑️ 已释放账号 {accountId} 的请求上下文");
+            }
+
+            if (_browserTabs.TryGetValue(accountId, out var tab))
+            {
+                BrowserTabs.Items.Remove(tab);
+                _browserTabs.Remove(accountId);
+            }
+
+            _browserInitialized.Remove(accountId);
+            _accountTaskTypes.Remove(accountId);
+            _accountIsOperation.Remove(accountId);
+            UpdateLayout();
         }
 
         /// <summary>
@@ -2848,7 +2869,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         public int GetActiveBrowserCount()
         {
-            return _browsers.Count;
+            return _browsers.Values.Count(browser => !browser.IsDisposed);
         }
 
         /// <summary>
@@ -3227,7 +3248,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         public bool HasBrowser(string accountId)
         {
-            return _browsers.ContainsKey(accountId);
+            return _browsers.TryGetValue(accountId, out var browser) && !browser.IsDisposed;
         }
 
         /// <summary>
