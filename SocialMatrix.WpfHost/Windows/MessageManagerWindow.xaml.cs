@@ -25,6 +25,7 @@ namespace SocialMatrix.WpfHost.Windows
             public string FbAccount { get; set; } = "";
             public string Cookie { get; set; } = "";
             public long? DeviceId { get; set; }
+            public string AvatarUrl { get; set; } = "";
             public string DisplayName => string.IsNullOrWhiteSpace(FbAccount) ? Id.ToString() : FbAccount;
             public int ReceiveEnabled { get; set; }
             public int OnlineStatus { get; set; }
@@ -173,6 +174,13 @@ namespace SocialMatrix.WpfHost.Windows
             check.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
             check.AddHandler(CheckBox.CheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
             check.AddHandler(CheckBox.UncheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
+            var avatar = new FrameworkElementFactory(typeof(System.Windows.Controls.Image));
+            avatar.SetBinding(System.Windows.Controls.Image.SourceProperty, new System.Windows.Data.Binding(nameof(AccountRow.AvatarUrl)));
+            avatar.SetValue(FrameworkElement.WidthProperty, 30d);
+            avatar.SetValue(FrameworkElement.HeightProperty, 30d);
+            avatar.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
+            avatar.SetValue(System.Windows.Controls.Image.StretchProperty, System.Windows.Media.Stretch.UniformToFill);
+            titleRow.AppendChild(avatar);
             titleRow.AppendChild(check);
             var name = new FrameworkElementFactory(typeof(TextBlock));
             name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(AccountRow.DisplayName)));
@@ -331,7 +339,8 @@ namespace SocialMatrix.WpfHost.Windows
                         Id = token.Value<long>("id"),
                         FbAccount = token.Value<string>("fbAccount") ?? "",
                         Cookie = token.Value<string>("cookie") ?? "",
-                        DeviceId = token.Value<long?>("deviceId")
+                        DeviceId = token.Value<long?>("deviceId"),
+                        AvatarUrl = token.Value<string>("avatarUrl") ?? ""
                     };
                     if (monitorMap.TryGetValue(account.Id, out var monitor))
                     {
@@ -907,37 +916,8 @@ namespace SocialMatrix.WpfHost.Windows
 
         private static string BuildDirectMessengerSendScript(string text)
         {
-            var messageJson = JsonConvert.SerializeObject(text);
-            return $@"(async function() {{
-    const messageText = {messageJson};
-    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-    const visible = el => {{
-        if (!el) return false;
-        const rect = el.getBoundingClientRect();
-        const style = getComputedStyle(el);
-        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-    }};
-    const editor = [...document.querySelectorAll('[role=""textbox""][contenteditable=""true""], div[data-lexical-editor=""true""]')]
-        .find(visible);
-    if (!editor) return JSON.stringify({{ success: false, message: '未找到 Messenger 输入框' }});
-    editor.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('delete', false, null);
-    if (!document.execCommand('insertText', false, messageText)) {{
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.deleteContents();
-        range.insertNode(document.createTextNode(messageText));
-    }}
-    editor.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: messageText }}));
-    await sleep(350);
-    if (!(editor.innerText || editor.textContent || '').trim())
-        return JSON.stringify({{ success: false, message: 'Messenger 输入框未接收文本' }});
-    const key = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
-    for (const type of ['keydown', 'keypress', 'keyup']) editor.dispatchEvent(new KeyboardEvent(type, key));
-    await sleep(1200);
-    return JSON.stringify({{ success: true, message: '已执行 Messenger 发送' }});
-}})();";
+            // 消息管理与运营群发私信共用同一套模拟人为发送逻辑。
+            return new DmScriptBuilder("", text).Build();
         }
 
         private static async Task<bool> WaitForBrowserReadyAsync(ChromiumWebBrowser browser, string targetUserId, int timeoutMs)

@@ -529,7 +529,7 @@ defineOptions({ name: 'FbAiAgent' })
 import { formatDate } from '@/utils/formatTime'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import { useMessage } from '@/hooks/web/useMessage'
-import { FbAccountApi, type FbAccount } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
 import {
   FbAiAgentApi,
   type FbAiAgentConfig,
@@ -1081,7 +1081,7 @@ const validateGroupPostSourceStep = () => {
 
 const getBaseOptions = async () => {
   const accountData = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
-  accountList.value = accountData?.list || []
+  accountList.value = filterSelectableFbAccounts(accountData?.list || [])
 }
 
 const getList = async () => {

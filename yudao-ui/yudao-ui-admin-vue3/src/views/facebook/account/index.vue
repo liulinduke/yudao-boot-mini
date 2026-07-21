@@ -147,14 +147,22 @@
           >
             <Icon icon="ep:delete" class="mr-5px" /> 批量删除
           </el-button>
-          <el-button
-            type="warning"
-            plain
-            :disabled="isEmpty(checkedIds)"
-            @click="openBatchUpdateProxyDialog"
-          >
-            <Icon icon="ep:setting" class="mr-5px" /> 批量修改代理
-          </el-button>
+          <el-dropdown trigger="click" @command="handleBatchCommand">
+            <el-button type="warning" plain :disabled="isEmpty(checkedIds)">
+              <Icon icon="ep:setting" class="mr-5px" /> 批量操作
+              <Icon icon="ep:arrow-down" />
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="group">
+                  <Icon icon="ep:folder" class="mr-5px" /> 批量修改分组
+                </el-dropdown-item>
+                <el-dropdown-item command="proxy">
+                  <Icon icon="ep:connection" class="mr-5px" /> 批量修改代理
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button
             type="primary"
             plain
@@ -170,6 +178,14 @@
             @click="openWarmupDialog"
           >
             <Icon icon="ep:cpu" class="mr-5px" /> 养号
+          </el-button>
+          <el-button
+            type="primary"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openProfileUploadDialog"
+          >
+            <Icon icon="ep:picture" class="mr-5px" /> 资料上传
           </el-button>
         </div>
 
@@ -187,6 +203,13 @@
               style="width: 100%;"
             >
               <el-table-column type="selection" width="55" />
+              <el-table-column label="头像" align="center" width="80">
+                <template #default="scope">
+                  <el-avatar :size="38" :src="scope.row.avatarUrl">
+                    {{ (scope.row.fbAccount || '?').slice(0, 1).toUpperCase() }}
+                  </el-avatar>
+                </template>
+              </el-table-column>
               <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
               <el-table-column label="密码" align="center" prop="password" width="150" />
               <el-table-column label="地区" align="center" prop="area" width="100" />
@@ -199,7 +222,29 @@
                   <span v-else class="text-gray-400">-</span>
                 </template>
               </el-table-column>
-              <el-table-column label="账户状态" align="center" prop="status" width="100" />
+              <el-table-column label="启用状态" align="center" width="100">
+                <template #default="scope">
+                  <el-tag :type="isAccountEnabled(scope.row.status) ? 'success' : 'info'" size="small">
+                    {{ isAccountEnabled(scope.row.status) ? '启用' : '禁用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="登录状态" align="center" width="110">
+                <template #default="scope">
+                  <el-tooltip
+                    v-if="scope.row.loginStatus === 'FAILED' && scope.row.loginErrorReason"
+                    :content="scope.row.loginErrorReason"
+                    placement="top"
+                  >
+                    <el-tag :type="getLoginStatusType(scope.row.loginStatus)" size="small">
+                      {{ getLoginStatusLabel(scope.row.loginStatus) }}
+                    </el-tag>
+                  </el-tooltip>
+                  <el-tag v-else :type="getLoginStatusType(scope.row.loginStatus)" size="small">
+                    {{ getLoginStatusLabel(scope.row.loginStatus) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="备注" align="center" prop="remark" width="180" />
               <el-table-column
                 label="创建时间"
@@ -256,7 +301,10 @@
   
   <!-- 批量修改代理弹窗 -->
   <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
+  <!-- 批量修改分组弹窗 -->
+  <FbAccountBatchUpdateGroupDialog ref="batchUpdateGroupDialogRef" @success="getList" />
   <FbAccountWarmupDialog ref="warmupDialogRef" />
+  <FbAccountProfileUploadDialog ref="profileUploadDialogRef" @success="getList" />
 </template>
 
 <script setup lang="ts">
@@ -271,7 +319,9 @@ import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
 import FbAccountImportDialog from './FbAccountImportDialog.vue'
 import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
 import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
+import FbAccountBatchUpdateGroupDialog from './FbAccountBatchUpdateGroupDialog.vue'
 import FbAccountWarmupDialog from './FbAccountWarmupDialog.vue'
+import FbAccountProfileUploadDialog from './FbAccountProfileUploadDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
@@ -314,8 +364,52 @@ const cookieImportDialogRef = ref()
 
 // 批量修改代理相关
 const batchUpdateProxyDialogRef = ref()
+const batchUpdateGroupDialogRef = ref()
 const warmupDialogRef = ref()
+const profileUploadDialogRef = ref()
 const loginRunning = ref(false)
+
+const isAccountEnabled = (status: unknown) => status === true || status === 1 || status === '1'
+
+const getLoginStatusLabel = (status?: string) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'RUNNING':
+      return '登录中'
+    case 'SUCCESS':
+      return '已登录'
+    case 'FAILED':
+      return '登录失败'
+    case 'COOKIE_INVALID':
+    case 'COOKIE_EXPIRED':
+    case 'ABNORMAL':
+    case 'INVALID':
+      return 'Cookie失效'
+    case 'PENDING':
+      return '待登录'
+    default:
+      return '未登录'
+  }
+}
+
+const getLoginStatusType = (status?: string) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'RUNNING':
+      return 'warning'
+    case 'SUCCESS':
+      return 'success'
+    case 'FAILED':
+      return 'danger'
+    case 'COOKIE_INVALID':
+    case 'COOKIE_EXPIRED':
+    case 'ABNORMAL':
+    case 'INVALID':
+      return 'danger'
+    case 'PENDING':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
 
 /** 查询列表 */
 const getList = async () => {
@@ -417,6 +511,9 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
   } else if (result.status === 'failed') {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '登录失败'
+  } else if (result.status === 'cookie_invalid') {
+    target.loginStatus = 'COOKIE_INVALID'
+    target.loginErrorReason = result.errorReason || 'Cookie已失效，当前停留在登录页'
   } else if (result.status === 'skipped') {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '缺少登录凭据'
@@ -527,9 +624,23 @@ const openBatchUpdateProxyDialog = () => {
   batchUpdateProxyDialogRef.value.open(checkedIds.value)
 }
 
+/** 处理批量操作 */
+const handleBatchCommand = (command: string) => {
+  if (command === 'group') {
+    batchUpdateGroupDialogRef.value.open(checkedIds.value)
+  } else if (command === 'proxy') {
+    openBatchUpdateProxyDialog()
+  }
+}
+
 const openWarmupDialog = () => {
   const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
   warmupDialogRef.value.open(selectedAccounts)
+}
+
+const openProfileUploadDialog = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  profileUploadDialogRef.value.open(selectedAccounts)
 }
 
 /** 初始化 **/

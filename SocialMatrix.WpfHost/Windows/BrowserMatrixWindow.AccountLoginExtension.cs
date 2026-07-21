@@ -187,7 +187,11 @@ namespace SocialMatrix.WpfHost.Windows
 
             if (string.IsNullOrWhiteSpace(account.Password))
             {
-                return new AccountLoginResult(account.Id, account.AccountId, "skipped", ErrorReason: "Missing password");
+                return new AccountLoginResult(
+                    account.Id,
+                    account.AccountId,
+                    isLoginPage ? "cookie_invalid" : "skipped",
+                    ErrorReason: isLoginPage ? "Cookie已失效，当前停留在登录页" : "Missing password");
             }
 
             await ClearFacebookCookiesAsync(browser);

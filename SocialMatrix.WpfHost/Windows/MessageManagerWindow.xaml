@@ -39,7 +39,8 @@
             </DockPanel>
         </Border>
 
-        <Border Grid.Column="1" Background="#EDEFF2">
+        <Border Grid.Column="1" Background="#EDEFF2"
+                ToolTip="在 Messenger 消息上双击或拖选文字，松开后自动翻译；点击其他位置关闭翻译。">
             <Grid x:Name="BrowserHost">
                 <TextBlock x:Name="BrowserEmptyText" Text="请选择账号" Foreground="#909399" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 <Border x:Name="SelectionTranslationPopup" Visibility="Collapsed" IsHitTestVisible="False"
@@ -55,25 +56,35 @@
         <Border Grid.Column="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="1,0,0,0">
             <Grid Margin="14">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="快捷话术" FontWeight="SemiBold" FontSize="15" />
-                        <DockPanel Margin="0,8,0,0">
-                            <Button x:Name="ScriptSearchButton" DockPanel.Dock="Right" Content="搜索" Width="64" Height="30" Margin="8,0,0,0" Click="ScriptSearchButton_Click" />
-                            <TextBox x:Name="ScriptSearchBox" Height="30" Padding="8,4" ToolTip="搜索话术标题" />
-                        </DockPanel>
-                        <ListBox x:Name="ScriptList" Height="360" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,8,0,14" SelectionChanged="ScriptList_SelectionChanged" />
-                        <DockPanel Margin="0,0,0,14">
-                            <Button x:Name="ScriptNextButton" DockPanel.Dock="Right" Content="下一页" Width="64" Height="28" Click="ScriptNextButton_Click" />
-                            <Button x:Name="ScriptPreviousButton" DockPanel.Dock="Right" Content="上一页" Width="64" Height="28" Margin="0,0,6,0" Click="ScriptPreviousButton_Click" />
-                            <TextBlock x:Name="ScriptPageText" Text="第 1 页" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </DockPanel>
-                    </StackPanel>
-                </ScrollViewer>
-                <Border Grid.Row="1" BorderBrush="#E5E7EB" BorderThickness="0,1,0,0" Padding="0,14,0,0">
+                <Border Grid.Row="0" Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1"
+                        CornerRadius="4" Padding="10,7" Margin="0,0,0,12">
+                    <TextBlock TextWrapping="Wrap" Foreground="#1D4ED8" FontSize="12"
+                               Text="翻译提示：在中间 Messenger 消息上双击或拖选文字，松开后自动显示翻译；点击其他位置关闭。" />
+                </Border>
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="快捷话术" FontWeight="SemiBold" FontSize="15" />
+                    <DockPanel Grid.Row="1" Margin="0,8,0,0">
+                        <Button x:Name="ScriptSearchButton" DockPanel.Dock="Right" Content="搜索" Width="64" Height="30" Margin="8,0,0,0" Click="ScriptSearchButton_Click" />
+                        <TextBox x:Name="ScriptSearchBox" Height="30" Padding="8,4" ToolTip="搜索话术标题" />
+                    </DockPanel>
+                    <ListBox Grid.Row="2" x:Name="ScriptList" MinHeight="160" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,8,0,14" SelectionChanged="ScriptList_SelectionChanged" />
+                    <DockPanel Grid.Row="3" Margin="0,0,0,14">
+                        <Button x:Name="ScriptNextButton" DockPanel.Dock="Right" Content="下一页" Width="64" Height="28" Click="ScriptNextButton_Click" />
+                        <Button x:Name="ScriptPreviousButton" DockPanel.Dock="Right" Content="上一页" Width="64" Height="28" Margin="0,0,6,0" Click="ScriptPreviousButton_Click" />
+                        <TextBlock x:Name="ScriptPageText" Text="第 1 页" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Grid>
+                <Border Grid.Row="2" BorderBrush="#E5E7EB" BorderThickness="0,1,0,0" Padding="0,14,0,0">
                     <StackPanel>
                         <TextBlock Text="回复" Foreground="#606266" />
                         <TextBox x:Name="ReplyChineseBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,6,0,0" LostFocus="ReplyChineseBox_LostFocus" />

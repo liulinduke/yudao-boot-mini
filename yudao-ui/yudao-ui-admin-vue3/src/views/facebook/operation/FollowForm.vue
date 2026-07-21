@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { Dialog } from '@/components/Dialog'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import {
   createFbOperationTask,
   type FbOperationTaskSaveReqVO
@@ -126,7 +126,7 @@ const formRules = reactive({
 
 const loadAccounts = async () => {
   const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
-  accounts.value = data?.list || []
+  accounts.value = filterSelectableFbAccounts(data?.list || [])
 }
 
 const open = async () => {

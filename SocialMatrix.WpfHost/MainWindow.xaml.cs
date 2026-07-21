@@ -333,6 +333,12 @@ namespace SocialMatrix.WpfHost
                 });
             };
 
+            // 登录页/Cookie 失效由 Vue relay 持久化到账号登录状态，WPF 不直接改业务数据。
+            browserMatrixWindow.OnCollectionError += (accId, errorMessage) =>
+            {
+                Dispatcher.Invoke(() => ReturnCollectionErrorToVue(accId, errorMessage));
+            };
+
             RegisterAccountLoginWindowEvents(browserMatrixWindow);
             browserMatrixWindow.Show();
             browserMatrixWindow.Activate();
@@ -359,9 +365,10 @@ namespace SocialMatrix.WpfHost
                 
                 // 使用 ExecuteScriptAsync 触发 CustomEvent（与旧项目保持一致）
                 System.Diagnostics.Debug.WriteLine($"📤 使用 CustomEvent 发送消息...");
+                var eventName = taskType == 18 ? "fb:profile:update:complete" : "fb:collection:complete";
                 var script = $@"
                     setTimeout(() => {{
-                        window.dispatchEvent(new CustomEvent('fb:collection:complete', {{
+                        window.dispatchEvent(new CustomEvent('{eventName}', {{
                             detail: {{
                                 detailId: '{detailId}',
                                 accountId: '{accountId}',
@@ -380,6 +387,26 @@ namespace SocialMatrix.WpfHost
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 数据回传失败: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"堆栈跟踪: {ex.StackTrace}");
+            }
+        }
+
+        private void ReturnCollectionErrorToVue(string accountId, string errorMessage)
+        {
+            try
+            {
+                if (VueWebView.CoreWebView2 == null) return;
+                var detail = JsonConvert.SerializeObject(new
+                {
+                    accountId,
+                    errorMessage,
+                    timestamp = DateTime.UtcNow
+                });
+                var script = $"window.dispatchEvent(new CustomEvent('fb:collection:error', {{ detail: {detail} }}));";
+                VueWebView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 回传账号异常状态失败: {ex.Message}");
             }
         }
 

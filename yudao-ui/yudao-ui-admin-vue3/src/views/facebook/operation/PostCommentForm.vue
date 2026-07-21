@@ -144,7 +144,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import PostSelector from '../collect/components/PostSelector.vue'
 import ScriptSelector from './dmtask/ScriptSelector.vue'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import {
   createFbOperationTask,
@@ -253,7 +253,7 @@ const commentQuotaSummary = computed(() => {
 
 const loadAccounts = async () => {
   const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
-  accounts.value = data?.list || []
+  accounts.value = filterSelectableFbAccounts(data?.list || [])
 }
 
 const loadCommentRemaining = async () => {

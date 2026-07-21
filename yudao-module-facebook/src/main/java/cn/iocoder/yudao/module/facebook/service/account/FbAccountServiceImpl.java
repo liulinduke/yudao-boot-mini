@@ -102,6 +102,48 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void saveProfileUpload(FbAccountProfileUploadReqVO reqVO) {
+        for (FbAccountProfileUploadReqVO.Item item : reqVO.getItems()) {
+            FbAccountDO updateObj = new FbAccountDO();
+            updateObj.setId(item.getAccountId());
+            updateObj.setAvatarUrl(item.getAvatarUrl());
+            updateObj.setCoverUrl(item.getCoverUrl());
+            updateObj.setProfileNickname(item.getNickname());
+            updateObj.setProfileSignature(item.getSignature());
+            updateObj.setProfileUpdateStatus("PENDING");
+            updateObj.setProfileUpdateError(null);
+            fbAccountMapper.updateById(updateObj);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reportProfileUpload(FbAccountProfileReportReqVO reqVO) {
+        FbAccountDO updateObj = new FbAccountDO();
+        updateObj.setId(reqVO.getAccountId());
+        updateObj.setProfileUpdateStatus(reqVO.getStatus());
+        updateObj.setProfileUpdateTime(java.time.LocalDateTime.now());
+        updateObj.setProfileUpdateError(reqVO.getErrorMessage());
+        if (reqVO.getAvatarUrl() != null) updateObj.setAvatarUrl(reqVO.getAvatarUrl());
+        if (reqVO.getCoverUrl() != null) updateObj.setCoverUrl(reqVO.getCoverUrl());
+        if (reqVO.getNickname() != null) updateObj.setProfileNickname(reqVO.getNickname());
+        if (reqVO.getSignature() != null) updateObj.setProfileSignature(reqVO.getSignature());
+        fbAccountMapper.updateById(updateObj);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateFbAccountGroup(List<Long> ids, Long groupId) {
+        for (Long id : ids) {
+            FbAccountDO updateObj = new FbAccountDO();
+            updateObj.setId(id);
+            updateObj.setGroupId(groupId);
+            fbAccountMapper.updateById(updateObj);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void importFbAccount(FbAccountImportReqVO importReqVO) {
         String data = importReqVO.getData();
         String[] lines = data.split("\n");

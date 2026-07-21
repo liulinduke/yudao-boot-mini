@@ -199,7 +199,7 @@ import { Dialog } from '@/components/Dialog'
 import GroupPublishGroupSelector from './GroupPublishGroupSelector.vue'
 import GroupSelector from '../collect/components/GroupSelector.vue'
 import * as OperationApi from '@/api/facebook/operation'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import type { FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 
@@ -263,7 +263,7 @@ const loadAccountGroups = async () => {
 const loadAccounts = async () => {
   try {
     const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
-    accounts.value = data.list || []
+    accounts.value = filterSelectableFbAccounts(data.list || [])
   } catch (error) {
     console.error('加载账号失败:', error)
   }

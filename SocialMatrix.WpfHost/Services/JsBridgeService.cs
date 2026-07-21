@@ -71,6 +71,28 @@ namespace SocialMatrix.WpfHost.Services
             Application.Current.Dispatcher.Invoke(_mainWindow.OpenMessageManagerWindow);
         }
 
+        /// <summary>
+        /// 启动 Facebook 主页资料修改任务。浏览器仍由统一指纹浏览器矩阵承载。
+        /// </summary>
+        public void StartProfileUpdateTask(string taskId, string accountId, string cookie,
+            string deviceId, string profileConfigJson)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                long? parsedDeviceId = long.TryParse(deviceId, out var value) ? value : null;
+                _mainWindow.CreateBrowserForAccount(
+                    detailId: $"profile_{taskId}_{accountId}",
+                    accountId: accountId,
+                    cookie: string.IsNullOrWhiteSpace(cookie) ? null : cookie,
+                    searchUrl: "https://www.facebook.com/profile.php",
+                    expectedCount: 0,
+                    taskType: 18,
+                    config: profileConfigJson,
+                    isOperation: true,
+                    deviceId: parsedDeviceId);
+            });
+        }
+
         public void StartAccountLoginBatch(string accountsJson)
         {
             Application.Current.Dispatcher.Invoke(() =>

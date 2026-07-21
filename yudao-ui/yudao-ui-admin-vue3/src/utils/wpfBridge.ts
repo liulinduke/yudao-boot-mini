@@ -46,6 +46,13 @@ declare global {
                 detailId?: string
               ) => void
               StartAccountLoginBatch: (accountsJson: string) => void
+              StartProfileUpdateTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                deviceId: string,
+                profileConfigJson: string
+              ) => void
             }
           }
         }
@@ -66,7 +73,7 @@ export interface FbAccountLoginBridgePayload {
 export interface FbAccountLoginBridgeResult {
   accountDbId: number
   accountId: string
-  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cookie_invalid'
   loginMode?: 'cookie' | 'credential'
   errorReason?: string
   cookieSaved?: boolean
@@ -126,6 +133,10 @@ export function onCollectionComplete(callback: (data: any) => void): void {
   }
 }
 
+export function onCollectionError(callback: (data: { accountId?: string; errorMessage?: string }) => void): void {
+  window.addEventListener('fb:collection:error', (event: any) => callback(event.detail || {}))
+}
+
 export function closeBrowser(accountId: string): void {
   try {
     const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
@@ -160,4 +171,11 @@ export function onAccountLoginComplete(
   callback: (data: { summary: { total: number; success: number; failed: number; skipped: number }; results: FbAccountLoginBridgeResult[] }) => void
 ): void {
   window.addEventListener('fb:account-login:complete', (event: any) => callback(event.detail))
+}
+
+export function onProfileUpdateComplete(callback: (data: any) => void): void {
+  window.addEventListener('fb:profile:update:complete', (event: any) => {
+    const detail = event.detail || {}
+    callback({ ...detail, ...(detail.data || {}) })
+  })
 }

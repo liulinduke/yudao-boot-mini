@@ -76,6 +76,14 @@ public interface FbAccountService {
     void updateFbAccountProxy(List<Long> ids, Long proxyId);
 
     /**
+     * 批量更新FB账号分组
+     *
+     * @param ids 账号ID列表
+     * @param groupId 分组ID
+     */
+    void updateFbAccountGroup(List<Long> ids, Long groupId);
+
+    /**
      * 导入FB账号
      *
      * @param importReqVO 导入信息
@@ -90,5 +98,11 @@ public interface FbAccountService {
     void importFbAccountCookie(FbAccountCookieImportReqVO importReqVO);
 
     void updateFbAccountLoginResult(FbAccountLoginResultUpdateReqVO reqVO);
+
+    /** 保存资料上传任务的待执行资料。 */
+    void saveProfileUpload(@Valid FbAccountProfileUploadReqVO reqVO);
+
+    /** 保存资料上传任务执行结果。 */
+    void reportProfileUpload(@Valid FbAccountProfileReportReqVO reqVO);
 
 }

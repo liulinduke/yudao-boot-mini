@@ -71,6 +71,20 @@ public class FbAccountDO extends TenantBaseDO {
     private String loginStatus;
     private String loginErrorReason;
     private LocalDateTime lastLoginTime;
+    /** Facebook头像地址 */
+    private String avatarUrl;
+    /** Facebook主页封面地址 */
+    private String coverUrl;
+    /** Facebook主页昵称 */
+    private String profileNickname;
+    /** Facebook个人签名 */
+    private String profileSignature;
+    /** 资料上传状态 */
+    private String profileUpdateStatus;
+    /** 资料上传时间 */
+    private LocalDateTime profileUpdateTime;
+    /** 资料上传失败原因 */
+    private String profileUpdateError;
     /**
      * 邮件信息
      */

@@ -155,7 +155,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { DmTaskApi } from '@/api/facebook/dmtask'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import UserSelector from '../../collect/components/UserSelector.vue'
 import ScriptSelector from './ScriptSelector.vue'
@@ -286,7 +286,7 @@ const loadAccountGroups = async () => {
 const loadAccounts = async () => {
   try {
     const res = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
-    accounts.value = res.list || []
+    accounts.value = filterSelectableFbAccounts(res.list || [])
     
     // 获取每个账号的剩余次数
     for (const account of accounts.value) {

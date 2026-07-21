@@ -119,11 +119,10 @@ namespace SocialMatrix.WpfHost.Helpers
         {
             if (browser == null) return;
 
-            if (disableImages || disableVideos)
-            {
-                browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos);
-                System.Diagnostics.Debug.WriteLine($"✅ 资源拦截已启用: DisableImages={disableImages}, DisableVideos={disableVideos}");
-            }
+            // Always replace the handler, including the all-enabled case. An existing
+            // account tab may still hold the previous image-blocking handler.
+            browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos);
+            System.Diagnostics.Debug.WriteLine($"✅ 资源拦截策略已更新: DisableImages={disableImages}, DisableVideos={disableVideos}");
         }
 
         /// <summary>

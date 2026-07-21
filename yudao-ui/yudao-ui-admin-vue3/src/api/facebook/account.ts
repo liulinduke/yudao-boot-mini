@@ -74,7 +74,7 @@ export interface FbAccountPageReqVO {
 }
 
 export interface FbAccount {
-  id?: number
+  id?: number | string
   fbAccount?: string
   password?: string
   area?: string
@@ -102,6 +102,23 @@ export interface FbAccount {
   createTime?: string
 }
 
+/** Cookie 失效或异常账号不能作为采集、运营、私信、AI 获客的执行账号。 */
+export const isFbAccountSelectable = (
+  account?: Pick<FbAccount, 'loginStatus' | 'loginErrorReason'> | null
+) => {
+  const status = String(account?.loginStatus || '').trim().toUpperCase()
+  const reason = String(account?.loginErrorReason || '')
+  return (
+    !['COOKIE_INVALID', 'COOKIE_EXPIRED', 'ABNORMAL', 'INVALID'].includes(status) &&
+    !/cookie\s*(已)?失效|cookie\s*expired|登录页|checkpoint|账号被封/i.test(reason)
+  )
+}
+
+export const filterSelectableFbAccounts = <
+  T extends Pick<FbAccount, 'loginStatus' | 'loginErrorReason'>
+>(accounts: T[]) =>
+  accounts.filter(isFbAccountSelectable)
+
 export interface FbAccountUpdateProxyReqVO {
   ids: number[]
   proxyId: number | null
@@ -121,7 +138,7 @@ export interface FbAccountCookieImportReqVO {
 }
 
 export interface FbAccountLoginResultUpdateReqVO {
-  id: number
+  id: number | string
   loginStatus: string
   loginErrorReason?: string
   cookie?: string

@@ -180,7 +180,7 @@ import FollowForm from './FollowForm.vue'
 import DmTaskForm from './dmtask/DmTaskForm.vue'
 import PublishPostForm from './PublishPostForm.vue'
 import GroupPublishForm from './GroupPublishForm.vue'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
@@ -322,7 +322,7 @@ const handleDelete = async (row: FbOperationTask) => {
 const loadAccountCache = async () => {
   try {
     const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 500 })
-    accountCache.value = data?.list || []
+    accountCache.value = filterSelectableFbAccounts(data?.list || [])
   } catch (error) {
     console.error('加载账号列表失败:', error)
     accountCache.value = []

@@ -736,7 +736,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
@@ -1036,7 +1036,7 @@ const loadAccounts = async () => {
     console.log('data.list:', data.list)
 
     if (data && data.list && Array.isArray(data.list)) {
-      accounts.value = data.list
+      accounts.value = filterSelectableFbAccounts(data.list)
       console.log('赋值后的accounts.value:', accounts.value)
       console.log('第一个账号对象:', accounts.value[0])
       console.log('第一个账号的id:', accounts.value[0]?.id)

@@ -350,7 +350,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import {
   createFbOperationTask,
   FbOperationTaskSaveReqVO
@@ -443,7 +443,7 @@ const loadAccounts = async () => {
   try {
     const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
     if (data && data.list && Array.isArray(data.list)) {
-      accounts.value = data.list
+      accounts.value = filterSelectableFbAccounts(data.list)
     } else {
       accounts.value = []
     }

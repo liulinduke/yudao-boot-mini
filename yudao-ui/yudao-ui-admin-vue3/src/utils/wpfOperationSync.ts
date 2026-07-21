@@ -13,6 +13,8 @@ import {
   startAiAgentCollectDetail
 } from '@/utils/wpfAiAgentTaskPoller'
 import { closeBrowser, onCollectionComplete } from '@/utils/wpfBridge'
+import { onCollectionError } from '@/utils/wpfBridge'
+import { FbAccountApi } from '@/api/facebook/account'
 
 const handledCollectDetailIds = new Set<string>()
 const handledDmDetailIds = new Set<string>()
@@ -87,6 +89,31 @@ export function setupWpfOperationSync() {
       if (accountId) {
         await finishQueuedAccountTaskAndStartNext(accountId, detailId)
       }
+    }
+  })
+
+  onCollectionError(async (data) => {
+    const reason = String(data.errorMessage || '')
+    if (!/cookie|登录页|重新登录|checkpoint|账号被封/i.test(reason) || !data.accountId) return
+
+    try {
+      const page = await FbAccountApi.getFbAccountPage({
+        pageNo: 1,
+        pageSize: 1,
+        fbAccount: String(data.accountId)
+      })
+      const account = page?.list?.[0]
+      if (!account?.id) return
+      await FbAccountApi.updateFbAccountLoginResult({
+        id: account.id,
+        loginStatus: 'COOKIE_INVALID',
+        loginErrorReason: reason
+      })
+      window.dispatchEvent(new CustomEvent('fb:account:status:changed', {
+        detail: { accountId: String(data.accountId), loginStatus: 'COOKIE_INVALID', errorMessage: reason }
+      }))
+    } catch (error) {
+      console.error('[账号登录状态] Cookie失效状态保存失败:', error)
     }
   })
 }

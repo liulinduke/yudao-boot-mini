@@ -61,6 +61,13 @@ public class FbAccountRespVO {
     private String loginStatus;
     private String loginErrorReason;
     private LocalDateTime lastLoginTime;
+    private String avatarUrl;
+    private String coverUrl;
+    private String profileNickname;
+    private String profileSignature;
+    private String profileUpdateStatus;
+    private LocalDateTime profileUpdateTime;
+    private String profileUpdateError;
 
     @Schema(description = "邮件信息")
     @ExcelProperty("邮件信息")
@@ -72,6 +79,7 @@ public class FbAccountRespVO {
 
     @Schema(description = "设备ID", example = "31519")
     @ExcelProperty("设备ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long deviceId;
 
     @Schema(description = "设备名称", example = "芋艿")

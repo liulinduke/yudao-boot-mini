@@ -74,7 +74,7 @@
 
 <script setup lang="ts">
 import { FbCollectApi } from '@/api/facebook/collect'
-import { FbAccountApi, type FbAccount } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
 import FunctionCard from './components/FunctionCard.vue'
 import TaskList from './components/TaskList.vue'
 
@@ -162,7 +162,7 @@ const loadAccounts = async () => {
       pageSize: 1000,
       status: true
     })
-    accounts.value = data.list || []
+    accounts.value = filterSelectableFbAccounts(data.list || [])
   } catch (error) {
     console.error('加载账号列表失败:', error)
   }

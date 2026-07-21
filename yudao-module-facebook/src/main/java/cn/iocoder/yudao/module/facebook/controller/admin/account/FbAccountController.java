@@ -119,6 +119,15 @@ public class FbAccountController {
         return success(true);
     }
 
+    @PutMapping("/update-group")
+    @Operation(summary = "批量更新FB账号分组")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> updateFbAccountGroup(
+            @Valid @RequestBody FbAccountUpdateGroupReqVO reqVO) {
+        fbAccountService.updateFbAccountGroup(reqVO.getIds(), reqVO.getGroupId());
+        return success(true);
+    }
+
     @PostMapping("/import")
     @Operation(summary = "导入FB账号")
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:create')")
@@ -139,6 +148,22 @@ public class FbAccountController {
     @Operation(summary = "更新FB账号登录结果")
     public CommonResult<Boolean> updateFbAccountLoginResult(@Valid @RequestBody FbAccountLoginResultUpdateReqVO reqVO) {
         fbAccountService.updateFbAccountLoginResult(reqVO);
+        return success(true);
+    }
+
+    @PostMapping("/profile/upload")
+    @Operation(summary = "保存Facebook账号资料上传任务")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> uploadProfile(@Valid @RequestBody FbAccountProfileUploadReqVO reqVO) {
+        fbAccountService.saveProfileUpload(reqVO);
+        return success(true);
+    }
+
+    @PostMapping("/profile/report")
+    @Operation(summary = "回报Facebook账号资料上传结果")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> reportProfile(@Valid @RequestBody FbAccountProfileReportReqVO reqVO) {
+        fbAccountService.reportProfileUpload(reqVO);
         return success(true);
     }
 

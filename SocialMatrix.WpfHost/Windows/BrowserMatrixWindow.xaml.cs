@@ -247,6 +247,15 @@ namespace SocialMatrix.WpfHost.Windows
                     var existingBrowser = _browsers[accountId];
                     System.Diagnostics.Debug.WriteLine($"🔄 为已存在的浏览器启动新任务: {searchUrl}, taskType={taskType}");
 
+                    // Profile editing needs image requests enabled before navigating to
+                    // the profile page. Otherwise an existing tab keeps the old
+                    // image-blocking handler during the navigation itself.
+                    if (taskType == 18)
+                    {
+                        var profileConfig = _globalConfig ?? new FingerprintGlobalConfig();
+                        FingerprintInjector.ApplyResourceFilter(existingBrowser, false, profileConfig.DisableVideos);
+                    }
+
                     // 异步启动（不阻塞）
                     Task.Run(async () =>
                     {
@@ -326,9 +335,47 @@ namespace SocialMatrix.WpfHost.Windows
 
             _browsers[accountId] = browser;
             _accountTaskTypes[accountId] = taskType; // 保存账号对应的任务类型
+
+            // 每个账号 Tab 使用独立的关闭按钮，关闭时只释放当前账号的浏览器资源。
+            var tabHeader = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            tabHeader.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = accountId,
+                MaxWidth = 180,
+                TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var closeTabButton = new System.Windows.Controls.Button
+            {
+                Content = "x",
+                Width = 20,
+                Height = 20,
+                Margin = new Thickness(6, 0, 0, 0),
+                Padding = new Thickness(0),
+                BorderThickness = new Thickness(0),
+                Background = System.Windows.Media.Brushes.Transparent,
+                Foreground = System.Windows.Media.Brushes.DimGray,
+                ToolTip = "关闭此账号"
+            };
+            closeTabButton.Click += (sender, args) =>
+            {
+                args.Handled = true;
+                CloseBrowser(accountId);
+                if (GetActiveBrowserCount() == 0)
+                {
+                    Close();
+                }
+            };
+            tabHeader.Children.Add(closeTabButton);
+
             var tab = new System.Windows.Controls.TabItem
             {
-                Header = accountId,
+                Header = tabHeader,
                 Content = container,
                 Tag = accountId
             };
@@ -361,7 +408,7 @@ namespace SocialMatrix.WpfHost.Windows
                         var globalConfig = await GetGlobalConfigAsync();
                         FingerprintInjector.ApplyResourceFilter(
                             browser,
-                            globalConfig?.DisableImages ?? true,
+                            taskType == 18 ? false : globalConfig?.DisableImages ?? true,
                             globalConfig?.DisableVideos ?? true);
 
                         var fingerprint = new FingerprintConfig
@@ -410,22 +457,22 @@ namespace SocialMatrix.WpfHost.Windows
             };
 
             // 异步：拉取配置 → 注入 Cookie → 首次加载（只加载一次 Facebook）
-            _ = InitializeBrowserAsync(browser, accountId, cookie, initialUrl);
+            _ = InitializeBrowserAsync(browser, accountId, cookie, initialUrl, taskType == 18);
         }
 
         /// <summary>
         /// 浏览器创建后的异步初始化：配置资源拦截、注入 Cookie，再发起首次导航
         /// </summary>
-        private async Task InitializeBrowserAsync(ChromiumWebBrowser browser, string accountId, string? cookie, string initialUrl)
+        private async Task InitializeBrowserAsync(ChromiumWebBrowser browser, string accountId, string? cookie, string initialUrl, bool profileTask = false)
         {
             try
             {
                 var globalConfig = await GetGlobalConfigAsync() ?? new FingerprintGlobalConfig();
-                System.Diagnostics.Debug.WriteLine($"🔍 全局配置: DisableImages={globalConfig.DisableImages}, DisableVideos={globalConfig.DisableVideos}");
+                System.Diagnostics.Debug.WriteLine($"🔍 全局配置: DisableImages={(profileTask ? false : globalConfig.DisableImages)}, DisableVideos={globalConfig.DisableVideos}");
 
                 await RunOnBrowserUiThreadAsync(browser, async () =>
                 {
-                    FingerprintInjector.ApplyResourceFilter(browser, globalConfig.DisableImages, globalConfig.DisableVideos);
+                    FingerprintInjector.ApplyResourceFilter(browser, profileTask ? false : globalConfig.DisableImages, globalConfig.DisableVideos);
 
                     if (!string.IsNullOrEmpty(cookie))
                     {
@@ -985,6 +1032,29 @@ namespace SocialMatrix.WpfHost.Windows
                     case 17:
                         System.Diagnostics.Debug.WriteLine($"🌱 执行养号任务...");
                         await ExecuteWarmupTaskAsync(browser, accountId, config);
+                        break;
+
+                    case 18:
+                        System.Diagnostics.Debug.WriteLine($"👤 执行 Facebook 资料上传任务...");
+                        // 资料编辑必须能看到图片；已有账号 Tab 也切换到资料任务专用资源策略。
+                        var profileGlobalConfig = await GetGlobalConfigAsync() ?? new FingerprintGlobalConfig();
+                        FingerprintInjector.ApplyResourceFilter(browser, false, profileGlobalConfig.DisableVideos);
+                        string profileJson;
+                        try
+                        {
+                            profileJson = await ExecuteProfileUpdateAsync(browser, accountId, config);
+                        }
+                        finally
+                        {
+                            // Profile editing temporarily enables images. Restore the
+                            // account's normal matrix policy after the task finishes.
+                            FingerprintInjector.ApplyResourceFilter(
+                                browser,
+                                profileGlobalConfig.DisableImages,
+                                profileGlobalConfig.DisableVideos);
+                        }
+                        var profileDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                        OnCollectionComplete?.Invoke(profileDetailId, accountId, profileJson, 18);
                         break;
 
                     default:
