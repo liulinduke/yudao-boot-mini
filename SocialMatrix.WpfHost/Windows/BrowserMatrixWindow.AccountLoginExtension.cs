@@ -87,7 +87,16 @@ namespace SocialMatrix.WpfHost.Windows
                             failed = _accountLoginResults.Count(x => x.Status == "failed"),
                             skipped = _accountLoginResults.Count(x => x.Status == "skipped")
                         },
-                        results = _accountLoginResults
+                        results = _accountLoginResults.Select(result => new
+                        {
+                            accountDbId = result.AccountDbId.ToString(),
+                            accountId = result.AccountId,
+                            status = result.Status,
+                            loginMode = result.LoginMode,
+                            errorReason = result.ErrorReason,
+                            cookieSaved = result.CookieSaved,
+                            windowClosed = result.WindowClosed
+                        })
                     });
                     OnAccountLoginBatchComplete?.Invoke(payload);
                     if (_accountLoginCloseAfterEachAccount && GetActiveBrowserCount() == 0)
@@ -814,7 +823,7 @@ namespace SocialMatrix.WpfHost.Windows
         {
             OnAccountLoginProgress?.Invoke(JsonConvert.SerializeObject(new
             {
-                accountDbId = result.AccountDbId,
+                accountDbId = result.AccountDbId.ToString(),
                 accountId = result.AccountId,
                 status = result.Status,
                 loginMode = result.LoginMode,

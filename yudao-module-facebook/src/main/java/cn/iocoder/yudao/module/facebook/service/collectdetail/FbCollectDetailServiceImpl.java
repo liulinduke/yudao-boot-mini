@@ -10,7 +10,6 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentConfigDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentDiscoveryLogDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
-import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
@@ -20,7 +19,6 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
-import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAccountTaskQueueItem;
@@ -64,9 +62,6 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbAiAgentDiscoveryLogMapper discoveryLogMapper;
     @Resource
     private FbAiAgentConfigMapper agentConfigMapper;
-    @Resource
-    private FbCollectPostMapper collectPostMapper;
-
     @Override
     public List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount, Long taskId) {
         LambdaQueryWrapper<FbCollectDetailDO> wrapper = new LambdaQueryWrapper<FbCollectDetailDO>()
@@ -501,8 +496,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                 .set("recentDays", competitorPostCollect ? resolveCompetitorRecentDays(config) : resolveGroupPostRecentDays(config))
                 .set("maxPostsPerGroup", 1000)
                 .set("maxPostsPerPage", 1000)
-                .set("maxScrolls", 240)
-                .set("knownPostKeys", loadKnownPostKeys(config == null ? null : config.getId()));
+                .set("maxScrolls", 240);
         return runtimeConfig.toString();
     }
 
@@ -553,33 +547,4 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         }
     }
 
-    private List<String> loadKnownPostKeys(Long agentConfigId) {
-        if (agentConfigId == null) {
-            return List.of();
-        }
-        List<Long> taskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
-                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
-                        .in(FbAiAgentDiscoveryLogDO::getSourceType, java.util.Arrays.asList("post_lead", "group_post", "group_comment_post", "competitor_post"))
-                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
-                .stream()
-                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        if (CollUtil.isEmpty(taskIds)) {
-            return List.of();
-        }
-        Set<String> keys = new LinkedHashSet<>();
-        collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
-                        .in(FbCollectPostDO::getTaskId, taskIds)
-                        .select(FbCollectPostDO::getItemId, FbCollectPostDO::getUrl))
-                .forEach(post -> {
-                    if (StrUtil.isNotBlank(post.getItemId())) {
-                        keys.add(post.getItemId());
-                    }
-                    if (StrUtil.isNotBlank(post.getUrl())) {
-                        keys.add(post.getUrl());
-                    }
-                });
-        return new ArrayList<>(keys);
-    }
 }

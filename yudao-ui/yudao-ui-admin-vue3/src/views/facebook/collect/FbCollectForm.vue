@@ -564,6 +564,7 @@
                 <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="scope.row.status" />
               </template>
             </el-table-column>
+            <el-table-column label="执行摘要" prop="errorMessage" min-width="280" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
 

@@ -99,6 +99,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { GlobalConfigApi } from '@/api/facebook/globalconfig'
+import { syncFacebookGlobalConfig } from '@/utils/facebookGlobalConfigSync'
 import { useMessage } from '@/hooks/web/useMessage'
 
 const message = useMessage()
@@ -131,7 +132,7 @@ const formData = reactive({
   join_group_daily_limit: 30,
   comment_daily_limit: 200,
   follow_daily_limit: 100,
-  browser_disable_images: true,
+  browser_disable_images: false,
   browser_disable_videos: true,
   browser_max_concurrent: getRecommendedConcurrent(),
   message_realtime_reserved_slots: 5
@@ -162,6 +163,8 @@ const loadConfigs = async () => {
         }
       })
     }
+    // 页面打开时同步当前后台值，避免 WPF 继续使用旧策略。
+    await syncFacebookGlobalConfig(formData)
   } catch (error) {
     console.error('加载配置失败:', error)
   }
@@ -178,34 +181,12 @@ const handleSubmit = async () => {
     }))
     
     await GlobalConfigApi.batchSaveConfigs(configs)
+    await syncFacebookGlobalConfig(formData)
     message.success('保存成功')
-    
-    // 同步配置到 WPF（立即生效）
-    syncConfigToWpf()
   } catch (error) {
     message.error('保存失败')
   } finally {
     loading.value = false
-  }
-}
-
-/** 同步配置到 WPF */
-const syncConfigToWpf = () => {
-  // @ts-ignore
-  if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-    try {
-      // @ts-ignore
-      window.chrome.webview.hostObjects.sync.wpfBridge.UpdateGlobalConfig(
-        formData.browser_disable_images,
-        formData.browser_disable_videos,
-        formData.browser_max_concurrent
-      )
-      console.log('✅ 配置已同步到 WPF')
-    } catch (error) {
-      console.warn('⚠️ 同步配置到 WPF 失败:', error)
-    }
-  } else {
-    console.warn('⚠️ WPF 桥接对象不存在，跳过同步')
   }
 }
 

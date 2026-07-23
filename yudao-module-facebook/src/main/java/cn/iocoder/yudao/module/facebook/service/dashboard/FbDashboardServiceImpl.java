@@ -2,14 +2,16 @@ package cn.iocoder.yudao.module.facebook.service.dashboard;
 
 import cn.iocoder.yudao.module.facebook.controller.admin.dashboard.vo.FbDashboardHomeRespVO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiTouchRecordDO;
-import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUserDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUserDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.agent.FbAiTouchRecordMapper;
-import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
@@ -33,6 +35,8 @@ public class FbDashboardServiceImpl implements FbDashboardService {
     @Resource
     private FbCollectMapper collectMapper;
     @Resource
+    private FbCollectPostMapper collectPostMapper;
+    @Resource
     private FbAiTouchRecordMapper touchRecordMapper;
     @Resource
     private FbOperationTaskMapper operationTaskMapper;
@@ -48,20 +52,14 @@ public class FbDashboardServiceImpl implements FbDashboardService {
         List<FbCollectUserDO> todayLeads = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .ge(FbCollectUserDO::getCreateTime, todayStart)
                 .lt(FbCollectUserDO::getCreateTime, tomorrowStart));
-        List<Long> aiCollectTaskIds = getAiCollectTaskIds();
-        List<FbCollectUserDO> todayAiLeads = aiCollectTaskIds.isEmpty()
-                ? List.of()
-                : collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                        .in(FbCollectUserDO::getTaskId, aiCollectTaskIds)
-                        .ge(FbCollectUserDO::getCreateTime, todayStart)
-                        .lt(FbCollectUserDO::getCreateTime, tomorrowStart));
+        long todayAiLeadCount = countTodayAiLeads(todayStart, tomorrowStart);
         long analyzedCount = countAnalyzed(todayStart, tomorrowStart);
         long generatedTouchCount = countGeneratedTouch(todayStart, tomorrowStart);
         long touchedCount = countTouched(todayStart, tomorrowStart);
 
         FbDashboardHomeRespVO response = new FbDashboardHomeRespVO();
         response.setAiResult(FbDashboardHomeRespVO.AiResult.builder()
-                .autoCollectedLeadCount((long) todayAiLeads.size())
+                .autoCollectedLeadCount(todayAiLeadCount)
                 .autoAnalyzedCustomerCount(analyzedCount)
                 .generatedInteractionSuggestionCount(generatedTouchCount)
                 .autoTouchedCount(touchedCount)
@@ -185,6 +183,26 @@ public class FbDashboardServiceImpl implements FbDashboardService {
         return touchRecordMapper.selectCount(new LambdaQueryWrapper<FbAiTouchRecordDO>()
                 .ge(FbAiTouchRecordDO::getCreateTime, start)
                 .lt(FbAiTouchRecordDO::getCreateTime, end));
+    }
+
+    /**
+     * 统计 AI 任务当天新增的用户线索和帖子线索，普通采集任务不参与统计。
+     */
+    private long countTodayAiLeads(LocalDateTime start, LocalDateTime end) {
+        List<Long> aiCollectTaskIds = getAiCollectTaskIds();
+        if (aiCollectTaskIds.isEmpty()) {
+            return 0L;
+        }
+
+        long userLeadCount = collectUserMapper.selectCount(new LambdaQueryWrapper<FbCollectUserDO>()
+                .in(FbCollectUserDO::getTaskId, aiCollectTaskIds)
+                .ge(FbCollectUserDO::getCreateTime, start)
+                .lt(FbCollectUserDO::getCreateTime, end));
+        long postLeadCount = collectPostMapper.selectCount(new LambdaQueryWrapper<FbCollectPostDO>()
+                .in(FbCollectPostDO::getTaskId, aiCollectTaskIds)
+                .ge(FbCollectPostDO::getCreateTime, start)
+                .lt(FbCollectPostDO::getCreateTime, end));
+        return userLeadCount + postLeadCount;
     }
 
     /**

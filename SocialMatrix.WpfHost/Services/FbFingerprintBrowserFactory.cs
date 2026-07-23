@@ -16,7 +16,7 @@ namespace SocialMatrix.WpfHost.Services
     {
         public sealed class GlobalConfig
         {
-            public bool DisableImages { get; init; } = true;
+            public bool DisableImages { get; init; } = false;
             public bool DisableVideos { get; init; } = true;
             public int MaxConcurrent { get; init; } = 19;
         }

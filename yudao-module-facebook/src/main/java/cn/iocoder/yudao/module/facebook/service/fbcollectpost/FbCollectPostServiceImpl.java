@@ -9,6 +9,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.time.LocalDateTime;
 import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectpost.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectpost.FbCollectPostDO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
@@ -116,12 +117,20 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 && (task.getRemark().startsWith("AI群帖获客:") || task.getRemark().startsWith("AI帖子获客:"));
         
         int count = 0;
+        int duplicateCount = 0;
         if (CollUtil.isNotEmpty(results)) {
             for (FbCollectPostSaveReqVO result : results) {
                 // 设置 taskId 和 fbAccount
                 result.setTaskId(detail.getTaskId());
                 result.setFbAccount(detail.getFbAccount());
+                // 解析失败或旧数据可能会落成 Unix epoch，不能作为真实发帖时间保存。
+                if (result.getPostCreateTime() != null
+                        && result.getPostCreateTime().isBefore(LocalDateTime.of(1971, 1, 1, 0, 0))) {
+                    result.setPostCreateTime(null);
+                }
                 if (aiGroupPostCollect && existsAiGroupPost(result)) {
+                    duplicateCount++;
+                    log.info("AI帖子去重跳过: itemId={}, url={}", result.getItemId(), result.getUrl());
                     continue;
                 }
                 
@@ -133,6 +142,13 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 count++;
             }
         }
+        log.info("批量保存帖子结果: detailId={}, 接收={}, 新增={}, 重复跳过={}",
+                detailId, results == null ? 0 : results.size(), count, duplicateCount);
+        FbCollectDetailDO summaryUpdate = new FbCollectDetailDO();
+        summaryUpdate.setId(detailId);
+        summaryUpdate.setErrorMessage(String.format("本轮采集：接收 %d 条，新增保存 %d 条，重复跳过 %d 条",
+                results == null ? 0 : results.size(), count, duplicateCount));
+        fbCollectDetailMapper.updateById(summaryUpdate);
         
         // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);

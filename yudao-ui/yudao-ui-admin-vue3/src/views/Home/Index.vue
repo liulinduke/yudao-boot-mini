@@ -7,7 +7,19 @@
             <h2 class="section-title">AI 获客成果</h2>
             <p class="section-subtitle">今日 AI 已自动完成的获客工作</p>
           </div>
-          <span class="section-date">今日</span>
+          <div class="section-actions">
+            <span class="section-date">今日</span>
+            <el-button
+              class="refresh-button"
+              :loading="loading"
+              circle
+              text
+              title="刷新首页数据"
+              @click="loadDashboard"
+            >
+              <Icon icon="ep:refresh" :size="16" />
+            </el-button>
+          </div>
         </div>
 
         <el-row :gutter="12" class="ai-result-row">
@@ -119,12 +131,21 @@ const createDefaultDashboard = (): FbDashboardHomeRespVO => ({
 
 const dashboard = ref<FbDashboardHomeRespVO>(createDefaultDashboard())
 
+const loadDashboard = async () => {
+  loading.value = true
+  try {
+    dashboard.value = await FbDashboardApi.getHome()
+  } finally {
+    loading.value = false
+  }
+}
+
 const aiResultItems = computed(() => [
   {
     key: 'collected',
-    title: '自动采集线索',
+    title: '自动发现线索',
     value: dashboard.value.aiResult.autoCollectedLeadCount,
-    description: '今日新增潜客',
+    description: '今日新增线索',
     icon: 'ep:download',
     colorClass: 'blue'
   },
@@ -153,15 +174,6 @@ const aiResultItems = computed(() => [
     colorClass: 'green'
   }
 ])
-
-const loadDashboard = async () => {
-  loading.value = true
-  try {
-    dashboard.value = await FbDashboardApi.getHome()
-  } finally {
-    loading.value = false
-  }
-}
 
 onMounted(() => {
   loadDashboard()
@@ -214,6 +226,25 @@ onMounted(() => {
   color: #3f6fbd;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.refresh-button {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  color: #64748b;
+}
+
+.refresh-button:hover {
+  color: #3478d4;
+  background: #f0f5ff;
 }
 
 .ai-result-row {

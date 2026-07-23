@@ -21,6 +21,7 @@ declare global {
               ) => void
               OpenMessageManagerWindow?: () => void
               StopBrowser?: (accountId: string) => void
+              UpdateGlobalConfig?: (disableImages: boolean, disableVideos: boolean, maxConcurrent: number) => void
               GetAvailableBrowserSlots?: () => number
               OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
               OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void

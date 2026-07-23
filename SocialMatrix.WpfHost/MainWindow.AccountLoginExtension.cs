@@ -151,7 +151,16 @@ namespace SocialMatrix.WpfHost
                             failed = _accountLoginWindowResults.Count(x => x.status == "failed"),
                             skipped = _accountLoginWindowResults.Count(x => x.status == "skipped")
                         },
-                        results = _accountLoginWindowResults
+                        results = _accountLoginWindowResults.Select(result => new
+                        {
+                            accountDbId = result.accountDbId?.ToString(),
+                            accountId = result.accountId?.ToString(),
+                            status = result.status,
+                            loginMode = result.loginMode?.ToString(),
+                            errorReason = result.errorReason?.ToString(),
+                            cookieSaved = result.cookieSaved,
+                            windowClosed = result.windowClosed
+                        })
                     });
                     Dispatcher.Invoke(() => ReturnAccountLoginCompleteToVue(payload));
                     break;

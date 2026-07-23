@@ -33,6 +33,10 @@ export const FbAccountApi = {
     return request.put({ url: '/facebook/fb-account/update-proxy', data })
   },
 
+  updateFbAccountGroup: (data: FbAccountUpdateGroupReqVO) => {
+    return request.put({ url: '/facebook/fb-account/update-group', data })
+  },
+
   importFbAccount: (data: FbAccountImportReqVO) => {
     return request.post({ url: '/facebook/fb-account/import', data })
   },
@@ -43,6 +47,14 @@ export const FbAccountApi = {
 
   updateFbAccountLoginResult: (data: FbAccountLoginResultUpdateReqVO) => {
     return request.put({ url: '/facebook/fb-account/update-login-result', data })
+  },
+
+  uploadFbAccountProfile: (data: FbAccountProfileUploadReqVO) => {
+    return request.post({ url: '/facebook/fb-account/profile/upload', data })
+  },
+
+  reportFbAccountProfile: (data: FbAccountProfileReportReqVO) => {
+    return request.post({ url: '/facebook/fb-account/profile/report', data })
   },
 }
 
@@ -124,6 +136,11 @@ export interface FbAccountUpdateProxyReqVO {
   proxyId: number | null
 }
 
+export interface FbAccountUpdateGroupReqVO {
+  ids: Array<number | string>
+  groupId: number | string | null
+}
+
 export interface FbAccountImportReqVO {
   data: string
   groupId?: number | null
@@ -142,6 +159,26 @@ export interface FbAccountLoginResultUpdateReqVO {
   loginStatus: string
   loginErrorReason?: string
   cookie?: string
+}
+
+export interface FbAccountProfileUploadReqVO {
+  items: Array<{
+    accountId: number | string
+    avatarUrl?: string
+    coverUrl?: string
+    nickname?: string
+    signature?: string
+  }>
+}
+
+export interface FbAccountProfileReportReqVO {
+  accountId: number | string
+  status: string
+  errorMessage?: string
+  avatarUrl?: string
+  coverUrl?: string
+  nickname?: string
+  signature?: string
 }
 
 export interface FbAccountImportPreviewVO {

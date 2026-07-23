@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.collectdetail.vo;
 
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -8,9 +10,11 @@ import lombok.Data;
 public class FbCollectPendingDetailRespVO {
 
     @Schema(description = "采集任务ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long taskId;
 
     @Schema(description = "采集明细ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long detailId;
 
     @Schema(description = "FB账号")
@@ -23,6 +27,7 @@ public class FbCollectPendingDetailRespVO {
     private String searchUrl;
 
     @Schema(description = "来源资源库用户ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long sourceUserId;
 
     @Schema(description = "期望采集数量")

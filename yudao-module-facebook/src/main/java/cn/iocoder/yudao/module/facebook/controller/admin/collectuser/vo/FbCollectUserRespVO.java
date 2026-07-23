@@ -54,6 +54,10 @@ public class FbCollectUserRespVO {
     @ExcelProperty("主页链接")
     private String url;
 
+    @Schema(description = "帖子内容")
+    @ExcelProperty("帖子内容")
+    private String postContent;
+
     @Schema(description = "数据类型(0个人 1公共)", example = "2")
     @ExcelProperty(value = "数据类型(0个人 1公共)", converter = DictConvert.class)
     @DictFormat("fb_page_type") // TODO 代码优化：建议设置到对应的 DictTypeConstants 枚举类中

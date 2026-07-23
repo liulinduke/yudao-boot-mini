@@ -22,6 +22,7 @@ declare global {
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
+              UpdateGlobalConfig?: (disableImages: boolean, disableVideos: boolean, maxConcurrent: number) => void
               OpenMessageManagerWindow?: () => void
               OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
               OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void
@@ -71,7 +72,7 @@ export interface FbAccountLoginBridgePayload {
 }
 
 export interface FbAccountLoginBridgeResult {
-  accountDbId: number
+  accountDbId: string | number
   accountId: string
   status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cookie_invalid'
   loginMode?: 'cookie' | 'credential'

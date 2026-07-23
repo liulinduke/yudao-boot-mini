@@ -369,6 +369,16 @@ const warmupDialogRef = ref()
 const profileUploadDialogRef = ref()
 const loginRunning = ref(false)
 
+const applyGroupNames = () => {
+  const groupMap = new Map(
+    groupList.value.map((group) => [String(group.id), group.groupName || ''])
+  )
+  list.value = list.value.map((account) => ({
+    ...account,
+    groupName: account.groupId == null ? '' : groupMap.get(String(account.groupId)) || ''
+  }))
+}
+
 const isAccountEnabled = (status: unknown) => status === true || status === 1 || status === '1'
 
 const getLoginStatusLabel = (status?: string) => {
@@ -420,7 +430,8 @@ const getList = async () => {
       groupId: selectedGroupId.value,
     }
     const data = await FbAccountApi.getFbAccountPage(params)
-    list.value = data.list
+    list.value = data.list || []
+    applyGroupNames()
     total.value = data.total
   } finally {
     loading.value = false
@@ -432,6 +443,7 @@ const loadGroups = async () => {
   try {
     const data = await AccountGroupApi.getAllEnabledGroups()
     groupList.value = data || []
+    applyGroupNames()
   } catch (error) {
     console.error('加载分组失败:', error)
   }
@@ -499,7 +511,7 @@ const handleRowCheckboxChange = (records: FbAccount[]) => {
 }
 
 const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
-  const target = list.value.find((item) => item.id === result.accountDbId)
+  const target = list.value.find((item) => String(item.id) === String(result.accountDbId))
   if (!target) return
 
   if (result.status === 'running') {
@@ -521,6 +533,19 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
     target.loginStatus = 'PENDING'
     target.loginErrorReason = ''
   }
+}
+
+const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
+  if (!['success', 'failed', 'cookie_invalid', 'skipped'].includes(result.status)) return
+  await FbAccountApi.updateFbAccountLoginResult({
+    id: String(result.accountDbId),
+    loginStatus: result.status === 'success'
+      ? 'SUCCESS'
+      : result.status === 'cookie_invalid'
+        ? 'COOKIE_INVALID'
+        : 'FAILED',
+    loginErrorReason: result.errorReason || ''
+  })
 }
 
 const handleBatchLogin = () => {
@@ -656,6 +681,7 @@ onMounted(() => {
   onAccountLoginComplete(async ({ summary, results }) => {
     results.forEach((item) => updateAccountLoginState(item))
     loginRunning.value = false
+    await Promise.allSettled(results.map((item) => persistAccountLoginState(item)))
     await getList()
     message.notifySuccess(`批量登录完成，成功 ${summary.success}，失败 ${summary.failed}，跳过 ${summary.skipped}`)
   })

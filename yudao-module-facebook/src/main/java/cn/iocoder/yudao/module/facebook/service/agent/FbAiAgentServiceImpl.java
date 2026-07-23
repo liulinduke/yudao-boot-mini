@@ -51,6 +51,8 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception0;
 
@@ -61,6 +63,12 @@ import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionU
 @Service
 @Validated
 public class FbAiAgentServiceImpl implements FbAiAgentService {
+
+    /**
+     * 服务本次启动时间。用于区分“服务启动前已经错过的计划”与“服务运行期间等待到达的计划”。
+     * 例如服务 10:00 启动、Agent 计划 09:00 时，今天直接跳过，不补执行昨天/今天的过期计划。
+     */
+    private final LocalDateTime serviceStartTime = LocalDateTime.now();
 
     private static final String AUTO_COLLECT_REMARK = "AI_AGENT_AUTO_COLLECT";
     private static final String AUTO_GROUP_COLLECT_REMARK = "AI_AGENT_GROUP_MONITOR";
@@ -78,6 +86,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private static final int MAX_ANALYZE_PER_RUN = 50;
     private static final int AI_ANALYZE_BATCH_SIZE = 50;
     private static final int MAX_TOUCH_QUEUE_PER_RUN = 20;
+    private static final Pattern COLLECTION_SAVE_SUMMARY_PATTERN = Pattern.compile(
+            "本轮采集：接收\\s*(\\d+)\\s*条，新增保存\\s*(\\d+)\\s*条，重复跳过\\s*(\\d+)\\s*条");
     private static final int POST_COMMENT_TASK_TYPE = 15;
     private static final int COLLECT_RUNNING_TIMEOUT_MINUTES = 3;
     private static final String DEFAULT_KEYWORD_WORKFLOW_CODE = "fb_ai_keyword_expand_v1";
@@ -378,8 +388,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 addRunLog(config.getId(), "立即执行",
                         String.format("群组%s个，采集最近%s天", groupUrls.size(), resolveGroupPostRecentDays(config)), "info");
                 created = AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())
-                        ? createGroupCommentPostCollectTasks(config, groupUrls, accountIds, launchDetails, true)
-                        : createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, true);
+                        ? createGroupCommentPostCollectTasks(config, groupUrls, accountIds, launchDetails, true, true)
+                        : createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, true, true);
             } else if (AGENT_TYPE_POST_LEAD.equals(config.getAgentType())) {
                 List<String> runKeywords = pickRunKeywords(config);
                 if (CollUtil.isEmpty(runKeywords)) {
@@ -485,8 +495,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_GROUP_POST.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
+            CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
             addRunLog(config.getId(), "群帖采集完成",
-                    String.format("新增%s条，进入AI分析", currentPostIds.size()), "success");
+                    saveSummary.toLogContent("进入AI分析"),
+                    saveSummary.duplicateCount > 0 ? "warning" : "success");
             int analyzedPosts = analyzePendingPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
@@ -503,11 +515,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_POST_LEAD.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
+            CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
             int analyzedPosts = analyzePendingPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
             addRunLog(config.getId(), "帖子采集完成",
-                    String.format("发现%s条，进入AI分析", currentPostIds.size()), "success");
+                    saveSummary.toLogContent("进入AI分析"),
+                    saveSummary.duplicateCount > 0 ? "warning" : "success");
             addRunLog(config.getId(), "AI分析完成",
                     String.format("分析%s条，达标%s条，触达阈值%s", analyzedPosts, qualifiedPosts,
                             mapScoreToIntent(threshold) + "/" + threshold), "success");
@@ -522,23 +536,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
+            CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
             int analyzedPosts = analyzeGroupCommentPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
             int commentTasks = createGroupCommentCollectTasks(config, accountIds, currentPostIds, true);
             refreshDiscoveryStats(config.getId());
             addRunLog(config.getId(), "群帖采集完成",
-                    String.format("发现%s条，分析%s条，广告帖%s条，创建评论采集%s个", currentPostIds.size(), analyzedPosts, qualifiedPosts, commentTasks),
+                    saveSummary.toLogContent(String.format("分析%s条，广告帖%s条，创建评论采集%s个", analyzedPosts, qualifiedPosts, commentTasks)),
                     commentTasks > 0 ? "success" : "info");
             return;
         }
 
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
+            CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
             int commentTasks = createCompetitorCommentCollectTasks(config, accountIds, currentPostIds, true);
             refreshDiscoveryStats(config.getId());
             addRunLog(config.getId(), "主页帖子采集完成",
-                    String.format("发现%s条，创建评论采集%s个", currentPostIds.size(), commentTasks),
+                    saveSummary.toLogContent(String.format("创建评论采集%s个", commentTasks)),
                     commentTasks > 0 ? "success" : "info");
             return;
         }
@@ -632,8 +648,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 addRunLog(config.getId(), "开始执行",
                         String.format("群组%s个，采集最近%s天", groupUrls.size(), resolveGroupPostRecentDays(config)), "info");
                 int created = AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())
-                        ? createGroupCommentPostCollectTasks(config, groupUrls, accountIds, launchDetails, enqueueForVuePoller)
-                        : createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, enqueueForVuePoller);
+                        ? createGroupCommentPostCollectTasks(config, groupUrls, accountIds, launchDetails, enqueueForVuePoller, false)
+                        : createGroupPostCollectTasks(config, groupUrls, accountIds, launchDetails, enqueueForVuePoller, false);
                 int analyzedPosts = AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType()) ? 0 : analyzePendingPosts(config, null);
                 int queuedTouches = AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType()) ? 0 : queuePostHighIntentTouches(config, accountIds, null);
                 TouchActivateResult activatedTouches = activateDueTouchRecords(config, null);
@@ -766,10 +782,21 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             return new AgentDueResult(false, "暂仅支持daily执行频率");
         }
         LocalDateTime now = LocalDateTime.now();
+        LocalTime executeTime = parseExecuteTime(config.getExecuteTime());
+
         if (config.getLastExecuteTime() != null && config.getLastExecuteTime().toLocalDate().isEqual(now.toLocalDate())) {
             return new AgentDueResult(false, "今日已启动过新一轮主页发现");
         }
-        LocalTime executeTime = parseExecuteTime(config.getExecuteTime());
+
+        // 服务当天晚于计划时间启动，说明本次计划已经错过，今天不再补执行。
+        // 服务在计划时间前启动，则允许调度器在计划时间后正常执行。
+        if (serviceStartTime.toLocalDate().isEqual(now.toLocalDate())
+                && serviceStartTime.toLocalTime().isAfter(executeTime)) {
+            return new AgentDueResult(false,
+                    String.format("服务启动时间%s已错过今日计划时间%s，今日跳过",
+                            serviceStartTime.toLocalTime().withSecond(0).withNano(0), executeTime));
+        }
+
         if (now.toLocalTime().isBefore(executeTime)) {
             return new AgentDueResult(false, "未到每日执行时间");
         }
@@ -1026,7 +1053,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private int createGroupPostCollectTasks(FbAiAgentConfigDO config, List<String> groupUrls, List<String> accountIds,
                                             List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
-                                            boolean enqueueForVuePoller) {
+                                            boolean enqueueForVuePoller, boolean forceCreate) {
         if (CollUtil.isEmpty(groupUrls) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "采集异常", "群组或账号池为空", "warning");
             return 0;
@@ -1044,22 +1071,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(normalizedUrls)) {
             return 0;
         }
+        List<String> pendingUrls = normalizedUrls.stream()
+                .filter(groupUrl -> forceCreate || collectQueueService.tryMarkCreated(config.getId(), "group_post", groupUrl))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(pendingUrls)) {
+            return 0;
+        }
         List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
-        int expectedTotal = normalizedUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
-        String searchUrls = String.join("\n", normalizedUrls);
+        int expectedTotal = pendingUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
+        String searchUrls = String.join("\n", pendingUrls);
         FbCollectDO task = createCollectTask(POST_COLLECT_TASK_TYPE, searchUrls, 2,
-                "AI群帖获客:" + config.getAgentName() + ":" + normalizedUrls.size() + "个群",
-                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), normalizedUrls.size())),
+                "AI群帖获客:" + config.getAgentName() + ":" + pendingUrls.size() + "个群",
+                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), pendingUrls.size())),
                 accountMap);
-        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, normalizedUrls.size());
+        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, pendingUrls.size());
         createDiscoveryLog(config.getId(), "群帖采集", task.getId(), "group_post");
 
         int created = 0;
-        for (int i = 0; i < normalizedUrls.size(); i++) {
-            String groupUrl = normalizedUrls.get(i);
-            if (!collectQueueService.tryMarkCreated(config.getId(), "group_post", groupUrl)) {
-                continue;
-            }
+        for (int i = 0; i < pendingUrls.size(); i++) {
+            String groupUrl = pendingUrls.get(i);
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
             FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), groupUrl, GROUP_POST_COLLECT_SAFETY_LIMIT);
             if (enqueueForVuePoller) {
@@ -1073,7 +1103,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private int createGroupCommentPostCollectTasks(FbAiAgentConfigDO config, List<String> groupUrls, List<String> accountIds,
                                                    List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
-                                                   boolean enqueueForVuePoller) {
+                                                   boolean enqueueForVuePoller, boolean forceCreate) {
         if (CollUtil.isEmpty(groupUrls) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "采集异常", "群组或账号池为空", "warning");
             return 0;
@@ -1091,22 +1121,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(normalizedUrls)) {
             return 0;
         }
+        List<String> pendingUrls = normalizedUrls.stream()
+                .filter(groupUrl -> forceCreate || collectQueueService.tryMarkCreated(config.getId(), "group_comment_post", groupUrl))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(pendingUrls)) {
+            return 0;
+        }
         List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
-        int expectedTotal = normalizedUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
-        String searchUrls = String.join("\n", normalizedUrls);
+        int expectedTotal = pendingUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
+        String searchUrls = String.join("\n", pendingUrls);
         FbCollectDO task = createCollectTask(POST_COLLECT_TASK_TYPE, searchUrls, 2,
-                "AI群帖评论截流-帖子采集:" + config.getAgentName() + ":" + normalizedUrls.size() + "个群",
-                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), normalizedUrls.size())),
+                "AI群帖评论截流-帖子采集:" + config.getAgentName() + ":" + pendingUrls.size() + "个群",
+                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), pendingUrls.size())),
                 accountMap);
-        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, normalizedUrls.size());
+        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, pendingUrls.size());
         createDiscoveryLog(config.getId(), "群帖采集", task.getId(), "group_comment_post");
 
         int created = 0;
-        for (int i = 0; i < normalizedUrls.size(); i++) {
-            String groupUrl = normalizedUrls.get(i);
-            if (!collectQueueService.tryMarkCreated(config.getId(), "group_comment_post", groupUrl)) {
-                continue;
-            }
+        for (int i = 0; i < pendingUrls.size(); i++) {
+            String groupUrl = pendingUrls.get(i);
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
             FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), groupUrl, GROUP_POST_COLLECT_SAFETY_LIMIT);
             if (enqueueForVuePoller) {
@@ -3019,6 +3052,54 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         } catch (Exception ex) {
             log.warn("根据 code 读取 AI 工作流失败，code={}, reason={}", workflowCode, ex.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 采集接口先把本轮保存摘要写入明细 errorMessage，Agent 在采集完成回调中再读取并转成用户可见日志。
+     * 这样定时执行也能保留重复数量，不依赖用户当时是否打开采集页面。
+     */
+    private CollectionSaveSummary getCollectionSaveSummary(Long taskId, int fallbackNewCount) {
+        CollectionSaveSummary summary = new CollectionSaveSummary();
+        List<FbCollectDetailDO> details = collectDetailMapper.selectListByTaskId(taskId);
+        if (CollUtil.isEmpty(details)) {
+            summary.receivedCount = fallbackNewCount;
+            summary.newCount = fallbackNewCount;
+            return summary;
+        }
+
+        boolean matched = false;
+        for (FbCollectDetailDO detail : details) {
+            String message = detail.getErrorMessage();
+            if (StrUtil.isBlank(message)) {
+                continue;
+            }
+            Matcher matcher = COLLECTION_SAVE_SUMMARY_PATTERN.matcher(message);
+            if (!matcher.find()) {
+                continue;
+            }
+            matched = true;
+            summary.receivedCount += Integer.parseInt(matcher.group(1));
+            summary.newCount += Integer.parseInt(matcher.group(2));
+            summary.duplicateCount += Integer.parseInt(matcher.group(3));
+        }
+
+        // 兼容旧明细或非帖子采集明细没有保存摘要的情况。
+        if (!matched) {
+            summary.receivedCount = fallbackNewCount;
+            summary.newCount = fallbackNewCount;
+        }
+        return summary;
+    }
+
+    private static final class CollectionSaveSummary {
+        private int receivedCount;
+        private int newCount;
+        private int duplicateCount;
+
+        private String toLogContent(String suffix) {
+            return String.format("本轮采集：接收%s条，新增保存%s条，重复跳过%s条；%s",
+                    receivedCount, newCount, duplicateCount, suffix);
         }
     }
 

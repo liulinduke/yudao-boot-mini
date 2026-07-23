@@ -29,7 +29,6 @@
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column label="用户ID" prop="id" width="100" />
         <el-table-column label="用户名" prop="userName" min-width="150" show-overflow-tooltip />
         <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
         <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />

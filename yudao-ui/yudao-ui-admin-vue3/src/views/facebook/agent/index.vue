@@ -31,7 +31,6 @@
           <div class="list-header">
             <div>
               <div class="panel-title">Agent列表</div>
-              <div class="panel-subtitle">主页获客 Agent 的创建、运行、暂停与查看</div>
             </div>
             <el-button :loading="dispatching" :disabled="!selectedAgentIds.length" @click="handleDispatch">
               <Icon icon="ep:video-play" class="mr-5px" /> 立即执行选中
@@ -44,9 +43,9 @@
             </el-form-item>
             <el-form-item label="类型">
               <el-select v-model="queryParams.agentType" clearable class="!w-150px">
-                <el-option label="AI主页获客" value="page_lead" />
-                <el-option label="AI帖子获客" value="post_lead" />
                 <el-option label="AI群帖获客" value="group_post" />
+                <el-option label="AI帖子获客" value="post_lead" />
+                <el-option label="AI主页获客" value="page_lead" />
                 <el-option label="AI群帖评论截流" value="group_comment" />
                 <el-option label="AI竞品监控" value="competitor_buyer" />
               </el-select>
@@ -429,7 +428,6 @@
               </el-table-column>
               <el-table-column label="发现客户数" prop="discoveredCount" width="110" />
               <el-table-column label="达标客户数" prop="highIntentCount" width="110" />
-              <el-table-column label="主页采集" prop="pageCollectCount" width="100" />
               <el-table-column label="AI分析" prop="aiAnalyzeCount" width="90" />
               <el-table-column label="未达阈值" prop="filteredCount" width="100" />
               <el-table-column label="可触达线索" prop="finalLeadCount" width="110" />
@@ -438,10 +436,9 @@
 
           <el-tab-pane label="线索列表" name="leads">
             <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true">
-              <el-table-column label="线索名称" min-width="160">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="线索名称" min-width="160">
                 <template #default="scope">{{ scope.row.userName || scope.row.postUser || '-' }}</template>
               </el-table-column>
-              <el-table-column label="国家" prop="country" width="110" />
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
               </el-table-column>
@@ -459,23 +456,39 @@
                   </el-tooltip>
                 </template>
               </el-table-column>
-              <el-table-column label="联系方式" width="200">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="联系方式" width="200">
                 <template #default="scope">
                   {{ scope.row.whatsapp || scope.row.email || scope.row.phonenumber || scope.row.postAuthorId || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column label="最近活跃" width="160">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="最近活跃" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.lastPostTime || scope.row.postCreateTime) }}</template>
               </el-table-column>
-              <el-table-column label="评论内容" prop="commentContent" min-width="220" />
-              <el-table-column label="来源帖子" min-width="180">
+              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子链接" min-width="220">
+                <template #default="scope">
+                  <el-link
+                    v-if="scope.row.sourcePostUrl || scope.row.postUrl || scope.row.url"
+                    :href="scope.row.sourcePostUrl || scope.row.postUrl || scope.row.url"
+                    target="_blank"
+                    type="primary"
+                  >
+                    {{ scope.row.sourcePostUrl || scope.row.postUrl || scope.row.url }}
+                  </el-link>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子内容" prop="postContent" min-width="320" />
+              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子创建时间" prop="postCreateTime" width="160">
+                <template #default="scope">{{ formatDateTime(scope.row.postCreateTime) }}</template>
+              </el-table-column>
+              <!-- <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="来源帖子" min-width="180">
                 <template #default="scope">
                   <el-link v-if="scope.row.sourcePostUrl" :href="scope.row.sourcePostUrl" target="_blank" type="primary">
                     查看帖子
                   </el-link>
                   <span v-else>-</span>
                 </template>
-              </el-table-column>
+              </el-table-column> -->
               <el-table-column label="状态" width="110">
                 <template #default="scope">
                   <el-tag :type="getLeadTouchStatusTagType(scope.row.touchStatus)">
@@ -510,7 +523,12 @@
 
           <el-tab-pane label="运行日志" name="logs">
             <div v-loading="runLogLoading" class="timeline-box">
-              <div v-for="item in runLogList" :key="item.id" class="timeline-item">
+              <div
+                v-for="item in runLogList"
+                :key="item.id"
+                class="timeline-item"
+                :class="`log-${item.logLevel || 'info'}`"
+              >
                 <span class="timeline-time">{{ formatRunLogTime(item) }}</span>
                 <span class="timeline-text">{{ formatRunLogLine(item) }}</span>
               </div>
@@ -577,20 +595,6 @@ const runLogList = ref<FbAiAgentRunLog[]>([])
 
 const agentEntries = [
   {
-    type: 'page_lead',
-    title: 'AI主页获客',
-    icon: 'ep:office-building',
-    description: '关键词发现主页客户，深度采集后自动筛选和触达',
-    disabled: false
-  },
-  {
-    type: 'post_lead',
-    title: 'AI帖子获客',
-    icon: 'ep:document',
-    description: '从Facebook搜索结果帖子中识别潜在买家',
-    disabled: false
-  },
-  {
     type: 'group_post',
     title: 'AI群帖获客',
     icon: 'ep:chat-line-round',
@@ -598,10 +602,24 @@ const agentEntries = [
     disabled: false
   },
   {
+    type: 'post_lead',
+    title: 'AI帖子获客',
+    icon: 'ep:document',
+    description: '首页搜索结果帖子中识别潜在买家',
+    disabled: false
+  },
+   {
+    type: 'page_lead',
+    title: 'AI主页获客',
+    icon: 'ep:office-building',
+    description: '首页搜索发现主页客户，深度采集后自动筛选和触达',
+    disabled: false
+  },
+  {
     type: 'group_comment',
     title: 'AI群帖评论截流',
     icon: 'ep:comment',
-    description: '围绕评论区高意向用户做自动截流',
+    description: '围绕群帖评论区高意向用户做自动截流',
     disabled: false
   },
   {
@@ -664,7 +682,7 @@ const wizardState = reactive({
   manualCompetitorPageUrlsText: '',
   selectedCompetitorPages: [] as FbCollectUser[],
   recentDays: 3,
-  latestPosts: false
+  latestPosts: true
 })
 
 const wizardRules = {
@@ -679,7 +697,7 @@ const intentLevelOptions = [
   { level: 'D', value: 50, thresholdLabel: 'D及以上（全部线索）', desc: '无价值，不建议联系' }
 ]
 
-const intentLevelTip = 'AI返回A/B/C/D，程序映射为 A=95、B=85、C=70、D=50。触达等级选B，表示触达A+B；选C，表示触达A+B+C。'
+const intentLevelTip = 'AI返回A/B/C/D，A：高意向，建议立即联系;B：推荐联系;C：普通线索，可关注;D：无价值，不建议联系。触达等级选B，表示触达A+B；选C，表示触达A+B+C。'
 
 const parseJsonArray = <T,>(value?: string, fallback: T[] = []) => {
   if (!value) return fallback
@@ -700,6 +718,7 @@ const parseLines = (value: string) =>
 const isGroupAgent = (type?: string) => ['group_post', 'group_comment'].includes(type || '')
 const isCompetitorAgent = (type?: string) => type === 'competitor_buyer'
 const isPostLeadAgent = (type?: string) => type === 'post_lead'
+const isPostLeadOrGroupPostAgent = (type?: string) => ['post_lead', 'group_post'].includes(type || '')
 const isSourceUrlAgent = (type?: string) => isGroupAgent(type) || isCompetitorAgent(type)
 
 const getAgentTypeLabel = (type?: string) => {
@@ -908,7 +927,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     keywordCursor: 0,
     keywordsPerRun: 5,
     aiKeywordExpandEnabled: true,
-    aiKeywordExpandCount: 20,
+    aiKeywordExpandCount: 30,
     targetCustomerCount: 1000,
     executeFrequency: 'daily',
     executeTime: '09:00',
@@ -955,7 +974,10 @@ const syncWizard = (config?: FbAiAgentConfig) => {
   wizardState.manualCompetitorPageUrlsText = competitorUrls.join('\n')
   wizardState.selectedCompetitorPages = []
   wizardState.recentDays = Number((isCompetitorAgent(wizardForm.agentType) ? competitorConfig.recentDays : groupConfig.recentDays) || 3)
-  wizardState.latestPosts = Boolean(getPostLeadConfig(wizardForm).latestPosts)
+  const postLeadConfig = getPostLeadConfig(wizardForm)
+  wizardState.latestPosts = Object.prototype.hasOwnProperty.call(postLeadConfig, 'latestPosts')
+    ? Boolean(postLeadConfig.latestPosts)
+    : true
 }
 
 const buildSubmitData = (): FbAiAgentConfig => {
@@ -1433,6 +1455,21 @@ onBeforeUnmount(() => {
     border-radius: 4px;
     background: #fafafa;
     color: var(--el-text-color-primary);
+  }
+
+  .timeline-item.log-success {
+    border-left-color: var(--el-color-success);
+  }
+
+  .timeline-item.log-warning {
+    border-left-color: var(--el-color-warning);
+    background: var(--el-color-warning-light-9);
+  }
+
+  .timeline-item.log-danger,
+  .timeline-item.log-error {
+    border-left-color: var(--el-color-danger);
+    background: var(--el-color-danger-light-9);
   }
 
   .timeline-time {

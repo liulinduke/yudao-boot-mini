@@ -616,12 +616,16 @@ onMounted(() => {
           return item
         })
 
-        await FbCollectPostApi.batchSaveFbCollectPost({
+        const savedCount = await FbCollectPostApi.batchSaveFbCollectPost({
           detailId: detailId,
           results: parsedResults
         })
 
-        message.success(`明细 ${detailId} 帖子采集完成，共采集 ${parsedResults.length} 条数据`)
+        const savedTotal = Number(savedCount || 0)
+        const duplicateTotal = Math.max(0, parsedResults.length - savedTotal)
+        message.success(
+          `明细 ${detailId} 帖子采集完成：采集 ${parsedResults.length} 条，新增保存 ${savedTotal} 条，重复跳过 ${duplicateTotal} 条`
+        )
       } else if (taskType === 4) {
         // 群组采集 - 解析并保存群组数据
         const parsedResults = results.map((item: any) => {

@@ -526,6 +526,13 @@
             </template>
           </el-table-column>
           <el-table-column
+            label="帖子内容"
+            align="center"
+            prop="postContent"
+            min-width="280"
+            show-overflow-tooltip
+          />
+          <el-table-column
             label="群组名称"
             align="center"
             prop="groupName"

@@ -47,14 +47,14 @@ namespace SocialMatrix.WpfHost.Windows
 
                 var nickname = config.Value<string>("nickname");
                 var signature = config.Value<string>("signature");
-                if (!string.IsNullOrWhiteSpace(nickname) || !string.IsNullOrWhiteSpace(signature))
-                {
-                    var textResult = await EvaluateProfileScriptAsync(browser, BuildSetProfileTextScript(nickname ?? "", signature ?? ""));
-                    if (!textResult) return ProfileResult(false, accountId, "未找到昵称或个人签名编辑框");
-                }
+                if (!string.IsNullOrWhiteSpace(signature) &&
+                    !await EvaluateProfileScriptAsync(browser, BuildSetBioScript(signature)))
+                    return ProfileResult(false, accountId, "未找到个人签名编辑框或保存按钮");
 
-                if (!await EvaluateProfileScriptAsync(browser, BuildClickSaveScript()))
-                    return ProfileResult(false, accountId, "未找到 Facebook 资料保存按钮");
+                if (!string.IsNullOrWhiteSpace(nickname) &&
+                    !await UpdateProfileNameAsync(browser, accountId, nickname))
+                    return ProfileResult(false, accountId, "未找到 Facebook 姓名编辑框或保存按钮");
+
                 await Task.Delay(1800);
                 return ProfileResult(true, accountId, "", avatarUrl, coverUrl, nickname, signature);
             }
@@ -79,7 +79,7 @@ namespace SocialMatrix.WpfHost.Windows
             var triggered = await EvaluateProfileScriptAsync(browser, BuildTriggerMediaScript(avatar));
             if (!triggered) throw new InvalidOperationException(avatar ? "未找到头像上传入口" : "未找到封面上传入口");
             await Task.Delay(4000);
-            if (!await EvaluateProfileScriptAsync(browser, BuildClickSaveScript()))
+            if (!await EvaluateProfileScriptAsync(browser, BuildClickMediaSaveScript(avatar)))
                 throw new InvalidOperationException(avatar ? "未找到头像保存按钮" : "未找到封面保存按钮");
             await Task.Delay(1200);
         }
@@ -121,6 +121,26 @@ namespace SocialMatrix.WpfHost.Windows
             return result.Success && result.Result is bool && (bool)result.Result;
         }
 
+        private async Task<bool> UpdateProfileNameAsync(ChromiumWebBrowser browser, string accountId, string nickname)
+        {
+            var hasNameField = await EvaluateProfileScriptAsync(browser, BuildHasNameFieldScript());
+            if (!hasNameField)
+            {
+                var opened = await EvaluateProfileScriptAsync(browser, BuildOpenNameEditorScript(accountId));
+                if (!opened) return false;
+                await WaitForPageReady(browser, 30000);
+                await Task.Delay(1800);
+            }
+
+            var updated = await EvaluateProfileScriptAsync(browser, BuildSetNicknameScript(nickname));
+            if (!updated) return false;
+
+            await Task.Delay(1600);
+            await browser.LoadUrlAsync($"https://www.facebook.com/profile.php?id={Uri.EscapeDataString(accountId)}");
+            await WaitForPageReady(browser, 30000);
+            return true;
+        }
+
         private static string ProfileResult(bool success, string accountId, string error,
             string? avatarUrl = null, string? coverUrl = null, string? nickname = null, string? signature = null)
         {
@@ -140,9 +160,9 @@ namespace SocialMatrix.WpfHost.Windows
 (async function() {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const visible = el => { const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; };
-  const labels = ['edit profile','编辑个人主页','编辑主页','edit public details','编辑公开资料'];
-  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
-  const editorAlreadyOpen = [...document.querySelectorAll('input,textarea,[contenteditable=""true""]')].some(visible);
+  const labels = ['edit profile','edit your profile','edit profile details','编辑个人资料','编辑个人主页','编辑主页','edit public details','编辑公开资料'];
+  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
+  const editorAlreadyOpen = [...document.querySelectorAll('[role=""dialog""]')].some(el => visible(el) && /edit profile|编辑个人资料|编辑个人主页/.test(text(el)));
   if (editorAlreadyOpen) return true;
   const button = [...document.querySelectorAll('[role=""button""],button,a')].find(el => visible(el) && labels.some(x => text(el).includes(x)));
   if (!button) return false;
@@ -156,46 +176,105 @@ namespace SocialMatrix.WpfHost.Windows
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
   const words = {JsonConvert.SerializeObject(avatar
-      ? new[] { "profile picture", "头像", "profile photo", "添加头像", "编辑头像" }
-      : new[] { "cover photo", "封面", "添加封面", "编辑封面" })};
-  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
-  let button = [...document.querySelectorAll('[role=""button""],button,a')].find(el => visible(el) && words.some(x => text(el).toLowerCase().includes(x.toLowerCase())));
+      ? new[] { "profile picture", "profile photo", "add profile", "change profile", "头像", "添加头像", "编辑头像" }
+      : new[] { "cover photo", "add cover", "change cover", "cover image", "封面", "添加封面", "编辑封面" })};
+  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
+  let button = [...document.querySelectorAll('[role=""button""],button,a,[tabindex=""0""]')].find(el => visible(el) && words.some(x => text(el).includes(x.toLowerCase())));
   if (button) button.click();
-  await sleep(700);
-  const input = [...document.querySelectorAll('input[type=""file""]')].find(visible) || document.querySelector('input[type=""file""]');
+  await sleep(800);
+  let input = [...document.querySelectorAll('input[type=""file""]')].find(visible) || document.querySelector('input[type=""file""]');
+  if (!input) {{
+    const upload = [...document.querySelectorAll('[role=""button""],button,a,[tabindex=""0""]')].filter(visible).find(el => /upload photo|upload|上传照片|上传/.test(text(el)));
+    if (upload) upload.click();
+    await sleep(700);
+    input = [...document.querySelectorAll('input[type=""file""]')].find(visible) || document.querySelector('input[type=""file""]');
+  }}
   if (!input) return false;
   input.click();
   return true;
 }})();";
 
-        private static string BuildSetProfileTextScript(string nickname, string signature) => $@"
-(function() {{
-  const setValue = (el, value) => {{
-    if (!el || !value) return false;
-    el.focus();
-    if (el.isContentEditable) {{ el.textContent = value; }}
-    else {{ const setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value')?.set; setter?.call(el, value); }}
-    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-    return true;
-  }};
-  const label = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('name') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
-  const fields = [...document.querySelectorAll('input,textarea,[contenteditable=""true""]')].filter(el => {{ const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }});
-  const nameField = fields.find(el => /name|昵称|姓名|名字/.test(label(el)));
-  const bioField = fields.find(el => /bio|about|intro|简介|签名/.test(label(el)));
-  const nameOk = setValue(nameField, {JsonConvert.SerializeObject(nickname)});
-  const bioOk = setValue(bioField, {JsonConvert.SerializeObject(signature)});
-  return nameOk || bioOk;
+        private static string BuildSetBioScript(string signature) => $@"
+(async function() {{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
+  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
+  const dialog = () => [...document.querySelectorAll('[role=""dialog""]')].filter(visible).pop() || document;
+  const root = dialog();
+  let trigger = [...root.querySelectorAll('[role=""button""],button,a')].find(el => visible(el) && /add bio|edit bio|bio|简介|签名/.test(text(el)));
+  if (trigger && !root.querySelector('textarea[placeholder=""Describe who you are""],textarea')) trigger.click();
+  for (let i = 0; i < 20; i++) {{
+    const bioFields = [...document.querySelectorAll('textarea[placeholder=""Describe who you are""]')].filter(visible);
+    const field = bioFields[0] || [...document.querySelectorAll('[role=""dialog""] textarea, [role=""dialog""] [contenteditable=""true""]')].filter(visible)[0];
+    if (field) {{
+      field.focus();
+      const value = {JsonConvert.SerializeObject(signature)};
+      if (field.isContentEditable) field.textContent = value;
+      else {{ const proto = Object.getPrototypeOf(field); const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set; if (setter) setter.call(field, value); else field.value = value; }}
+      field.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: value }}));
+      field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      await sleep(250);
+      const save = [...document.querySelectorAll('[role=""dialog""] [role=""button""], [role=""dialog""] button, [role=""button""]')].filter(visible).find(el => /save profile bio|save|保存/.test(text(el)));
+      if (save) {{ save.click(); await sleep(700); return true; }}
+    }}
+    await sleep(250);
+  }}
+  return false;
 }})();";
 
-        private static string BuildClickSaveScript() => @"
+        private static string BuildSetNicknameScript(string nickname) => $@"
+(async function() {{
+  const value = {JsonConvert.SerializeObject(nickname)};
+  const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
+  const label = el => [el.getAttribute('aria-label'), el.getAttribute('name'), el.getAttribute('placeholder'), el.getAttribute('title'), el.closest('[role=""dialog""],form,section')?.innerText].filter(Boolean).join(' ').toLowerCase();
+  const fields = [...document.querySelectorAll('input,textarea,[contenteditable=""true""],[role=""textbox""]')].filter(visible);
+  const setValue = (field, next) => {{
+    field.focus();
+    if (field.isContentEditable) field.textContent = next;
+    else {{ const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value')?.set; if (setter) setter.call(field, next); else field.value = next; }}
+    field.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: next }}));
+    field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  }};
+  const first = fields.find(el => /first name|given name|名/.test(label(el)) && !/last|family|姓/.test(label(el)));
+  const last = fields.find(el => /last name|family name|surname|姓/.test(label(el)));
+  const full = fields.find(el => /full name|display name|nickname|名字和姓氏/.test(label(el)));
+  if (full) setValue(full, value);
+  else if (first) {{
+    const parts = value.trim().split(/\s+/);
+    setValue(first, parts.shift() || value);
+    if (last && parts.length) setValue(last, parts.join(' '));
+  }}
+  else return false;
+  const save = [...document.querySelectorAll('[role=""button""],button')].filter(visible).reverse().find(el => /save|保存|done|完成|continue|继续/.test((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase());
+  if (save) {{ save.click(); return true; }}
+  return false;
+}})();";
+
+        private static string BuildHasNameFieldScript() => @"
 (function() {
   const visible = el => { const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; };
-  const words = ['save','保存','done','完成','apply','应用','submit','提交'];
-  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
-  const button = [...document.querySelectorAll('[role=""button""],button')].reverse().find(el => visible(el) && words.some(x => text(el).includes(x)));
-  if (button) { button.click(); return true; }
-  return false;
+  const label = el => [el.getAttribute('aria-label'), el.getAttribute('name'), el.getAttribute('placeholder'), el.getAttribute('title'), el.closest('[role=""dialog""],form,section')?.innerText].filter(Boolean).join(' ').toLowerCase();
+  return [...document.querySelectorAll('input,textarea,[contenteditable=""true""],[role=""textbox""]')].some(el => visible(el) && /first name|full name|display name|nickname|姓名|名字|名字和姓氏|name/.test(label(el)));
 })();";
+
+        private static string BuildOpenNameEditorScript(string accountId) => $@"
+(function() {{
+  const href = 'https://accountscenter.facebook.com/profiles/' + encodeURIComponent({JsonConvert.SerializeObject(accountId)}) + '/name';
+  location.href = href;
+  return true;
+}})();";
+
+        private static string BuildClickMediaSaveScript(bool avatar) => $@"
+(function() {{
+  const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
+  const dialogs = [...document.querySelectorAll('[role=""dialog""]')].filter(visible);
+  const root = dialogs[dialogs.length - 1] || document;
+  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
+  const words = ['save','done','apply','continue','next','upload','confirm','保存','完成','应用','继续','下一步','上传','确定'];
+  const button = [...root.querySelectorAll('[role=""button""],button')].filter(visible).reverse().find(el => words.some(word => text(el).includes(word)));
+  if (button) {{ button.click(); return true; }}
+  return false;
+}})();";
+
     }
 }

@@ -24,6 +24,9 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly Dictionary<string, bool> _browserInitialized = new(); // 跟踪指纹注入状态
         private readonly Dictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
         private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
+        // 一个账号只有一个浏览器 Tab，也只能同时执行一个业务任务。
+        // 采集、AI 获客、运营、私信和资料任务都必须经过这里。
+        private readonly Dictionary<string, string> _activeAccountTasks = new(); // 账号 -> 当前任务明细ID
         private readonly Dictionary<string, IRequestContext> _requestContexts = new(); // 账号 -> 独立请求上下文
         private readonly Dictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
         private readonly Dictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
@@ -42,6 +45,7 @@ namespace SocialMatrix.WpfHost.Windows
         public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
         private static FingerprintGlobalConfig? _globalConfig = null;
         private static DateTime _configLastFetchTime = DateTime.MinValue;
+        private static readonly HashSet<BrowserMatrixWindow> _instances = new();
 
         public bool IsWindowAvailable => IsVisible;
 
@@ -50,7 +54,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         private class FingerprintGlobalConfig
         {
-            public bool DisableImages { get; set; } = true;   // 默认不加载图片
+            public bool DisableImages { get; set; } = false;  // 默认加载图片，按配置关闭
             public bool DisableVideos { get; set; } = true;   // 默认不加载视频
             public int MaxConcurrent { get; set; } = 19;      // 8GB内存推荐值：(8192 * 0.7) / 300 ≈ 19
         }
@@ -69,6 +73,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         public static void UpdateGlobalConfig(bool disableImages, bool disableVideos, int maxConcurrent)
         {
+            var previousDisableImages = _globalConfig?.DisableImages ?? false;
             _globalConfig = new FingerprintGlobalConfig
             {
                 DisableImages = disableImages,
@@ -79,12 +84,22 @@ namespace SocialMatrix.WpfHost.Windows
             _maxConcurrentBrowsers = _globalConfig.MaxConcurrent;
             FbFingerprintBrowserFactory.UpdateGlobalConfig(disableImages, disableVideos, maxConcurrent);
 
+            // Existing tabs already own a RequestHandler. Apply the new policy to
+            // every live matrix window and reload only when image blocking changed,
+            // otherwise previously cancelled image requests stay absent.
+            var reloadImages = previousDisableImages != disableImages;
+            foreach (var window in _instances.ToList())
+            {
+                window.ApplyGlobalResourcePolicy(reloadImages);
+            }
+
             System.Diagnostics.Debug.WriteLine($"✅ 全局配置已更新（来自前端）: DisableImages={disableImages}, DisableVideos={disableVideos}, MaxConcurrent={maxConcurrent}");
         }
 
         public BrowserMatrixWindow()
         {
             InitializeComponent();
+            _instances.Add(this);
 
             // 监听窗口大小变化，重新计算布局
             this.SizeChanged += (sender, e) =>
@@ -95,11 +110,26 @@ namespace SocialMatrix.WpfHost.Windows
             // 监听窗口关闭事件，清理所有资源
             this.Closed += (sender, e) =>
             {
+                _instances.Remove(this);
                 CleanupAllResources();
             };
 
             // 预拉取全局配置，创建浏览器时可直接使用拦截设置
             _ = GetGlobalConfigAsync();
+        }
+
+        private void ApplyGlobalResourcePolicy(bool reloadImages)
+        {
+            var config = _globalConfig ?? new FingerprintGlobalConfig();
+            foreach (var browser in _browsers.Values.ToList())
+            {
+                if (browser.IsDisposed) continue;
+                FingerprintInjector.ApplyResourceFilter(browser, config.DisableImages, config.DisableVideos);
+                if (reloadImages && !browser.IsLoading)
+                {
+                    browser.Reload(ignoreCache: true);
+                }
+            }
         }
 
         /// <summary>
@@ -142,6 +172,7 @@ namespace SocialMatrix.WpfHost.Windows
             _browserInitialized.Clear();
             _accountTaskTypes.Clear();
             _accountDetailIds.Clear();
+            _activeAccountTasks.Clear();
             _dmOperationParams.Clear();
             _dmTaskIds.Clear();
             _accountIsOperation.Clear();
@@ -188,6 +219,32 @@ namespace SocialMatrix.WpfHost.Windows
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com",
             string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null, bool isOperation = false)
         {
+            var taskLockAcquired = false;
+            if (!string.IsNullOrWhiteSpace(detailId) && !string.IsNullOrWhiteSpace(searchUrl))
+            {
+                if (!_activeAccountTasks.TryAdd(accountId, detailId))
+                {
+                    var activeDetailId = _activeAccountTasks[accountId];
+                    if (string.Equals(activeDetailId, detailId, StringComparison.Ordinal))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⏭️ 忽略重复任务启动: account={accountId}, detailId={detailId}, taskType={taskType}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⛔ 拒绝账号并行任务: account={accountId}, 当前明细={activeDetailId}, 新明细={detailId}, taskType={taskType}");
+                        OnCollectionError?.Invoke(accountId,
+                            $"账号正在执行任务（明细 {activeDetailId}），当前任务已排队等待前一任务完成");
+                    }
+                    return;
+                }
+
+                taskLockAcquired = true;
+                System.Diagnostics.Debug.WriteLine(
+                    $"🔒 获取账号任务锁: account={accountId}, detailId={detailId}, taskType={taskType}, operation={isOperation}");
+            }
+
             if (!string.IsNullOrEmpty(detailId))
             {
                 _accountDetailIds[accountId] = detailId;
@@ -262,12 +319,12 @@ namespace SocialMatrix.WpfHost.Windows
                         if (isOperation)
                         {
                             // 运营任务走独立分发
-                            await StartOperationTask(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
+                            await StartOperationTask(existingBrowser, accountId, searchUrl, expectedCount, taskType, config, detailId);
                         }
                         else
                         {
                             // 采集任务走采集逻辑
-                            await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType, config);
+                            await StartAutoCollect(existingBrowser, accountId, searchUrl, expectedCount, taskType, config, detailId);
                         }
                     });
                 }
@@ -277,13 +334,26 @@ namespace SocialMatrix.WpfHost.Windows
             // 只有创建新账号 Tab 时才占用新的浏览器槽位
             if (_browsers.Count >= _maxConcurrentBrowsers)
             {
+                if (taskLockAcquired) ReleaseAccountTask(accountId, detailId);
                 System.Diagnostics.Debug.WriteLine($"⚠️ 已达到最大并发数限制 ({_maxConcurrentBrowsers})，无法为账号 {accountId} 创建新浏览器");
                 OnCollectionError?.Invoke(accountId, $"已达到最大并发数限制 ({_maxConcurrentBrowsers})，请先关闭一些浏览器窗口");
                 return;
             }
 
             // 为每个账号创建独立的 RequestContext（实现完全隔离）
-            var browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, out var requestContext);
+            ChromiumWebBrowser browser;
+            IRequestContext requestContext;
+            try
+            {
+                browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, out requestContext);
+            }
+            catch (Exception ex)
+            {
+                if (taskLockAcquired) ReleaseAccountTask(accountId, detailId);
+                System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器创建失败: {ex.Message}");
+                OnCollectionError?.Invoke(accountId, $"浏览器创建失败: {ex.Message}");
+                return;
+            }
             _requestContexts[accountId] = requestContext;
 
             // 立即应用缓存的资源拦截配置（首次 Load 即生效）
@@ -408,7 +478,7 @@ namespace SocialMatrix.WpfHost.Windows
                         var globalConfig = await GetGlobalConfigAsync();
                         FingerprintInjector.ApplyResourceFilter(
                             browser,
-                            taskType == 18 ? false : globalConfig?.DisableImages ?? true,
+                            taskType == 18 ? false : globalConfig?.DisableImages ?? false,
                             globalConfig?.DisableVideos ?? true);
 
                         var fingerprint = new FingerprintConfig
@@ -427,6 +497,7 @@ namespace SocialMatrix.WpfHost.Windows
                             if (await CheckIfLoginPage(browser))
                             {
                                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} Cookie 失效，停留在登录页");
+                                ReleaseAccountTask(accountId, detailId);
                                 OnCollectionError?.Invoke(accountId, "Cookie已失效，需要重新登录");
                                 isCookieValid = false;
                             }
@@ -440,17 +511,18 @@ namespace SocialMatrix.WpfHost.Windows
                         {
                             if (isOperation)
                             {
-                                await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config);
+                                await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config, detailId);
                             }
                             else
                             {
-                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config);
+                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config, detailId);
                             }
                         }
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 初始化失败: {ex.Message}");
+                        ReleaseAccountTask(accountId, detailId);
                         OnCollectionError?.Invoke(accountId, $"浏览器初始化失败: {ex.Message}");
                     }
                 });
@@ -488,6 +560,7 @@ namespace SocialMatrix.WpfHost.Windows
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 预初始化失败: {ex.Message}");
+                ReleaseAccountTask(accountId);
                 OnCollectionError?.Invoke(accountId, $"浏览器预初始化失败: {ex.Message}");
             }
         }
@@ -606,6 +679,9 @@ namespace SocialMatrix.WpfHost.Windows
 
         private void RemoveBrowserState(string accountId, bool disposeBrowser)
         {
+            // 手动关闭或异常清理必须立即释放账号任务锁；旧任务稍后返回时会按明细ID校验，不能误释放新任务。
+            ReleaseAccountTask(accountId);
+
             if (_browsers.TryGetValue(accountId, out var browser))
             {
                 if (disposeBrowser && !browser.IsDisposed)
@@ -632,6 +708,17 @@ namespace SocialMatrix.WpfHost.Windows
             _accountTaskTypes.Remove(accountId);
             _accountIsOperation.Remove(accountId);
             UpdateLayout();
+        }
+
+        private void ReleaseAccountTask(string accountId, string? detailId = null)
+        {
+            if (!_activeAccountTasks.TryGetValue(accountId, out var activeDetailId)) return;
+            if (!string.IsNullOrWhiteSpace(detailId)
+                && !string.Equals(activeDetailId, detailId, StringComparison.Ordinal)) return;
+
+            _activeAccountTasks.Remove(accountId);
+            System.Diagnostics.Debug.WriteLine(
+                $"🔓 释放账号任务锁: account={accountId}, detailId={activeDetailId}");
         }
 
         /// <summary>
@@ -850,7 +937,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// 与采集任务分离，运营任务在 LoadingStateChanged 中等页面加载完成后执行
         /// </summary>
         private async Task StartOperationTask(ChromiumWebBrowser browser, string accountId,
-            string searchUrl, int expectedCount, int taskType = 9, string? config = null)
+            string searchUrl, int expectedCount, int taskType = 9, string? config = null, string? detailId = null)
         {
             System.Diagnostics.Debug.WriteLine($"🚀 开始运营任务: taskType={taskType}, url={searchUrl}");
 
@@ -913,8 +1000,8 @@ namespace SocialMatrix.WpfHost.Windows
                         var addGroupJson = await ExecuteAddGroupTaskAsync(browser, accountId, config);
                         if (addGroupJson != null)
                         {
-                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
-                            OnCollectionComplete?.Invoke(detailId, accountId, addGroupJson, 9);
+                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            OnCollectionComplete?.Invoke(callbackDetailId, accountId, addGroupJson, 9);
                         }
                         break;
 
@@ -986,10 +1073,10 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine("⏳ 转帖脚本执行返回");
                         if (result.Success)
                         {
-                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
                             string resultStr = result.Result?.ToString() ?? "[]";
                             System.Diagnostics.Debug.WriteLine($"✅ 转帖执行完成: {resultStr}");
-                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, taskType);
+                            OnCollectionComplete?.Invoke(callbackDetailId, accountId, resultStr, taskType);
                         }
                         else
                         {
@@ -1018,10 +1105,10 @@ namespace SocialMatrix.WpfHost.Windows
                         var followResult = await followEvalTask;
                         if (followResult.Success)
                         {
-                            string detailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
                             string resultStr = followResult.Result?.ToString() ?? "[]";
                             System.Diagnostics.Debug.WriteLine($"✅ 刷粉执行完成: {resultStr}");
-                            OnCollectionComplete?.Invoke(detailId, accountId, resultStr, 16);
+                            OnCollectionComplete?.Invoke(callbackDetailId, accountId, resultStr, 16);
                         }
                         else
                         {
@@ -1067,6 +1154,10 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 运营任务执行异常: {ex.Message}\n{ex.StackTrace}");
                 OnCollectionError?.Invoke(accountId, $"运营任务异常: {ex.Message}");
+            }
+            finally
+            {
+                ReleaseAccountTask(accountId, detailId);
             }
         }
 
@@ -1287,7 +1378,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// 启动自动化采集
         /// </summary>
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId,
-            string searchUrl, int expectedCount, int taskType = 1, string? config = null)
+            string searchUrl, int expectedCount, int taskType = 1, string? config = null, string? detailId = null)
         {
             try
             {
@@ -1544,6 +1635,23 @@ namespace SocialMatrix.WpfHost.Windows
 
                     System.Diagnostics.Debug.WriteLine($"✅ 采集完成，数据长度: {jsonData.Length}");
                     System.Diagnostics.Debug.WriteLine($"📊 数据预览: {jsonData.Substring(0, Math.Min(200, jsonData.Length))}");
+                    System.Diagnostics.Debug.WriteLine($"📦 完整采集数据: {jsonData}");
+                    try
+                    {
+                        var postItems = Newtonsoft.Json.Linq.JArray.Parse(jsonData);
+                        foreach (var item in postItems)
+                        {
+                            var itemId = item["itemId"]?.ToString() ?? "";
+                            var url = item["url"]?.ToString() ?? "";
+                            var postCreateTime = item["postCreateTime"]?.ToString() ?? "null";
+                            System.Diagnostics.Debug.WriteLine(
+                                $"🕒 帖子时间: itemId={itemId}, url={url}, postCreateTime={postCreateTime}");
+                        }
+                    }
+                    catch (Exception logEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ 帖子时间日志解析失败: {logEx.Message}");
+                    }
 
                     // 验证是否为有效的JSON数组
                     if (!jsonData.TrimStart().StartsWith("["))
@@ -1567,10 +1675,10 @@ namespace SocialMatrix.WpfHost.Windows
 
                     // 4. 触发回调,将数据传回(包含 detailId)
                     int actualTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 1;
-                    string detailId = _accountDetailIds.ContainsKey(accountId)
+                    string callbackDetailId = _accountDetailIds.ContainsKey(accountId)
                         ? _accountDetailIds[accountId]
                         : (CurrentDetailId ?? "");
-                    OnCollectionComplete?.Invoke(detailId, accountId, jsonData, actualTaskType);
+                    OnCollectionComplete?.Invoke(callbackDetailId, accountId, jsonData, actualTaskType);
                 }
                 else
                 {
@@ -1583,6 +1691,10 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 自动化采集异常: {ex.Message}");
                 OnCollectionError?.Invoke(accountId, ex.Message);
+            }
+            finally
+            {
+                ReleaseAccountTask(accountId, detailId);
             }
         }
 
@@ -2045,7 +2157,6 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        if (isAiPostLeadCollect && aiGroupPostConfig.latestPosts) console.log('[AI帖子获客] 使用最新帖子过滤');");
             js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
-            js.AppendLine("        const knownPostKeys = new Set(Array.isArray(aiGroupPostConfig.knownPostKeys) ? aiGroupPostConfig.knownPostKeys.map(String) : []);");
             js.AppendLine("        let stopCurrentGroup = false;");
             js.AppendLine("        const seenUrls = new Set();");
             js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
@@ -2180,11 +2291,6 @@ namespace SocialMatrix.WpfHost.Windows
             return { date: null, daysAgo: null, raw };
         };
 
-        const isKnownPost = (itemId, url) => {
-            if (!(isAiGroupPostCollect || isAiPostLeadCollect) || knownPostKeys.size === 0) return false;
-            return (itemId && knownPostKeys.has(String(itemId))) || (url && knownPostKeys.has(String(url)));
-        };
-
         const isTimeLikeText = (text) => {
             const t = cleanText(text);
             if (!t || t.length > 40) return false;
@@ -2285,11 +2391,6 @@ namespace SocialMatrix.WpfHost.Windows
                 const url = canonicalPostUrl(postLinkEl.href);
                 if (!url || seenUrls.has(url)) return null;
                 const itemId = getPostItemId(url);
-                if (isKnownPost(itemId, url)) {
-                    console.log('[AI群帖采集] 遇到历史帖子，停止当前群:', itemId || url);
-                    stopCurrentGroup = true;
-                    return null;
-                }
                 const parsedTime = parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'));
                 if (isAiGroupPostCollect && recentDays > 0 && parsedTime.daysAgo !== null && parsedTime.daysAgo > recentDays) {
                     console.log('[AI群帖采集] 遇到超过最近天数的帖子，停止当前群:', parsedTime.raw, recentDays);
@@ -2330,7 +2431,7 @@ namespace SocialMatrix.WpfHost.Windows
                     url, fromResource: isAiPostLeadCollect ? 'ai_post_lead' : (isAiGroupPostCollect ? (aiGroupPostConfig.source === 'ai_competitor_post' ? 'ai_competitor_post' : (aiGroupPostConfig.source === 'ai_group_comment_post' ? 'ai_group_comment_post' : 'ai_group_post')) : (isGroupPost ? 'group' : 'page')),
                     groupName, reshareCount, commentCount, reactionCount,
                     usedCount: 0, postContent, fbAccount: '',
-                    postCreateTime: parsedTime.date ? parsedTime.date.toISOString() : new Date().toISOString()
+                    postCreateTime: parsedTime.date ? parsedTime.date.toISOString() : null
                 };
             } catch (e) {
                 console.warn('Extract post failed:', e);

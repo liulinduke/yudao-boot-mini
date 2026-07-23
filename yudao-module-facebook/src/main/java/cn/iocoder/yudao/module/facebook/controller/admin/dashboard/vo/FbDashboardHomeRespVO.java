@@ -27,7 +27,7 @@ public class FbDashboardHomeRespVO {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AiResult {
-        @Schema(description = "自动采集线索数")
+        @Schema(description = "自动发现线索数")
         private Long autoCollectedLeadCount;
 
         @Schema(description = "自动分析客户数")
