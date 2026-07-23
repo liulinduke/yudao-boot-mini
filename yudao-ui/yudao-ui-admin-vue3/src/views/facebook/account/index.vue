@@ -160,6 +160,12 @@
                 <el-dropdown-item command="proxy">
                   <Icon icon="ep:connection" class="mr-5px" /> 批量修改代理
                 </el-dropdown-item>
+                <el-dropdown-item command="enable">
+                  <Icon icon="ep:check" class="mr-5px" /> 批量启用
+                </el-dropdown-item>
+                <el-dropdown-item command="disable">
+                  <Icon icon="ep:close" class="mr-5px" /> 批量禁用
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -229,7 +235,7 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="登录状态" align="center" width="110">
+              <el-table-column label="账号状态" align="center" width="110">
                 <template #default="scope">
                   <el-tooltip
                     v-if="scope.row.loginStatus === 'FAILED' && scope.row.loginErrorReason"
@@ -384,20 +390,26 @@ const isAccountEnabled = (status: unknown) => status === true || status === 1 ||
 const getLoginStatusLabel = (status?: string) => {
   switch (String(status || '').toUpperCase()) {
     case 'RUNNING':
-      return '登录中'
+      return '待检测'
     case 'SUCCESS':
-      return '已登录'
-    case 'FAILED':
-      return '登录失败'
+      return '正常'
     case 'COOKIE_INVALID':
     case 'COOKIE_EXPIRED':
-    case 'ABNORMAL':
-    case 'INVALID':
       return 'Cookie失效'
+    case 'ABNORMAL':
+      return '账号被封'
+    case 'ACCOUNT_DISABLED':
+      return '账号被封'
+    case 'INVALID':
+      return '账号异常'
+    case 'NETWORK_ERROR':
+      return '网络异常'
+    case 'FAILED':
+      return '需要验证'
     case 'PENDING':
-      return '待登录'
+      return '待检测'
     default:
-      return '未登录'
+      return '待检测'
   }
 }
 
@@ -407,13 +419,16 @@ const getLoginStatusType = (status?: string) => {
       return 'warning'
     case 'SUCCESS':
       return 'success'
-    case 'FAILED':
-      return 'danger'
     case 'COOKIE_INVALID':
     case 'COOKIE_EXPIRED':
     case 'ABNORMAL':
     case 'INVALID':
+    case 'ACCOUNT_DISABLED':
       return 'danger'
+    case 'FAILED':
+      return 'warning'
+    case 'NETWORK_ERROR':
+      return 'warning'
     case 'PENDING':
       return 'info'
     default:
@@ -523,6 +538,12 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
   } else if (result.status === 'failed') {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '登录失败'
+  } else if (result.status === 'network_error') {
+    target.loginStatus = 'NETWORK_ERROR'
+    target.loginErrorReason = result.errorReason || '网络异常，未判定 Cookie 失效'
+  } else if (result.status === 'account_disabled') {
+    target.loginStatus = 'ABNORMAL'
+    target.loginErrorReason = result.errorReason || '账号被封或已停用'
   } else if (result.status === 'cookie_invalid') {
     target.loginStatus = 'COOKIE_INVALID'
     target.loginErrorReason = result.errorReason || 'Cookie已失效，当前停留在登录页'
@@ -536,14 +557,20 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
 }
 
 const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
-  if (!['success', 'failed', 'cookie_invalid', 'skipped'].includes(result.status)) return
+  if (!['success', 'failed', 'cookie_invalid', 'network_error', 'account_disabled', 'skipped'].includes(result.status)) return
+  const loginStatus = result.status === 'success'
+    ? 'SUCCESS'
+    : result.status === 'cookie_invalid'
+      ? 'COOKIE_INVALID'
+      : result.status === 'network_error'
+        ? 'NETWORK_ERROR'
+        : result.status === 'account_disabled'
+          ? 'ABNORMAL'
+          : 'FAILED'
+
   await FbAccountApi.updateFbAccountLoginResult({
     id: String(result.accountDbId),
-    loginStatus: result.status === 'success'
-      ? 'SUCCESS'
-      : result.status === 'cookie_invalid'
-        ? 'COOKIE_INVALID'
-        : 'FAILED',
+    loginStatus,
     loginErrorReason: result.errorReason || ''
   })
 }
@@ -655,7 +682,20 @@ const handleBatchCommand = (command: string) => {
     batchUpdateGroupDialogRef.value.open(checkedIds.value)
   } else if (command === 'proxy') {
     openBatchUpdateProxyDialog()
+  } else if (command === 'enable' || command === 'disable') {
+    void handleBatchStatus(command === 'enable')
   }
+}
+
+const handleBatchStatus = async (status: boolean) => {
+  if (isEmpty(checkedIds.value)) return
+  try {
+    await message.confirm(`确认${status ? '启用' : '禁用'}选中的 ${checkedIds.value.length} 个账号吗？`)
+    await FbAccountApi.updateFbAccountStatus({ ids: checkedIds.value, status })
+    checkedIds.value = []
+    message.success(`${status ? '启用' : '禁用'}成功`)
+    await getList()
+  } catch {}
 }
 
 const openWarmupDialog = () => {

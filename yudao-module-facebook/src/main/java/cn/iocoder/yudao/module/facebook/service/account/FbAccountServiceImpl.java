@@ -51,6 +51,22 @@ public class FbAccountServiceImpl implements FbAccountService {
     }
 
     @Override
+    public void updateFbAccountStatus(List<Long> ids, Boolean status) {
+        if (CollUtil.isEmpty(ids)) {
+            return;
+        }
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            FbAccountDO updateObj = new FbAccountDO();
+            updateObj.setId(id);
+            updateObj.setStatus(status);
+            fbAccountMapper.updateById(updateObj);
+        }
+    }
+
+    @Override
     public void deleteFbAccount(Long id) {
         validateFbAccountExists(id);
         fbAccountMapper.deleteById(id);

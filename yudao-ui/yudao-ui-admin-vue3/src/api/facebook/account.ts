@@ -37,6 +37,10 @@ export const FbAccountApi = {
     return request.put({ url: '/facebook/fb-account/update-group', data })
   },
 
+  updateFbAccountStatus: (data: FbAccountBatchStatusReqVO) => {
+    return request.put({ url: '/facebook/fb-account/update-status', data })
+  },
+
   importFbAccount: (data: FbAccountImportReqVO) => {
     return request.post({ url: '/facebook/fb-account/import', data })
   },
@@ -139,6 +143,11 @@ export interface FbAccountUpdateProxyReqVO {
 export interface FbAccountUpdateGroupReqVO {
   ids: Array<number | string>
   groupId: number | string | null
+}
+
+export interface FbAccountBatchStatusReqVO {
+  ids: Array<number | string>
+  status: boolean
 }
 
 export interface FbAccountImportReqVO {

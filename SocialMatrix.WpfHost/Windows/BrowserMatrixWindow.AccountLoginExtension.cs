@@ -180,11 +180,23 @@ namespace SocialMatrix.WpfHost.Windows
 
         private async Task<AccountLoginResult> LoginAccountWithBrowserAsync(ChromiumWebBrowser browser, AccountLoginRequest account)
         {
-            await WaitForPageLoad(browser, 30000);
+            try
+            {
+                await WaitForPageLoad(browser, 30000);
+            }
+            catch (Exception ex)
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "network_error", ErrorReason: $"网络异常或页面加载超时: {ex.Message}");
+            }
             await Task.Delay(1500);
 
-            bool isLoginPage = await CheckIfLoginPage(browser);
-            if (!isLoginPage)
+            var pageState = await DetectFacebookPageStateAsync(browser, account.AccountId);
+            if (pageState == FacebookPageState.NetworkError || pageState == FacebookPageState.PageLoading || pageState == FacebookPageState.Unknown)
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "network_error", ErrorReason: GetPageStateMessage(pageState));
+            }
+
+            if (pageState == FacebookPageState.Authenticated)
             {
                 await DismissPostLoginOverlayAsync(browser);
                 var cookieJson = await ExportFacebookCookiesAsync(browser);
@@ -194,13 +206,18 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
 
+            if (pageState == FacebookPageState.AccountDisabled)
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "account_disabled", ErrorReason: "账号被封或已停用");
+            }
+
             if (string.IsNullOrWhiteSpace(account.Password))
             {
                 return new AccountLoginResult(
                     account.Id,
                     account.AccountId,
-                    isLoginPage ? "cookie_invalid" : "skipped",
-                    ErrorReason: isLoginPage ? "Cookie已失效，当前停留在登录页" : "Missing password");
+                    pageState == FacebookPageState.LoginPage ? "cookie_invalid" : "skipped",
+                    ErrorReason: pageState == FacebookPageState.LoginPage ? "Cookie已失效，当前停留在登录页" : GetPageStateMessage(pageState));
             }
 
             await ClearFacebookCookiesAsync(browser);
@@ -266,10 +283,20 @@ namespace SocialMatrix.WpfHost.Windows
                     return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA passed but cookie was not captured");
                 }
 
-                return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", MapAuthStateToReason(authState));
+                return new AccountLoginResult(
+                    account.Id,
+                    account.AccountId,
+                    authState == "disabled" ? "account_disabled" : "failed",
+                    "credential",
+                    MapAuthStateToReason(authState));
             }
 
-            return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", MapAuthStateToReason(authState));
+            return new AccountLoginResult(
+                account.Id,
+                account.AccountId,
+                authState == "disabled" ? "account_disabled" : "failed",
+                "credential",
+                MapAuthStateToReason(authState));
         }
 
         private async Task<string> DetectFacebookAuthStateAsync(ChromiumWebBrowser browser)

@@ -74,7 +74,7 @@ export interface FbAccountLoginBridgePayload {
 export interface FbAccountLoginBridgeResult {
   accountDbId: string | number
   accountId: string
-  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cookie_invalid'
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cookie_invalid' | 'network_error' | 'account_disabled'
   loginMode?: 'cookie' | 'credential'
   errorReason?: string
   cookieSaved?: boolean

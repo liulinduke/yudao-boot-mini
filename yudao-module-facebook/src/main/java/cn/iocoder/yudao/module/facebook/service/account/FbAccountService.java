@@ -83,6 +83,9 @@ public interface FbAccountService {
      */
     void updateFbAccountGroup(List<Long> ids, Long groupId);
 
+    /** 批量更新 FB 账号启用状态。 */
+    void updateFbAccountStatus(List<Long> ids, Boolean status);
+
     /**
      * 导入FB账号
      *

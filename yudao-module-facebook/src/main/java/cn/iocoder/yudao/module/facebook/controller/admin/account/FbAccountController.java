@@ -128,6 +128,15 @@ public class FbAccountController {
         return success(true);
     }
 
+    @PutMapping("/update-status")
+    @Operation(summary = "批量更新 FB 账号启用状态")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
+    public CommonResult<Boolean> updateFbAccountStatus(
+            @Valid @RequestBody FbAccountBatchStatusReqVO reqVO) {
+        fbAccountService.updateFbAccountStatus(reqVO.getIds(), reqVO.getStatus());
+        return success(true);
+    }
+
     @PostMapping("/import")
     @Operation(summary = "导入FB账号")
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:create')")
