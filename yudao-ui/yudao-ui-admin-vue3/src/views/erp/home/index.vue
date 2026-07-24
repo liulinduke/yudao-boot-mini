@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="ERP 手册（功能开启）" url="https://doc.iocoder.cn/erp/build/" />
 
   <div class="flex flex-col">
     <!-- 销售/采购的全局统计 -->

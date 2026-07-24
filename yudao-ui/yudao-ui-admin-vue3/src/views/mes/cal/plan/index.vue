@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="【排班】排班计划、排班日历" url="https://doc.iocoder.cn/mes/cal/calendar/" />
 
   <ContentWrap>
     <!-- 搜索工作栏 -->

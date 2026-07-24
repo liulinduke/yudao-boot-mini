@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="AI 写作助手" url="https://doc.iocoder.cn/ai/write/" />
 
   <ContentWrap>
     <!-- 搜索工作栏 -->

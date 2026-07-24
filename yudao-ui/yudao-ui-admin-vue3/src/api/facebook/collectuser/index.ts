@@ -42,6 +42,7 @@ export interface FbCollectUser {
   sourcePostId?: string | number // 来源帖子ID
   sourcePostUrl?: string // 来源帖子URL
   syncTime: string | Dayjs // 同步时间
+  createTime?: string | Dayjs // 采集时间
   aiTags?: string // AI标签
   intentLevel?: string // 意向等级
   intentReason?: string // 意向判断理由

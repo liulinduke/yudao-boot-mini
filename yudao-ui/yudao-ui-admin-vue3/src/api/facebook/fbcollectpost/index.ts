@@ -20,6 +20,7 @@ export interface FbCollectPost {
           usedCount: number; // 截流次数
           postContent: string; // 帖子内容
           fbAccount: string; // FB账号
+          createTime?: string | Dayjs; // 采集时间
           postCreateTime: string | Dayjs; // 帖子创建时间
           aiTags?: string; // AI标签
           intentLevel?: string; // 意向等级

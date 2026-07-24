@@ -68,9 +68,9 @@
               <el-option label="已完成" value="done" />
             </el-select>
           </el-form-item>
-          <el-form-item label="同步时间" prop="syncTime">
+          <el-form-item label="采集时间" prop="createTime">
             <el-date-picker
-              v-model="userQueryParams.syncTime"
+              v-model="userQueryParams.createTime"
               value-format="YYYY-MM-DD HH:mm:ss"
               type="daterange"
               start-placeholder="开始日期"
@@ -117,6 +117,11 @@
         >
           <el-table-column type="selection" width="55" />
           <el-table-column label="ID" align="center" prop="id" width="80" />
+          <el-table-column label="采集时间" align="center" prop="createTime" width="160">
+            <template #default="scope">
+              {{ formatDateTime(scope.row.createTime) }}
+            </template>
+          </el-table-column>
           <el-table-column
             label="用户名"
             align="center"
@@ -214,11 +219,6 @@
             min-width="120"
             show-overflow-tooltip
           />
-          <el-table-column label="同步时间" align="center" prop="syncTime" width="160">
-            <template #default="scope">
-              {{ formatDateTime(scope.row.syncTime) }}
-            </template>
-          </el-table-column>
           <el-table-column label="操作" align="center" width="120" fixed="right">
             <template #default="scope">
               <el-button
@@ -282,6 +282,17 @@
               class="!w-120px"
             />
           </el-form-item>
+          <el-form-item label="采集时间" prop="createTime">
+            <el-date-picker
+              v-model="groupQueryParams.createTime"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              type="daterange"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :default-time="[new Date('1 00:00:00'), new Date('1 23:59:59')]"
+              class="!w-240px"
+            />
+          </el-form-item>
           <el-form-item>
             <el-button @click="handleGroupQuery">
               <Icon icon="ep:search" class="mr-5px" /> 搜索
@@ -320,6 +331,11 @@
         >
           <el-table-column type="selection" width="55" />
           <el-table-column label="ID" align="center" prop="id" width="80" />
+          <el-table-column label="采集时间" align="center" prop="createTime" width="160">
+            <template #default="scope">
+              {{ formatDateTime(scope.row.createTime) }}
+            </template>
+          </el-table-column>
           <el-table-column
             label="群组名称"
             align="center"
@@ -441,26 +457,15 @@
               <el-option label="已完成" value="done" />
             </el-select>
           </el-form-item>
-          <el-form-item label="互动数据" prop="reactionCount">
-            <el-input-number
-              v-model="postQueryParams.minReactionCount"
-              placeholder="最小点赞"
-              :min="0"
-              class="!w-100px"
-            />
-            <span class="mx-4px">/</span>
-            <el-input-number
-              v-model="postQueryParams.minCommentCount"
-              placeholder="最小评论"
-              :min="0"
-              class="!w-100px"
-            />
-            <span class="mx-4px">/</span>
-            <el-input-number
-              v-model="postQueryParams.minReshareCount"
-              placeholder="最小转发"
-              :min="0"
-              class="!w-100px"
+          <el-form-item label="采集时间" prop="createTime">
+            <el-date-picker
+              v-model="postQueryParams.createTime"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              type="daterange"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :default-time="[new Date('1 00:00:00'), new Date('1 23:59:59')]"
+              class="!w-240px"
             />
           </el-form-item>
           <el-form-item>
@@ -504,6 +509,11 @@
         >
           <el-table-column type="selection" width="55" />
           <el-table-column label="ID" align="center" prop="id" width="80" />
+          <el-table-column label="采集时间" align="center" prop="createTime" width="160">
+            <template #default="scope">
+              {{ formatDateTime(scope.row.createTime) }}
+            </template>
+          </el-table-column>
           <el-table-column
             label="发帖人"
             align="center"
@@ -652,7 +662,7 @@ const userQueryParams = reactive({
   aiTags: undefined,
   intentLevel: undefined,
   touchStatus: undefined,
-  syncTime: []
+  createTime: []
 })
 
 /** 查询用户列表 */
@@ -726,7 +736,8 @@ const groupQueryParams = reactive({
   pageSize: 10,
   groupName: undefined,
   minMemberQuantity: undefined,
-  maxMemberQuantity: undefined
+  maxMemberQuantity: undefined,
+  createTime: []
 })
 
 /** 查询群组列表 */
@@ -804,9 +815,7 @@ const postQueryParams = reactive({
   aiTags: undefined,
   intentLevel: undefined,
   touchStatus: undefined,
-  minReactionCount: undefined,
-  minCommentCount: undefined,
-  minReshareCount: undefined
+  createTime: []
 })
 
 /** 查询帖子列表 */

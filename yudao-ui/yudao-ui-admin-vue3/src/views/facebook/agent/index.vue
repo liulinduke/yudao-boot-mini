@@ -432,6 +432,12 @@
               <el-table-column label="未达阈值" prop="filteredCount" width="100" />
               <el-table-column label="可触达线索" prop="finalLeadCount" width="110" />
             </el-table>
+            <Pagination
+              :total="discoveryTotal"
+              v-model:page="discoveryPage.pageNo"
+              v-model:limit="discoveryPage.pageSize"
+              @pagination="loadDiscoveryPage"
+            />
           </el-tab-pane>
 
           <el-tab-pane label="线索列表" name="leads">
@@ -481,6 +487,9 @@
               <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子创建时间" prop="postCreateTime" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.postCreateTime) }}</template>
               </el-table-column>
+              <el-table-column label="采集时间" prop="createTime" width="160">
+                <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
+              </el-table-column>
               <!-- <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="来源帖子" min-width="180">
                 <template #default="scope">
                   <el-link v-if="scope.row.sourcePostUrl" :href="scope.row.sourcePostUrl" target="_blank" type="primary">
@@ -498,6 +507,12 @@
               </el-table-column>
               <el-table-column label="AI分析原因" prop="intentReason" min-width="220" />
             </el-table>
+            <Pagination
+              :total="leadTotal"
+              v-model:page="leadPage.pageNo"
+              v-model:limit="leadPage.pageSize"
+              @pagination="loadLeadPage"
+            />
           </el-tab-pane>
 
           <el-tab-pane label="触达记录" name="touches">
@@ -519,20 +534,36 @@
                 <template #default="scope">{{ formatTouchTime(scope.row) }}</template>
               </el-table-column>
             </el-table>
+            <Pagination
+              :total="touchTotal"
+              v-model:page="touchPage.pageNo"
+              v-model:limit="touchPage.pageSize"
+              @pagination="loadTouchPage"
+            />
           </el-tab-pane>
 
           <el-tab-pane label="运行日志" name="logs">
             <div v-loading="runLogLoading" class="timeline-box">
               <div
-                v-for="item in runLogList"
+                v-for="(item, index) in runLogList"
                 :key="item.id"
-                class="timeline-item"
-                :class="`log-${item.logLevel || 'info'}`"
+                class="timeline-entry"
               >
-                <span class="timeline-time">{{ formatRunLogTime(item) }}</span>
-                <span class="timeline-text">{{ formatRunLogLine(item) }}</span>
+                <div v-if="isRunLogDayStart(item, index)" class="timeline-day">
+                  {{ formatRunLogDay(item) }}
+                </div>
+                <div class="timeline-item" :class="`log-${item.logLevel || 'info'}`">
+                  <span class="timeline-time">{{ formatRunLogTime(item) }}</span>
+                  <span class="timeline-text">{{ formatRunLogLine(item) }}</span>
+                </div>
               </div>
             </div>
+            <Pagination
+              :total="runLogTotal"
+              v-model:page="runLogPage.pageNo"
+              v-model:limit="runLogPage.pageSize"
+              @pagination="loadRunLogPage"
+            />
           </el-tab-pane>
         </el-tabs>
       </template>
@@ -592,6 +623,14 @@ const discoveryList = ref<FbAiAgentDiscoveryLog[]>([])
 const leadList = ref<any[]>([])
 const touchList = ref<FbAiTouchRecord[]>([])
 const runLogList = ref<FbAiAgentRunLog[]>([])
+const discoveryTotal = ref(0)
+const leadTotal = ref(0)
+const touchTotal = ref(0)
+const runLogTotal = ref(0)
+const discoveryPage = reactive({ pageNo: 1, pageSize: 10 })
+const leadPage = reactive({ pageNo: 1, pageSize: 10 })
+const touchPage = reactive({ pageNo: 1, pageSize: 10 })
+const runLogPage = reactive({ pageNo: 1, pageSize: 10 })
 
 const agentEntries = [
   {
@@ -803,7 +842,34 @@ const formatRunLogLine = (item: FbAiAgentRunLog) => {
 }
 
 const formatRunLogTime = (item: FbAiAgentRunLog) => {
-  return item.createTime ? formatDateTime(item.createTime) : '-'
+  return item.createTime ? formatDate(new Date(item.createTime), 'HH:mm:ss') : '-'
+}
+
+const getRunLogDate = (item: FbAiAgentRunLog) => {
+  if (!item.createTime) return null
+  const date = new Date(item.createTime)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const formatRunLogDay = (item: FbAiAgentRunLog) => {
+  const date = getRunLogDate(item)
+  if (!date) return '未知日期'
+
+  const today = new Date()
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const dayOffset = Math.floor((startOfToday - startOfDate) / 86400000)
+  if (dayOffset === 0) return '今天'
+  if (dayOffset === 1) return '昨天'
+  return formatDate(date, 'YYYY年MM月DD日')
+}
+
+const isRunLogDayStart = (item: FbAiAgentRunLog, index: number) => {
+  if (index === 0) return true
+  const currentDate = getRunLogDate(item)
+  const previousDate = getRunLogDate(runLogList.value[index - 1])
+  if (!currentDate || !previousDate) return currentDate !== previousDate
+  return currentDate.toDateString() !== previousDate.toDateString()
 }
 
 const formatTouchTime = (item: FbAiTouchRecord) => {
@@ -1289,7 +1355,73 @@ const handleView = async (row: FbAiAgentConfig) => {
   }
   detailVisible.value = true
   detailTab.value = 'discovery'
+  discoveryPage.pageNo = 1
+  leadPage.pageNo = 1
+  touchPage.pageNo = 1
+  runLogPage.pageNo = 1
   await loadDetailTabs()
+}
+
+const loadDiscoveryPage = async () => {
+  if (!detailAgent.value?.id) return
+  discoveryLoading.value = true
+  try {
+    const data = await FbAiAgentApi.getDiscoveryLogPage({
+      ...discoveryPage,
+      agentConfigId: detailAgent.value.id
+    })
+    discoveryList.value = (data.list || []).filter(
+      (item) => item.sourceType !== 'deep' && item.keyword !== '深度采集'
+    )
+    discoveryTotal.value = data.total || 0
+  } finally {
+    discoveryLoading.value = false
+  }
+}
+
+const loadLeadPage = async () => {
+  if (!detailAgent.value?.id) return
+  leadLoading.value = true
+  try {
+    const data = await FbAiAgentApi.getLeadPage({
+      ...leadPage,
+      agentConfigId: detailAgent.value.id
+    })
+    leadList.value = data.list || []
+    leadTotal.value = data.total || 0
+  } finally {
+    leadLoading.value = false
+  }
+}
+
+const loadTouchPage = async () => {
+  if (!detailAgent.value?.id) return
+  touchLoading.value = true
+  try {
+    const data = await FbAiAgentApi.getTouchRecordPage({
+      ...touchPage,
+      agentConfigId: detailAgent.value.id
+    })
+    touchList.value = data.list || []
+    touchTotal.value = data.total || 0
+  } finally {
+    touchLoading.value = false
+  }
+}
+
+const loadRunLogPage = async () => {
+  if (!detailAgent.value?.id) return
+  runLogLoading.value = true
+  try {
+    const data = await FbAiAgentApi.getRunLogPage({
+      ...runLogPage,
+      agentConfigId: detailAgent.value.id
+    })
+    runLogList.value = data.list || []
+    runLogTotal.value = data.total || 0
+  } finally {
+    runLogLoading.value = false
+  }
 }
 
 const loadDetailTabs = async () => {
@@ -1301,17 +1433,21 @@ const loadDetailTabs = async () => {
   runLogLoading.value = true
   try {
     const [discoveryData, leadData, touchData, runLogData] = await Promise.all([
-      FbAiAgentApi.getDiscoveryLogPage({ pageNo: 1, pageSize: 50, agentConfigId }),
-      FbAiAgentApi.getLeadPage({ pageNo: 1, pageSize: 50, agentConfigId }),
-      FbAiAgentApi.getTouchRecordPage({ pageNo: 1, pageSize: 50, agentConfigId }),
-      FbAiAgentApi.getRunLogPage({ pageNo: 1, pageSize: 50, agentConfigId })
+      FbAiAgentApi.getDiscoveryLogPage({ ...discoveryPage, agentConfigId }),
+      FbAiAgentApi.getLeadPage({ ...leadPage, agentConfigId }),
+      FbAiAgentApi.getTouchRecordPage({ ...touchPage, agentConfigId }),
+      FbAiAgentApi.getRunLogPage({ ...runLogPage, agentConfigId })
     ])
     discoveryList.value = (discoveryData.list || []).filter(
       (item) => item.sourceType !== 'deep' && item.keyword !== '深度采集'
     )
+    discoveryTotal.value = discoveryData.total || 0
     leadList.value = leadData.list || []
+    leadTotal.value = leadData.total || 0
     touchList.value = touchData.list || []
+    touchTotal.value = touchData.total || 0
     runLogList.value = runLogData.list || []
+    runLogTotal.value = runLogData.total || 0
   } finally {
     discoveryLoading.value = false
     leadLoading.value = false
@@ -1442,6 +1578,18 @@ onBeforeUnmount(() => {
     display: grid;
     gap: 8px;
     padding-right: 8px;
+  }
+
+  .timeline-entry {
+    display: grid;
+    gap: 6px;
+  }
+
+  .timeline-day {
+    padding: 8px 2px 2px;
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+    font-weight: 600;
   }
 
   .timeline-item {

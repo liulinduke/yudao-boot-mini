@@ -1,6 +1,5 @@
 <!-- MES 排班日历 -->
 <template>
-  <doc-alert title="【排班】排班计划、排班日历" url="https://doc.iocoder.cn/mes/cal/calendar/" />
 
   <ContentWrap>
     <el-tabs v-model="activeTab" type="border-card">

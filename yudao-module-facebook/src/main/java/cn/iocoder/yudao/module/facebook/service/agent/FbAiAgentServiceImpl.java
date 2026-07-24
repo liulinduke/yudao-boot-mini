@@ -238,7 +238,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             }
             List<FbCollectPostDO> records = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
                     .in(FbCollectPostDO::getId, postIds)
-                    .orderByDesc(FbCollectPostDO::getProductRelevanceScore)
+                    .orderByDesc(FbCollectPostDO::getCreateTime)
                     .orderByDesc(FbCollectPostDO::getId));
             int pageNo = Math.max(pageReqVO.getPageNo(), 1);
             int pageSize = Math.max(pageReqVO.getPageSize(), 10);
@@ -252,7 +252,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         }
         List<FbCollectUserDO> records = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .in(FbCollectUserDO::getId, leadIds)
-                .orderByDesc(FbCollectUserDO::getProductRelevanceScore)
+                .orderByDesc(FbCollectUserDO::getCreateTime)
                 .orderByDesc(FbCollectUserDO::getId));
         int pageNo = Math.max(pageReqVO.getPageNo(), 1);
         int pageSize = Math.max(pageReqVO.getPageSize(), 10);

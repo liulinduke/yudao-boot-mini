@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="【营销】满减送" url="https://doc.iocoder.cn/mall/promotion-record/" />
 
   <!-- 搜索工作栏 -->
   <ContentWrap>

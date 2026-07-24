@@ -1,6 +1,4 @@
 <template>
-  <doc-alert title="【交易】交易订单" url="https://doc.iocoder.cn/mall/trade-order/" />
-  <doc-alert title="【交易】购物车" url="https://doc.iocoder.cn/mall/trade-cart/" />
 
   <!-- 搜索 -->
   <ContentWrap>

@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="AI 知识库" url="https://doc.iocoder.cn/ai/knowledge/" />
 
   <ContentWrap>
     <!-- 搜索工作栏 -->

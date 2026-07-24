@@ -1,5 +1,4 @@
 <template>
-  <doc-alert title="【仓库】调拨单、装箱管理" url="https://doc.iocoder.cn/mes/wm/transfer/" />
 
   <ContentWrap>
     <el-form

@@ -1,6 +1,5 @@
 <!-- MES 生产工单列表 -->
 <template>
-  <doc-alert title="【生产】生产工单" url="https://doc.iocoder.cn/mes/pro/work-order/" />
 
   <ContentWrap>
     <!-- 搜索工作栏 -->

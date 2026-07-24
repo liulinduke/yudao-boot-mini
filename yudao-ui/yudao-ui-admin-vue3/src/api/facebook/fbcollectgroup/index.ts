@@ -18,6 +18,7 @@ export interface FbCollectGroup {
           joinGroupTimes: number; // 加组次数
           commentTimes: number; // 评论次数
           postTimes: number; // 发帖次数
+          createTime?: string | Dayjs; // 采集时间
   }
 
 // FB群组采集结果 API
