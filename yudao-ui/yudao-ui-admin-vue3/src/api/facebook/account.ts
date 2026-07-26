@@ -70,7 +70,7 @@ export interface FbAccountPageReqVO {
   area?: string
   friends?: number
   groupId?: number | null
-  status?: string
+  status?: boolean | number | string
   remark?: string
   cookie?: string
   userAgent?: string
@@ -97,7 +97,7 @@ export interface FbAccount {
   friends?: number
   groupId?: number
   groupName?: string
-  status?: string
+  status?: boolean | number | string
   remark?: string
   cookie?: string
   userAgent?: string
@@ -118,20 +118,26 @@ export interface FbAccount {
   createTime?: string
 }
 
-/** Cookie 失效或异常账号不能作为采集、运营、私信、AI 获客的执行账号。 */
+/** 已启用且正常或尚未检测的账号可用于采集、运营、私信、AI 获客。 */
 export const isFbAccountSelectable = (
-  account?: Pick<FbAccount, 'loginStatus' | 'loginErrorReason'> | null
+  account?: Pick<FbAccount, 'status' | 'loginStatus' | 'loginErrorReason'> | null
 ) => {
+  if (!account) return false
+
+  const enabled = account.status === true || account.status === 1 || String(account.status).toLowerCase() === 'true' || String(account.status) === '1'
+  if (!enabled) return false
+
   const status = String(account?.loginStatus || '').trim().toUpperCase()
   const reason = String(account?.loginErrorReason || '')
   return (
+    (status === '' || status === 'PENDING' || status === 'SUCCESS') &&
     !['COOKIE_INVALID', 'COOKIE_EXPIRED', 'ABNORMAL', 'INVALID'].includes(status) &&
     !/cookie\s*(已)?失效|cookie\s*expired|登录页|checkpoint|账号被封/i.test(reason)
   )
 }
 
 export const filterSelectableFbAccounts = <
-  T extends Pick<FbAccount, 'loginStatus' | 'loginErrorReason'>
+  T extends Pick<FbAccount, 'status' | 'loginStatus' | 'loginErrorReason'>
 >(accounts: T[]) =>
   accounts.filter(isFbAccountSelectable)
 

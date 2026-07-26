@@ -819,6 +819,12 @@ namespace SocialMatrix.WpfHost.Windows
 
         private async Task PersistAccountLoginResultAsync(AccountLoginResult result, string? cookieJsonOverride = null)
         {
+            // 网络异常只代表本次检测失败，不能覆盖账号原有登录状态。
+            if (string.Equals(result.Status, "network_error", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             try
             {
                 using var client = new HttpClient();

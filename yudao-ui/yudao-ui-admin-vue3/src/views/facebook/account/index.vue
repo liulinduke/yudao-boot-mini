@@ -539,8 +539,8 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '登录失败'
   } else if (result.status === 'network_error') {
-    target.loginStatus = 'NETWORK_ERROR'
-    target.loginErrorReason = result.errorReason || '网络异常，未判定 Cookie 失效'
+    // 网络异常只代表本次检测失败，不覆盖账号原有登录状态。
+    message.warning(`${target.fbAccount || target.id} 本次检测网络异常，已保留原账号状态`)
   } else if (result.status === 'account_disabled') {
     target.loginStatus = 'ABNORMAL'
     target.loginErrorReason = result.errorReason || '账号被封或已停用'
@@ -557,16 +557,14 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
 }
 
 const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
-  if (!['success', 'failed', 'cookie_invalid', 'network_error', 'account_disabled', 'skipped'].includes(result.status)) return
+  if (!['success', 'failed', 'cookie_invalid', 'account_disabled', 'skipped'].includes(result.status)) return
   const loginStatus = result.status === 'success'
     ? 'SUCCESS'
     : result.status === 'cookie_invalid'
       ? 'COOKIE_INVALID'
-      : result.status === 'network_error'
-        ? 'NETWORK_ERROR'
-        : result.status === 'account_disabled'
-          ? 'ABNORMAL'
-          : 'FAILED'
+      : result.status === 'account_disabled'
+        ? 'ABNORMAL'
+        : 'FAILED'
 
   await FbAccountApi.updateFbAccountLoginResult({
     id: String(result.accountDbId),

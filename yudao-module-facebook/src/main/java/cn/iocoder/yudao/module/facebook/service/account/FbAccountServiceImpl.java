@@ -232,6 +232,10 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Override
     public void updateFbAccountLoginResult(FbAccountLoginResultUpdateReqVO reqVO) {
+        // 网络异常只代表本次检测失败，不能覆盖账号原有登录状态。
+        if ("NETWORK_ERROR".equalsIgnoreCase(reqVO.getLoginStatus())) {
+            return;
+        }
         validateFbAccountExists(reqVO.getId());
 
         FbAccountDO updateObj = new FbAccountDO();
