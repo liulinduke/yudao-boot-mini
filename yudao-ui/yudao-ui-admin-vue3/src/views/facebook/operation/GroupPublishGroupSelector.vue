@@ -91,7 +91,7 @@ import { FbOperationAddGroupResultApi } from '@/api/facebook/operation/addgroupr
 const props = defineProps<{
   modelValue: boolean
   selectedGroupIds?: string[]
-  accountIds?: number[]
+  accountIds?: Array<string | number>
   groupsPerAccount?: number
 }>()
 

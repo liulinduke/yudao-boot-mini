@@ -2257,7 +2257,15 @@ namespace SocialMatrix.WpfHost.Windows
             }
             if (/^Yesterday|昨天$/i.test(raw)) return { date: new Date(now.getTime() - 86400000), daysAgo: 1, raw };
             if (/^Today|Just now|刚刚$/i.test(raw)) return { date: now, daysAgo: 0, raw };
-            const parsed = Date.parse(raw);
+            // Facebook English timestamps commonly use ""July 14 at 6:35 PM"".
+            // Normalize the separator before handing it to the browser date parser.
+            const normalizedDate = raw.replace(/\bat\b/gi, ' ').replace(/\s+/g, ' ').trim();
+            // Date.parse(""July 14 6:35 PM"") may fall back to year 2001 in Chromium.
+            // Facebook omits the year for recent posts, so add the current year first.
+            const dateWithYear = /^(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:\s|$)/i.test(normalizedDate) && !/\b\d{4}\b/.test(normalizedDate)
+                ? normalizedDate + ' ' + now.getFullYear()
+                : normalizedDate;
+            const parsed = Date.parse(dateWithYear);
             if (!Number.isNaN(parsed)) {
                 const date = new Date(parsed);
                 const daysAgo = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86400000));
@@ -2341,10 +2349,28 @@ namespace SocialMatrix.WpfHost.Windows
         const getPostContent = (card) => {
             const contentEl = card.querySelector('[data-ad-comet-preview=""message""]') || card.querySelector('[data-testid=""post_message""]');
             if (contentEl && cleanText(contentEl.textContent)) return cleanText(contentEl.textContent);
-            return cleanText(card.innerText || card.textContent)
-                .replace(/^Groups\b.*?See all/i, '')
-                .replace(/^Pages\b.*?See all/i, '')
-                .slice(0, 1000);
+            const storyMessage = card.querySelector('[data-ad-rendering-role=""story_message""]');
+            if (storyMessage && cleanText(storyMessage.innerText || storyMessage.textContent)) {
+                return cleanText(storyMessage.innerText || storyMessage.textContent);
+            }
+            // Facebook frequently omits the stable message attributes. Only inspect
+            // text nodes belonging directly to this post; article.innerText also contains
+            // the author, time, reactions and comments.
+            // Do not reject bare numbers: a post can legitimately contain text such as ""777"".
+            // Interaction counters are filtered separately because they are span/button nodes.
+            const ignoredText = /^(reply|share|like|comment|see \d+ replies?|view \d+ replies?|write a public comment|admin|wa|\d+\s*(?:[smhdwy]))$/i;
+            const candidates = Array.from(card.querySelectorAll('[dir=""auto""], [dir=""ltr""]'))
+                .filter(node => node.closest('[role=""article""]') === card)
+                .filter(node => !node.closest('a, button, [role=""button""]'))
+                .map(node => cleanText(node.innerText || node.textContent))
+                .filter(text => text && text.length <= 500 && !ignoredText.test(text));
+            const structuralCandidates = Array.from(card.querySelectorAll('div[dir=""auto""], div[dir=""ltr""], p[dir=""auto""], p[dir=""ltr""]'))
+                .filter(node => node.closest('[role=""article""]') === card)
+                .filter(node => !node.closest('a, button, [role=""button""]'))
+                .map(node => cleanText(node.innerText || node.textContent))
+                .filter(text => text && text.length <= 500 && !ignoredText.test(text));
+            return (structuralCandidates.length ? structuralCandidates : candidates)
+                .sort((a, b) => b.length - a.length)[0] || '';
         };
 
         const extractPostData = (card) => {
@@ -3641,7 +3667,9 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                let commentContent = '';");
             js.AppendLine("                let messageNode = commentElement.querySelector('[data-ad-comet-preview=\"message\"]');");
             js.AppendLine("                if (!messageNode) {");
-            js.AppendLine("                    const textNodes = Array.from(commentElement.querySelectorAll('[dir=\"auto\"]'));");
+            js.AppendLine("                    const textNodes = Array.from(commentElement.querySelectorAll('[dir=\"auto\"], [dir=\"ltr\"]'))");
+            js.AppendLine("                        .filter(node => node.closest('[aria-label^=\"Comment by\"]') === commentElement)");
+            js.AppendLine("                        .filter(node => !node.closest('a, button, [role=\"button\"]'));");
             js.AppendLine("                    messageNode = textNodes");
             js.AppendLine("                        .map(n => ({ node: n, text: (n.innerText || n.textContent || '').replace(/\\s+/g, ' ').trim() }))");
             js.AppendLine("                        .filter(item => item.text && item.text !== userName && item.text.length > 1)");
@@ -3650,10 +3678,14 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                if (messageNode) {");
             js.AppendLine("                    commentContent = (messageNode.innerText || messageNode.textContent || '').replace(/\\s+/g, ' ').trim();");
             js.AppendLine("                }");
+            js.AppendLine("                // Do not use the whole comment article as a fallback: it contains the author, timestamp and controls.");
             js.AppendLine("                if (!commentContent) {");
-            js.AppendLine("                    const clone = commentElement.cloneNode(true);");
-            js.AppendLine("                    clone.querySelectorAll('a, button, [role=\"button\"]').forEach(n => n.remove());");
-            js.AppendLine("                    commentContent = (clone.innerText || clone.textContent || '').replace(/\\s+/g, ' ').trim();");
+            js.AppendLine("                    const contentCandidates = Array.from(commentElement.querySelectorAll('[dir=\"auto\"], [dir=\"ltr\"]'))");
+            js.AppendLine("                        .filter(node => node.closest('[aria-label^=\"Comment by\"]') === commentElement)");
+            js.AppendLine("                        .filter(node => !node.closest('a, button, [role=\"button\"]'))");
+            js.AppendLine("                        .map(node => (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim())");
+            js.AppendLine("                        .filter(text => text && text !== userName && !/^(reply|share|like|admin|\\d+[smhdwy]?)$/i.test(text));");
+            js.AppendLine("                    commentContent = contentCandidates.sort((a, b) => b.length - a.length)[0] || '';");
             js.AppendLine("                }");
             js.AppendLine("");
             js.AppendLine("                // 提取用户ID");
@@ -3890,6 +3922,22 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("            return newCount > 0;");
             js.AppendLine("        };");
             js.AppendLine("");
+            js.AppendLine("        const expandCommentThreads = async () => {");
+            js.AppendLine("            const candidates = Array.from(document.querySelectorAll('[role=\"button\"], a, span'))");
+            js.AppendLine("                .filter(node => {");
+            js.AppendLine("                    const text = (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();");
+            js.AppendLine("                    return /^(view\\s+\\d+\\s+replies?|\\d+\\s+repl(?:y|ies)|view more comments?|more comments?)$/i.test(text);");
+            js.AppendLine("                })");
+            js.AppendLine("                .map(node => node.closest('[role=\"button\"], a') || node)");
+            js.AppendLine("                .filter((node, index, list) => list.indexOf(node) === index)");
+            js.AppendLine("                .slice(0, 20);");
+            js.AppendLine("            for (const button of candidates) {");
+            js.AppendLine("                try { button.scrollIntoView({ behavior: 'auto', block: 'center' }); await humanClick(button); await new Promise(resolve => setTimeout(resolve, randomDelay(800, 1500))); } catch (e) { console.warn('展开评论失败:', e); }");
+            js.AppendLine("            }");
+            js.AppendLine("            return candidates.length;");
+            js.AppendLine("        };");
+            js.AppendLine("");
+
             js.AppendLine("        // collectLikes 主函数 - 采集点赞用户");
             js.AppendLine("        // 步骤4: 采集点赞用户");
             js.AppendLine("        const collectLikes = () => {");
@@ -3984,7 +4032,9 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("                // 第一步：采集评论用户");
             js.AppendLine("                if (COLLECT_COMMENT) {");
             js.AppendLine("                    console.log('🔍 步骤1: 开始采集评论用户...');");
+            js.AppendLine("                    await expandCommentThreads();");
             js.AppendLine("                    while (results.length < targetCount && scrollCount < maxScrolls) {");
+            js.AppendLine("                        await expandCommentThreads();");
             js.AppendLine("                        const foundNew = collectComments();");
             js.AppendLine("");
             js.AppendLine("                        if (foundNew) {");

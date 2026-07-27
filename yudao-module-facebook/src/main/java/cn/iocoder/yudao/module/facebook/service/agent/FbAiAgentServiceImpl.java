@@ -254,11 +254,38 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectUserDO::getId, leadIds)
                 .orderByDesc(FbCollectUserDO::getCreateTime)
                 .orderByDesc(FbCollectUserDO::getId));
+        if (config != null && AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())) {
+            enrichCommentLeadPostFields(records);
+        }
         int pageNo = Math.max(pageReqVO.getPageNo(), 1);
         int pageSize = Math.max(pageReqVO.getPageSize(), 10);
         int fromIndex = Math.min((pageNo - 1) * pageSize, records.size());
         int toIndex = Math.min(fromIndex + pageSize, records.size());
         return new PageResult<>(records.subList(fromIndex, toIndex), (long) records.size());
+    }
+
+    private void enrichCommentLeadPostFields(List<FbCollectUserDO> records) {
+        List<Long> postIds = records.stream()
+                .map(FbCollectUserDO::getSourcePostId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(postIds)) {
+            return;
+        }
+        Map<Long, FbCollectPostDO> postMap = collectPostMapper.selectBatchIds(postIds).stream()
+                .collect(Collectors.toMap(FbCollectPostDO::getId, Function.identity(), (left, right) -> left));
+        records.forEach(record -> {
+            FbCollectPostDO post = postMap.get(record.getSourcePostId());
+            if (post == null) {
+                return;
+            }
+            record.setPostContent(post.getPostContent());
+            record.setPostCreateTime(post.getPostCreateTime());
+            if (StrUtil.isBlank(record.getSourcePostUrl())) {
+                record.setSourcePostUrl(post.getUrl());
+            }
+        });
     }
 
     @Override

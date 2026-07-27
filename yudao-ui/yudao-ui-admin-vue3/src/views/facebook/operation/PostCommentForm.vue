@@ -53,20 +53,7 @@
       </el-form-item>
 
       <el-form-item label="执行账号" prop="accountIds">
-        <el-select
-          v-model="formData.accountIds"
-          multiple
-          filterable
-          style="width: 100%"
-          placeholder="请选择执行账号"
-        >
-          <el-option
-            v-for="account in accounts"
-            :key="account.id"
-            :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-            :value="String(account.id)"
-          />
-        </el-select>
+        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
       </el-form-item>
 
       <el-form-item label="执行项" required>
@@ -145,6 +132,7 @@ import { Dialog } from '@/components/Dialog'
 import PostSelector from '../collect/components/PostSelector.vue'
 import ScriptSelector from './dmtask/ScriptSelector.vue'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import {
   createFbOperationTask,

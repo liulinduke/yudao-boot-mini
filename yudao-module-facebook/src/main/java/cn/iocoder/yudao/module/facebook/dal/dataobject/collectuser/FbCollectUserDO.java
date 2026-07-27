@@ -179,6 +179,17 @@ public class FbCollectUserDO extends BaseDO {
      * 来源帖子URL
      */
     private String sourcePostUrl;
+
+    /**
+     * 评论截流详情展示用的来源帖子内容（非 fb_collect_user 表字段）。
+     */
+    @TableField(exist = false)
+    private String postContent;
+
+    /** 评论截流详情展示用的来源帖子创建时间（非 fb_collect_user 表字段）。 */
+    @TableField(exist = false)
+    private LocalDateTime postCreateTime;
+
     /**
      * 同步时间
      */

@@ -8,34 +8,7 @@
       v-loading="formLoading"
     >
       <el-form-item label="执行账号" prop="accountIds">
-        <div class="w-full">
-          <el-select
-            v-model="formData.accountIds"
-            multiple
-            filterable
-            placeholder="请选择执行账号"
-            class="w-full"
-          >
-            <el-option
-              v-for="group in accountGroups"
-              :key="group.id"
-              :label="group.groupName"
-              :value="group.id"
-              disabled
-            >
-              <span class="font-bold">{{ group.groupName }}</span>
-            </el-option>
-            <el-option
-              v-for="account in accounts"
-              :key="account.id"
-              :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-              :value="account.id"
-            />
-          </el-select>
-          <div class="text-gray-500 text-sm mt-2">
-            已选择 {{ formData.accountIds.length }} 个账号
-          </div>
-        </div>
+        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
       </el-form-item>
       
       <el-form-item label="帖子内容" prop="postContent">
@@ -105,6 +78,7 @@ import { Dialog } from '@/components/Dialog'
 import * as OperationApi from '@/api/facebook/operation'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 
 defineOptions({ name: 'PublishPostForm' })
 
@@ -117,7 +91,7 @@ const formLoading = ref(false)
 const accountGroups = ref<any[]>([])
 const accounts = ref<any[]>([])
 const formData = ref({
-  accountIds: [] as number[],
+  accountIds: [] as string[],
   postContent: '',
   mediaUrls: [] as string[],  // 存储本地文件路径
   privacySetting: 1,

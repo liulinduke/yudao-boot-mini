@@ -472,6 +472,30 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                     .set("likeExpectedCount", 0)
                     .toString();
         }
+        if (task != null && Integer.valueOf(11).equals(task.getTaskType())) {
+            // 普通帖子评论点赞采集的 Vue 配置暂存在 remark 的 __CONFIG__ 段。
+            // 之前这里没有下发该配置，WPF 只能使用默认的评论/点赞数量和开关。
+            cn.hutool.json.JSONObject runtimeConfig = cn.hutool.json.JSONUtil.createObj()
+                    .set("source", "post_comment")
+                    .set("sourcePostId", detail.getSourceUserId() == null ? null : String.valueOf(detail.getSourceUserId()))
+                    .set("sourcePostUrl", detail.getSearchUrl())
+                    .set("collectComment", true)
+                    .set("collectLike", true)
+                    .set("commentExpectedCount", detail.getExpectedCount() == null ? 100 : detail.getExpectedCount())
+                    .set("likeExpectedCount", 100);
+            String remark = task.getRemark();
+            int markerIndex = remark == null ? -1 : remark.indexOf("__CONFIG__:");
+            if (markerIndex >= 0) {
+                String configText = remark.substring(markerIndex + "__CONFIG__:".length()).trim();
+                try {
+                    cn.hutool.json.JSONObject savedConfig = cn.hutool.json.JSONUtil.parseObj(configText);
+                    savedConfig.forEach(runtimeConfig::set);
+                } catch (Exception ignored) {
+                    // 配置损坏时保留上面的兼容默认值，不影响任务下发。
+                }
+            }
+            return runtimeConfig.toString();
+        }
         if (task == null || !Integer.valueOf(2).equals(task.getTaskType())
                 || StrUtil.isBlank(task.getRemark())
                 || (!task.getRemark().startsWith("AI群帖获客:")

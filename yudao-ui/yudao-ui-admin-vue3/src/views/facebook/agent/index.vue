@@ -234,14 +234,7 @@
             </el-form-item>
           </template>
           <el-form-item label="账号池" prop="accountIds">
-            <el-select v-model="wizardState.accountIdList" multiple filterable class="w-full">
-              <el-option
-                v-for="item in accountList"
-                :key="item.id"
-                :label="item.fbAccount || String(item.id)"
-                :value="String(item.id)"
-              />
-            </el-select>
+            <FbAccountSelector v-model="wizardState.accountIdList" class="w-full" />
           </el-form-item>
           <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType) && !isPostLeadAgent(wizardForm.agentType)" label="目标国家">
             <el-select
@@ -442,8 +435,11 @@
 
           <el-tab-pane label="线索列表" name="leads">
             <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true">
-              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="线索名称" min-width="160">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType) && !isCommentLeadAgent(detailAgent?.agentType)" label="线索名称" min-width="160">
                 <template #default="scope">{{ scope.row.userName || scope.row.postUser || '-' }}</template>
+              </el-table-column>
+              <el-table-column v-if="isCommentLeadAgent(detailAgent?.agentType)" label="评论用户" min-width="160">
+                <template #default="scope">{{ scope.row.userName || scope.row.commentUser || '-' }}</template>
               </el-table-column>
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
@@ -462,15 +458,15 @@
                   </el-tooltip>
                 </template>
               </el-table-column>
-              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="联系方式" width="200">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType) && !isCommentLeadAgent(detailAgent?.agentType)" label="联系方式" width="200">
                 <template #default="scope">
                   {{ scope.row.whatsapp || scope.row.email || scope.row.phonenumber || scope.row.postAuthorId || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="最近活跃" width="160">
+              <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType) && !isCommentLeadAgent(detailAgent?.agentType)" label="最近活跃" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.lastPostTime || scope.row.postCreateTime) }}</template>
               </el-table-column>
-              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子链接" min-width="220">
+              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType) || isCommentLeadAgent(detailAgent?.agentType)" label="帖子链接" min-width="220">
                 <template #default="scope">
                   <el-link
                     v-if="scope.row.sourcePostUrl || scope.row.postUrl || scope.row.url"
@@ -483,10 +479,11 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子内容" prop="postContent" min-width="320" />
+              <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType) || isCommentLeadAgent(detailAgent?.agentType)" label="帖子内容" prop="postContent" min-width="320" />
               <el-table-column v-if="isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="帖子创建时间" prop="postCreateTime" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.postCreateTime) }}</template>
               </el-table-column>
+              <el-table-column v-if="isCommentLeadAgent(detailAgent?.agentType)" label="评论内容" prop="commentContent" min-width="260" />
               <el-table-column label="采集时间" prop="createTime" width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
               </el-table-column>
@@ -579,6 +576,7 @@ import { formatDate } from '@/utils/formatTime'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import {
   FbAiAgentApi,
   type FbAiAgentConfig,
@@ -758,6 +756,7 @@ const isGroupAgent = (type?: string) => ['group_post', 'group_comment'].includes
 const isCompetitorAgent = (type?: string) => type === 'competitor_buyer'
 const isPostLeadAgent = (type?: string) => type === 'post_lead'
 const isPostLeadOrGroupPostAgent = (type?: string) => ['post_lead', 'group_post'].includes(type || '')
+const isCommentLeadAgent = (type?: string) => type === 'group_comment'
 const isSourceUrlAgent = (type?: string) => isGroupAgent(type) || isCompetitorAgent(type)
 
 const getAgentTypeLabel = (type?: string) => {

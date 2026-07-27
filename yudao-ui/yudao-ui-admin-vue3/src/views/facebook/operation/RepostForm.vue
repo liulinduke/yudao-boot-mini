@@ -29,20 +29,7 @@
 
       <!-- 执行账号 -->
       <el-form-item label="执行账号" prop="accountIds">
-        <el-select
-          v-model="formData.accountIds"
-          multiple
-          placeholder="请选择执行账号"
-          style="width: 100%"
-          filterable
-        >
-          <el-option
-            v-for="account in accounts"
-            :key="account.id"
-            :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-            :value="account.id"
-          />
-        </el-select>
+        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
       </el-form-item>
 
       <!-- 执行项配置 -->
@@ -351,6 +338,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import {
   createFbOperationTask,
   FbOperationTaskSaveReqVO

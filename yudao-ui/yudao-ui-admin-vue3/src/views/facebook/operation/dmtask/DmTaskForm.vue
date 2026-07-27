@@ -84,37 +84,7 @@
 
       <!-- 3. 执行账号 -->
       <el-form-item label="执行账号" prop="accountIds">
-        <div class="w-full">
-          <el-select
-            v-model="formData.accountIds"
-            multiple
-            filterable
-            placeholder="请选择执行账号"
-            class="w-full"
-          >
-            <el-option
-              v-for="group in accountGroups"
-              :key="group.id"
-              :label="group.groupName"
-              :value="group.id"
-              disabled
-            >
-              <span class="font-bold">{{ group.groupName }}</span>
-            </el-option>
-            <el-option
-              v-for="account in filteredAccounts"
-              :key="account.id"
-              :label="`${account.fbAccount} (剩余: ${account.remainingDm || 0})`"
-              :value="String(account.id)"
-            >
-              <span>{{ account.fbAccount }}</span>
-              <span class="text-gray-400 ml-2">剩余: {{ account.remainingDm || 0 }}</span>
-            </el-option>
-          </el-select>
-          <div class="text-gray-500 text-sm mt-2">
-            已选择 {{ formData.accountIds.length }} 个账号
-          </div>
-        </div>
+        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
       </el-form-item>
 
       <!-- 4. 群发间隔 -->
@@ -156,6 +126,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { DmTaskApi } from '@/api/facebook/dmtask'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
+import FbAccountSelector from '../../components/FbAccountSelector.vue'
 import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import UserSelector from '../../collect/components/UserSelector.vue'
 import ScriptSelector from './ScriptSelector.vue'

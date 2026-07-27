@@ -63,24 +63,7 @@
         v-if="formType === 'create'"
       >
         <el-form-item label="采集账号" prop="accountIds">
-          <el-select
-            v-model="formData.accountIds"
-            multiple
-            placeholder="请选择账号"
-            style="width: 100%"
-            filterable
-            v-show="accounts.length > 0"
-          >
-            <el-option
-              v-for="account in accounts"
-              :key="account.id"
-              :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-              :value="account.id"
-            />
-          </el-select>
-          <div v-if="accounts.length === 0" class="el-select-empty">
-            暂无可用账号，请先添加Facebook账号
-          </div>
+          <FbAccountSelector v-model="formData.accountIds" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
         <!-- 帖子采集：同一入口下按来源切换 -->
@@ -738,6 +721,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'

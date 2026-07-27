@@ -32,19 +32,7 @@
     <Dialog title="新建采集任务" v-model="dialogVisible" width="600px">
       <el-form :model="taskForm" label-width="100px">
         <el-form-item label="采集账号">
-          <el-select
-            v-model="taskForm.accountIds"
-            multiple
-            placeholder="请选择账号"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="account in accounts"
-              :key="account.id"
-              :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-              :value="account.id"
-            />
-          </el-select>
+          <FbAccountSelector v-model="taskForm.accountIds" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
         <el-form-item label="期望数量">
@@ -75,6 +63,7 @@
 <script setup lang="ts">
 import { FbCollectApi } from '@/api/facebook/collect'
 import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import FunctionCard from './components/FunctionCard.vue'
 import TaskList from './components/TaskList.vue'
 
@@ -138,7 +127,7 @@ const accounts = ref<FbAccount[]>([])
 
 // 任务表单
 const taskForm = reactive({
-  accountIds: [] as number[],
+  accountIds: [] as string[],
   expectedCount: 100,
   urls: '',
   interval: 5
@@ -195,7 +184,9 @@ const submitTask = async () => {
     }
 
     // 获取选中的账号信息
-    const selectedAccounts = accounts.value.filter((acc) => taskForm.accountIds.includes(acc.id))
+    const selectedAccounts = accounts.value.filter((acc) =>
+      taskForm.accountIds.includes(String(acc.id))
+    )
 
     // 为每个账号创建采集任务
     let createdCount = 0
