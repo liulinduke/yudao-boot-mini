@@ -162,6 +162,21 @@ const extractUserIdFromCookie = (cookie: string): string | null => {
   }
 }
 
+const splitCookieEntries = (data: string): string[] => {
+  const trimmedData = data.trim()
+  if (!trimmedData) return []
+
+  // 浏览器导出的 Cookie JSON 通常是一个完整数组，不能按换行拆开。
+  try {
+    const json = JSON.parse(trimmedData)
+    if (json && typeof json === 'object') {
+      return [trimmedData]
+    }
+  } catch {}
+
+  return data.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+}
+
 const handleNext = () => {
   if (!formData.data.trim()) {
     message.warning('请输入Cookie数据')
@@ -169,17 +184,16 @@ const handleNext = () => {
   }
 
   previewList.value = []
-  const lines = formData.data.split('\n')
+  const lines = splitCookieEntries(formData.data)
   let lineNum = 1
 
-  for (const line of lines) {
-    const trimmedLine = line.trim()
+  for (const trimmedLine of lines) {
     if (!trimmedLine) continue
 
     let error = ''
     let userId = ''
 
-    if (!trimmedLine.includes('=')) {
+    if (!trimmedLine.includes('=') && !trimmedLine.trimStart().startsWith('[') && !trimmedLine.trimStart().startsWith('{')) {
       error = '无效的Cookie格式'
     } else {
       userId = extractUserIdFromCookie(trimmedLine) || ''

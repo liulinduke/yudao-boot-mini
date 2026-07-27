@@ -129,9 +129,18 @@ export const isFbAccountSelectable = (
 
   const status = String(account?.loginStatus || '').trim().toUpperCase()
   const reason = String(account?.loginErrorReason || '')
+  const unavailableStatuses = [
+    'COOKIE_INVALID',
+    'COOKIE_EXPIRED',
+    'ABNORMAL',
+    'ACCOUNT_DISABLED',
+    'INVALID',
+    'FAILED',
+    'RUNNING',
+    'NETWORK_ERROR'
+  ]
   return (
-    (status === '' || status === 'PENDING' || status === 'SUCCESS') &&
-    !['COOKIE_INVALID', 'COOKIE_EXPIRED', 'ABNORMAL', 'INVALID'].includes(status) &&
+    !unavailableStatuses.includes(status) &&
     !/cookie\s*(已)?失效|cookie\s*expired|登录页|checkpoint|账号被封/i.test(reason)
   )
 }

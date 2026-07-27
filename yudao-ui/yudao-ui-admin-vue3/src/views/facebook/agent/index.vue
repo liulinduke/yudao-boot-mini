@@ -1168,7 +1168,7 @@ const validateGroupPostSourceStep = () => {
 }
 
 const getBaseOptions = async () => {
-  const accountData = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
+  const accountData = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 2000 })
   accountList.value = filterSelectableFbAccounts(accountData?.list || [])
 }
 
@@ -1194,11 +1194,12 @@ const handleSelectionChange = (rows: FbAiAgentConfig[]) => {
   selectedAgentIds.value = rows.map((row) => row.id).filter(Boolean) as Array<string | number>
 }
 
-const openCreateWizard = (item: any) => {
+const openCreateWizard = async (item: any) => {
   if (item.disabled) {
     message.warning('这个入口下一版再接')
     return
   }
+  await getBaseOptions()
   wizardTitle.value = `创建${getAgentTypeLabel(item.type)}Agent`
   wizardStep.value = 0
   syncWizard({ agentType: item.type, status: 0 })
@@ -1206,6 +1207,7 @@ const openCreateWizard = (item: any) => {
 }
 
 const handleEdit = async (row: FbAiAgentConfig) => {
+  await getBaseOptions()
   const data = await FbAiAgentApi.getConfigById(row.id!)
   if (!data) {
     message.error('未找到Agent配置，请刷新列表后重试')

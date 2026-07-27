@@ -392,6 +392,7 @@ const getLoginStatusLabel = (status?: string) => {
     case 'RUNNING':
       return '待检测'
     case 'SUCCESS':
+    case 'NORMAL':
       return '正常'
     case 'COOKIE_INVALID':
     case 'COOKIE_EXPIRED':
@@ -418,6 +419,7 @@ const getLoginStatusType = (status?: string) => {
     case 'RUNNING':
       return 'warning'
     case 'SUCCESS':
+    case 'NORMAL':
       return 'success'
     case 'COOKIE_INVALID':
     case 'COOKIE_EXPIRED':

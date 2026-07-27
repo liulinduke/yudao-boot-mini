@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.facebook.service.account;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
@@ -9,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
@@ -203,10 +206,10 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Transactional(rollbackFor = Exception.class)
     public void importFbAccountCookie(FbAccountCookieImportReqVO importReqVO) {
         String data = importReqVO.getData();
-        String[] lines = data.split("\n");
+        List<String> cookieEntries = splitCookieEntries(data);
         LocalDateTime now = LocalDateTime.now();
 
-        for (String line : lines) {
+        for (String line : cookieEntries) {
             line = line.trim();
             if (StrUtil.isEmpty(line)) {
                 continue;
@@ -266,11 +269,45 @@ public class FbAccountServiceImpl implements FbAccountService {
                 }
                 return cookie.substring(start + 7, end);
             }
+
+            JsonNode json = new ObjectMapper().readTree(cookie);
+            if (json.isArray()) {
+                for (JsonNode item : json) {
+                    if ("c_user".equals(item.path("name").asText())) {
+                        String value = item.path("value").asText();
+                        if (StrUtil.isNotBlank(value)) return value;
+                    }
+                }
+            } else if (json.isObject() && json.has("c_user")) {
+                String value = json.path("c_user").asText();
+                if (StrUtil.isNotBlank(value)) return value;
+            }
         } catch (Exception e) {
             // ignore
         }
 
         return null;
+    }
+
+    private List<String> splitCookieEntries(String data) {
+        String trimmedData = StrUtil.trim(data);
+        if (StrUtil.isEmpty(trimmedData)) {
+            return Collections.emptyList();
+        }
+
+        try {
+            JsonNode json = new ObjectMapper().readTree(trimmedData);
+            if (json != null && (json.isArray() || json.isObject())) {
+                return Collections.singletonList(trimmedData);
+            }
+        } catch (Exception ignored) {
+            // 不是完整 JSON 时，继续按兼容的每行 Cookie 字符串处理。
+        }
+
+        return Arrays.stream(data.split("\\r?\\n"))
+                .map(String::trim)
+                .filter(StrUtil::isNotEmpty)
+                .collect(Collectors.toList());
     }
 
     private void handleEmptyCookie(FbAccountDO account) {
