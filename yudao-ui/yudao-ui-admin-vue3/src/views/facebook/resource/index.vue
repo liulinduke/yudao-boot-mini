@@ -150,12 +150,6 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="头像" align="center" prop="avatar" width="80">
-            <template #default="scope">
-              <el-avatar :size="40" :src="scope.row.avatar" v-if="scope.row.avatar" />
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
           <el-table-column label="好友数" align="center" prop="friendCount" width="100" />
           <el-table-column label="粉丝数" align="center" prop="followerCount" width="100" />
           <el-table-column label="关注数" align="center" prop="followingCount" width="100" />
@@ -619,7 +613,7 @@
 
 <script setup lang="ts" name="FacebookResource">
 import { isEmpty } from '@/utils/is'
-import { dateFormatter } from '@/utils/formatTime'
+import { formatDate as formatDateUtil } from '@/utils/formatTime'
 import download from '@/utils/download'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
@@ -886,13 +880,13 @@ const openPostImport = () => {
 /** 格式化日期 */
 const formatDate = (date: any) => {
   if (!date) return '-'
-  return dateFormatter(date)
+  return formatDateUtil(date)
 }
 
 /** 格式化日期时间 */
 const formatDateTime = (date: any) => {
   if (!date) return '-'
-  return dateFormatter(date)
+  return formatDateUtil(date)
 }
 
 const splitTags = (tags?: string) => {

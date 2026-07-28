@@ -1,13 +1,10 @@
  <template>
   <ContentWrap>
-    <el-card>
-      <template #header>
-        <div class="flex justify-between items-center">
-          <span class="text-lg font-bold">FB全局配置</span>
-        </div>
-      </template>
+    <div class="mb-4">
+      <span class="text-lg font-bold">FB全局配置</span>
+    </div>
 
-      <el-form :model="formData" label-width="150px" class="max-w-600px">
+    <el-form :model="formData" label-width="150px" class="max-w-600px">
         <el-form-item label="每日私信次数">
           <el-input-number
             v-model="formData.dm_daily_limit"
@@ -48,6 +45,16 @@
           <span class="ml-10px text-gray-500">每个账号每天最多可评论的数量</span>
         </el-form-item>
 
+        <el-form-item label="每日关注次数">
+          <el-input-number
+            v-model="formData.follow_daily_limit"
+            :min="1"
+            :max="5000"
+            class="!w-200px"
+          />
+          <span class="ml-10px text-gray-500">每个账号每天最多可关注的主页数量</span>
+        </el-form-item>
+
         <el-divider />
 
         <el-form-item label="指纹浏览器配置">
@@ -70,6 +77,15 @@
             <div class="text-xs text-gray-400 ml-0px">
               💡 建议值：8GB内存 → 19个窗口 | 16GB内存 → 38个窗口 | 当前系统 {{ Math.floor(getSystemMemory() / 1024) }}GB → {{ getRecommendedConcurrent() }}个
             </div>
+            <div class="mt-8px flex items-center">
+              <el-input-number
+                v-model="formData.message_realtime_reserved_slots"
+                :min="0"
+                :max="50"
+                class="!w-200px"
+              />
+              <span class="ml-10px text-gray-500 whitespace-nowrap">消息实时监控预留窗口数</span>
+            </div>
           </div>
         </el-form-item>
 
@@ -77,13 +93,13 @@
           <el-button type="primary" @click="handleSubmit" :loading="loading">保存配置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
   </ContentWrap>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { GlobalConfigApi } from '@/api/facebook/globalconfig'
+import { syncFacebookGlobalConfig } from '@/utils/facebookGlobalConfigSync'
 import { useMessage } from '@/hooks/web/useMessage'
 
 const message = useMessage()
@@ -115,9 +131,11 @@ const formData = reactive({
   repost_daily_limit: 50,
   join_group_daily_limit: 30,
   comment_daily_limit: 200,
-  browser_disable_images: true,
+  follow_daily_limit: 100,
+  browser_disable_images: false,
   browser_disable_videos: true,
-  browser_max_concurrent: getRecommendedConcurrent()  // 默认使用当前系统推荐值
+  browser_max_concurrent: getRecommendedConcurrent(),
+  message_realtime_reserved_slots: 5
 })
 
 /** 加载配置 */
@@ -134,9 +152,10 @@ const loadConfigs = async () => {
           if (key === 'browser_disable_images' || key === 'browser_disable_videos') {
             // 布尔值字段
             formData[key] = value === 'true'
-          } else if (key === 'browser_max_concurrent') {
+          } else if (key === 'browser_max_concurrent' || key === 'message_realtime_reserved_slots') {
             // 数字字段
-            formData[key] = parseInt(value) || 12
+            const parsed = parseInt(value)
+            formData[key] = Number.isFinite(parsed) ? parsed : key === 'message_realtime_reserved_slots' ? 5 : 12
           } else {
             // 其他数字字段
             formData[key] = parseInt(value) || 0
@@ -144,6 +163,8 @@ const loadConfigs = async () => {
         }
       })
     }
+    // 页面打开时同步当前后台值，避免 WPF 继续使用旧策略。
+    await syncFacebookGlobalConfig(formData)
   } catch (error) {
     console.error('加载配置失败:', error)
   }
@@ -160,34 +181,12 @@ const handleSubmit = async () => {
     }))
     
     await GlobalConfigApi.batchSaveConfigs(configs)
+    await syncFacebookGlobalConfig(formData)
     message.success('保存成功')
-    
-    // 同步配置到 WPF（立即生效）
-    syncConfigToWpf()
   } catch (error) {
     message.error('保存失败')
   } finally {
     loading.value = false
-  }
-}
-
-/** 同步配置到 WPF */
-const syncConfigToWpf = () => {
-  // @ts-ignore
-  if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-    try {
-      // @ts-ignore
-      window.chrome.webview.hostObjects.sync.wpfBridge.UpdateGlobalConfig(
-        formData.browser_disable_images,
-        formData.browser_disable_videos,
-        formData.browser_max_concurrent
-      )
-      console.log('✅ 配置已同步到 WPF')
-    } catch (error) {
-      console.warn('⚠️ 同步配置到 WPF 失败:', error)
-    }
-  } else {
-    console.warn('⚠️ WPF 桥接对象不存在，跳过同步')
   }
 }
 
@@ -198,9 +197,11 @@ const getConfigDescription = (key: string) => {
     repost_daily_limit: '每日转帖次数限制',
     join_group_daily_limit: '每日加组次数限制',
     comment_daily_limit: '每日评论次数限制',
+    follow_daily_limit: '每日关注次数限制',
     browser_disable_images: '指纹浏览器-不加载图片',
     browser_disable_videos: '指纹浏览器-不加载视频',
-    browser_max_concurrent: '指纹浏览器-最大并发窗口数'
+    browser_max_concurrent: '指纹浏览器-最大并发窗口数',
+    message_realtime_reserved_slots: '消息监控-实时账号预留窗口数'
   }
   return descriptions[key] || ''
 }

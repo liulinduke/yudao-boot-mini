@@ -6,16 +6,17 @@
   >
     <div v-loading="formLoading">
       <!-- 主表信息 -->
-      <el-card class="mb-4" v-if="formType === 'view' && taskDetail">
+      <el-card v-if="formType === 'view' && taskDetail" class="collect-task-summary mb-4">
         <template #header>
           <div class="card-header">
             <span>📋 任务基本信息</span>
           </div>
         </template>
-        <el-descriptions :column="3" border>
+        <el-descriptions :column="3" border label-width="118px">
           <el-descriptions-item label="任务ID">{{ taskDetail.id }}</el-descriptions-item>
           <el-descriptions-item label="任务类型">
-            <dict-tag :type="DICT_TYPE.FB_COLLECT_TYPE" :value="taskDetail.taskType" />
+            <el-tag v-if="taskDetail.taskType === 12" type="success">深度采集</el-tag>
+            <dict-tag v-else :type="DICT_TYPE.FB_COLLECT_TYPE" :value="taskDetail.taskType" />
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="taskDetail.status" />
@@ -62,24 +63,7 @@
         v-if="formType === 'create'"
       >
         <el-form-item label="采集账号" prop="accountIds">
-          <el-select
-            v-model="formData.accountIds"
-            multiple
-            placeholder="请选择账号"
-            style="width: 100%"
-            filterable
-            v-show="accounts.length > 0"
-          >
-            <el-option
-              v-for="account in accounts"
-              :key="account.id"
-              :label="account.fbAccount + (account.remark ? '(' + account.remark + ')' : '')"
-              :value="account.id"
-            />
-          </el-select>
-          <div v-if="accounts.length === 0" class="el-select-empty">
-            暂无可用账号，请先添加Facebook账号
-          </div>
+          <FbAccountSelector v-model="formData.accountIds" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
         <!-- 帖子采集：同一入口下按来源切换 -->
@@ -210,10 +194,52 @@
           </template>
         </template>
 
+        <!-- 深度采集：手动输入或从潜客选择 -->
+        <template v-if="formData.taskType === 12">
+          <el-form-item label="采集方式">
+            <el-radio-group v-model="deepInputMode" @change="handleDeepInputModeChange">
+              <el-radio label="manual">手动输入链接</el-radio>
+              <el-radio label="select">从资源库选择潜客</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item v-if="deepInputMode === 'manual'" label="主页链接" prop="searchUrl">
+            <el-input
+              v-model="formData.searchUrl"
+              type="textarea"
+              :rows="4"
+              placeholder="请输入需要深度采集的公共主页/个人主页链接，多个链接请换行分隔"
+            />
+          </el-form-item>
+
+          <el-form-item v-if="deepInputMode === 'select'" label="选择潜客">
+            <div class="w-full">
+              <el-button type="primary" @click="openDeepUserSelector" class="mb-2">
+                <Icon icon="ep:plus" class="mr-5px" /> 选择潜客
+              </el-button>
+              <div v-if="selectedDeepUsers.length > 0" class="mt-2">
+                <el-tag
+                  v-for="user in selectedDeepUsers"
+                  :key="user.id"
+                  closable
+                  @close="removeSelectedDeepUser(user.id)"
+                  class="mr-2 mb-2"
+                >
+                  {{ user.userName || user.url }}
+                </el-tag>
+              </div>
+              <div v-else class="text-gray-400 text-sm mt-2">
+                暂未选择潜客，请点击上方按钮选择
+              </div>
+            </div>
+          </el-form-item>
+        </template>
+
         <!-- 搜索方式和关键词（帖子采集、群成员采集、同行采集、帖子评论点赞采集不显示） -->
         <el-form-item
           v-if="
             formData.taskType !== 2 &&
+            formData.taskType !== 12 &&
             formData.taskType !== 7 &&
             formData.taskType !== 8 &&
             formData.taskType !== 11
@@ -241,6 +267,7 @@
           v-if="
             formData.searchType === 1 &&
             formData.taskType !== 2 &&
+            formData.taskType !== 12 &&
             formData.taskType !== 7 &&
             formData.taskType !== 8 &&
             formData.taskType !== 11
@@ -262,6 +289,7 @@
           v-if="
             formData.searchType === 0 &&
             formData.taskType !== 2 &&
+            formData.taskType !== 12 &&
             formData.taskType !== 7 &&
             formData.taskType !== 8 &&
             formData.taskType !== 11
@@ -277,14 +305,56 @@
           />
         </el-form-item>
 
-        <!-- 帖子评论点赞采集：直接输入帖子链接 -->
-        <el-form-item v-if="formData.taskType === 11" label="帖子链接" prop="searchUrl">
+        <!-- 帖子评论点赞采集：采集方式选择 -->
+        <el-form-item v-if="formData.taskType === 11" label="采集方式">
+          <el-radio-group v-model="commentLikeInputMode" @change="handleCommentLikeInputModeChange">
+            <el-radio label="manual">手动输入链接</el-radio>
+            <el-radio label="select">从资源库选择</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <!-- 手动输入链接模式 -->
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeInputMode === 'manual'"
+          label="帖子链接"
+          prop="searchUrl"
+        >
           <el-input
             v-model="formData.searchUrl"
             type="textarea"
             :rows="4"
             :placeholder="getUrlPlaceholder(formData.taskType)"
           />
+        </el-form-item>
+
+        <!-- 从资源库选择模式 -->
+        <el-form-item
+          v-if="formData.taskType === 11 && commentLikeInputMode === 'select'"
+          label="选择帖子"
+        >
+          <div class="w-full">
+            <el-button type="primary" @click="openPostSelector" class="mb-2">
+              <Icon icon="ep:plus" class="mr-5px" /> 选择帖子
+            </el-button>
+            <div v-if="selectedPosts.length > 0" class="mt-2">
+              <el-tag
+                v-for="post in selectedPosts"
+                :key="post.id"
+                closable
+                @close="removeSelectedPost(post.id)"
+                class="mr-2 mb-2"
+              >
+                {{
+                  post.postContent
+                    ? post.postContent.length > 30
+                      ? post.postContent.substring(0, 30) + '...'
+                      : post.postContent
+                    : post.url
+                }}
+              </el-tag>
+            </div>
+            <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择帖子，请点击上方按钮选择 </div>
+          </div>
         </el-form-item>
 
         <!-- 帖子评论点赞采集：采集选项 -->
@@ -373,7 +443,6 @@
           <el-checkbox-group v-model="relationTypes">
             <el-checkbox label="followers">粉丝</el-checkbox>
             <el-checkbox label="following">关注</el-checkbox>
-            <el-checkbox label="friends">好友</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
 
@@ -420,7 +489,11 @@
           </div>
         </el-form-item>
 
-        <el-form-item v-if="formData.taskType !== 11" label="期望数量" prop="expectedCount">
+        <el-form-item
+          v-if="formData.taskType !== 11 && formData.taskType !== 12"
+          label="期望数量"
+          prop="expectedCount"
+        >
           <el-input-number
             v-model="formData.expectedCount"
             :min="1"
@@ -474,6 +547,7 @@
                 <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="scope.row.status" />
               </template>
             </el-table-column>
+            <el-table-column label="执行摘要" prop="errorMessage" min-width="280" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
 
@@ -555,6 +629,43 @@
             <el-table-column label="活跃度" prop="activeQuantity" width="150" />
           </el-table>
 
+          <!-- 深度采集结果显示 -->
+          <el-table
+            v-else-if="taskDetail?.taskType === 12"
+            :data="filteredUserList"
+            stripe
+            border
+            max-height="500"
+          >
+            <el-table-column label="用户名" prop="userName" width="150" />
+            <el-table-column label="主页链接" prop="url" min-width="240" show-overflow-tooltip />
+            <el-table-column label="电话" prop="phonenumber" width="130" />
+            <el-table-column label="WhatsApp" prop="whatsapp" width="130" />
+            <el-table-column label="Line" prop="line" width="120" />
+            <el-table-column label="邮箱" prop="email" width="180" show-overflow-tooltip />
+            <el-table-column label="网站" prop="website" width="180" show-overflow-tooltip />
+            <el-table-column label="所在地" prop="city" width="120" />
+            <el-table-column label="居住地" prop="location" width="120" />
+            <el-table-column label="性别" prop="gender" width="90" />
+            <el-table-column
+              label="简介/状态"
+              prop="profileStatus"
+              min-width="220"
+              show-overflow-tooltip
+            />
+            <el-table-column label="最近发帖" prop="lastPostTime" width="160">
+              <template #default="scope">
+                {{ formatDate(scope.row.lastPostTime) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="最近帖子摘要"
+              prop="lastPostSummary"
+              min-width="260"
+              show-overflow-tooltip
+            />
+          </el-table>
+
           <!-- 个人主页采集结果显示（默认） -->
           <el-table v-else :data="filteredUserList" stripe border max-height="500">
             <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
@@ -600,23 +711,27 @@
 
   <!-- 用户选择器组件 -->
   <UserSelector v-model="userSelectorVisible" @confirm="handleUserConfirm" />
+
+  <!-- 帖子选择器组件 -->
+  <PostSelector v-model="postSelectorVisible" @confirm="handlePostConfirm" />
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
+import FbAccountSelector from '../components/FbAccountSelector.vue'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
-import { startBrowserCollect } from '@/utils/wpfBridge'
 import { DICT_TYPE, getIntDictOptions } from '@/utils/dict'
 import { useI18n } from '@/hooks/web/useI18n'
 import { useMessage } from '@/hooks/web/useMessage'
 import request from '@/config/axios'
 import GroupSelector from './components/GroupSelector.vue'
 import UserSelector from './components/UserSelector.vue'
+import PostSelector from './components/PostSelector.vue'
 
 const { t } = useI18n() // 国际化
 const message = useMessage() // 消息弹窗
@@ -663,6 +778,7 @@ const formRules = reactive({
         // 群成员采集、同行采集、帖子评论点赞采集不需要验证搜索方式
         if (
           (formData.value.taskType === 2 && postSourceMode.value !== 'search') ||
+          formData.value.taskType === 12 ||
           formData.value.taskType === 7 ||
           formData.value.taskType === 8 ||
           formData.value.taskType === 11
@@ -685,6 +801,7 @@ const formRules = reactive({
         // 群成员采集、同行采集、帖子评论点赞采集不需要验证关键词
         if (
           (formData.value.taskType === 2 && postSourceMode.value !== 'search') ||
+          formData.value.taskType === 12 ||
           formData.value.taskType === 7 ||
           formData.value.taskType === 8 ||
           formData.value.taskType === 11
@@ -714,6 +831,8 @@ const formRules = reactive({
           formData.value.taskType === 11
         ) {
           callback()
+        } else if (formData.value.taskType === 12 && !value) {
+          callback(new Error('请输入或选择需要深度采集的主页链接'))
         } else if (formData.value.searchType === 0 && !value) {
           callback(new Error('请输入采集链接'))
         } else {
@@ -741,6 +860,10 @@ const userInputMode = ref<'manual' | 'select'>('select') // 同行采集输入�
 const userSelectorVisible = ref(false) // 用户选择弹框显示状态
 const selectedUsers = ref<FbCollectUser[]>([]) // 已选择的用户
 
+// 深度采集相关
+const deepInputMode = ref<'manual' | 'select'>('manual')
+const selectedDeepUsers = ref<FbCollectUser[]>([])
+
 // 帖子采集相关
 const postSourceMode = ref<'search' | 'page' | 'group'>('search')
 const postPageInputMode = ref<'manual' | 'select'>('select')
@@ -751,6 +874,9 @@ const selectedPostGroups = ref<FbCollectGroup[]>([])
 // 帖子评论点赞采集相关
 const commentLikeOptions = ref<string[]>(['comment', 'like']) // 默认同时采集评论和点赞
 const likeExpectedCount = ref(100) // 点赞期望数量
+const commentLikeInputMode = ref<'manual' | 'select'>('manual') // 帖子评论点赞采集输入模式
+const postSelectorVisible = ref(false) // 帖子选择弹框显示状态
+const selectedPosts = ref<FbCollectPost[]>([]) // 已选择的帖子
 
 /** 打开弹窗 */
 const open = async (type: string, id?: number, taskTypeValue?: number) => {
@@ -854,10 +980,16 @@ const loadUserList = async (taskId: number) => {
         })
       } else {
         // 个人主页采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
+        const sourceUserIds =
+          taskType === 12
+            ? detailList.value
+                .map((item: any) => item.sourceUserId)
+                .filter((id: any) => id !== undefined && id !== null && id !== '')
+            : []
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
-          taskId
+          ...(sourceUserIds.length ? { ids: sourceUserIds } : { taskId })
         })
       }
 
@@ -889,7 +1021,7 @@ const loadAccounts = async () => {
     console.log('data.list:', data.list)
 
     if (data && data.list && Array.isArray(data.list)) {
-      accounts.value = data.list
+      accounts.value = filterSelectableFbAccounts(data.list)
       console.log('赋值后的accounts.value:', accounts.value)
       console.log('第一个账号对象:', accounts.value[0])
       console.log('第一个账号的id:', accounts.value[0]?.id)
@@ -919,6 +1051,12 @@ const submitForm = async () => {
     // 解析URL列表(支持换行分隔)
     if (data.taskType === 2) {
       data.searchUrl = normalizePostCollectUrls(data.searchUrl || '')
+    } else if (data.taskType === 12) {
+      data.searchUrl = normalizeDeepCollectUrls(data.searchUrl || '')
+      data.searchType = 0
+      data.expectedCount = 1
+    } else if (data.taskType === 8) {
+      data.searchUrl = normalizeUserRelationUrls(data.searchUrl || '')
     }
     let urls = (data.searchUrl || '').split('\n').filter((url) => url.trim())
 
@@ -947,7 +1085,7 @@ const submitForm = async () => {
       taskType: data.taskType, // 采集类型(1主页/2帖子/3用户等)
       searchType: data.searchType, // 搜索方式(0链接/1关键词)
       searchUrl: urls.join('\n'), // 将所有URL用换行符连接
-      expectedCount: data.expectedCount,
+      expectedCount: data.taskType === 12 ? 1 : data.expectedCount,
       intervalSeconds: data.intervalSeconds,
       status: 0, // 待执行
       remark: data.remark
@@ -966,8 +1104,17 @@ const submitForm = async () => {
 __CONFIG__:${JSON.stringify(config)}`
     }
 
+    if (data.taskType === 12 && deepInputMode.value === 'select') {
+      taskData.sourceUserIds = selectedDeepUsers.value.map((user) => user.id)
+    }
+
     // 一次性创建任务和所有明细
-    let details: Array<{ detailId: number; fbAccount: string; searchUrl: string }> = []
+    let details: Array<{
+      detailId: number
+      fbAccount: string
+      searchUrl: string
+      sourceUserId?: number | string
+    }> = []
     if (formType.value === 'create') {
       const result = await FbCollectApi.createFbCollect(taskData)
       // 后端返回 FbCollectCreateRespVO，包含 taskId 和 details 列表
@@ -984,69 +1131,7 @@ __CONFIG__:${JSON.stringify(config)}`
       return
     }
 
-    // 为每个账号启动第一个浏览器的采集(后续任务由后端调度复用)
-    const createdTasks: Array<{ detailId: number; fbAccount: string; url: string }> = []
-
-    // 按账号分组,每个账号只启动第一个任务
-    const accountFirstDetailMap = new Map<string, (typeof details)[0]>()
-    for (const detail of details) {
-      if (!accountFirstDetailMap.has(detail.fbAccount)) {
-        accountFirstDetailMap.set(detail.fbAccount, detail)
-      }
-    }
-
-    // 为每个账号启动第一个浏览器的采集
-    for (const [fbAccount, firstDetail] of accountFirstDetailMap.entries()) {
-      try {
-        // 从选中的账号列表中获取该账号的 Cookie
-        const selectedAccount = selectedAccounts.find((acc) => acc.fbAccount === fbAccount)
-        const cookie = selectedAccount?.cookie || null
-
-        console.log(`🔍 账号 ${fbAccount} 的 Cookie:`, cookie ? '已提供' : '未提供')
-
-        // 构建配置JSON（仅针对帖子评论点赞采集）
-        let configJson: string | undefined = undefined
-        if (data.taskType === 11) {
-          configJson = JSON.stringify({
-            collectComment: commentLikeOptions.value.includes('comment'),
-            collectLike: commentLikeOptions.value.includes('like'),
-            commentExpectedCount: formData.value.commentExpectedCount || 100,
-            likeExpectedCount: formData.value.likeExpectedCount || 100
-          })
-          console.log('📋 帖子评论点赞采集配置:', configJson)
-        }
-
-        startBrowserCollect(
-          String(firstDetail.detailId),
-          String(fbAccount),
-          cookie, // ✅ 传入 Cookie
-          firstDetail.searchUrl,
-          data.expectedCount,
-          data.taskType, // 传递任务类型(1主页/2帖子/3用户等)
-          configJson // 传递配置（可选）
-        )
-        createdTasks.push({
-          detailId: firstDetail.detailId,
-          fbAccount: fbAccount,
-          url: firstDetail.searchUrl
-        })
-        console.log(
-          `🚀 启动采集: 明细ID=${firstDetail.detailId}, 账号=${fbAccount}, 类型=${data.taskType}`
-        )
-      } catch (error) {
-        console.error(`启动账号 ${fbAccount} 的浏览器失败:`, error)
-        message.warning(`账号 ${fbAccount} 启动浏览器失败`)
-      }
-    }
-
-    if (createdTasks.length > 0) {
-      message.success(`已创建 ${createdTasks.length} 个任务并启动采集`)
-      console.log('已启动的任务:', createdTasks)
-    } else {
-      message.success(
-        t('common.' + (formType.value === 'create' ? 'createSuccess' : 'updateSuccess'))
-      )
-    }
+    message.success(`已创建 ${details.length} 条采集明细，已加入账号串行队列`)
     dialogVisible.value = false
     // 发送操作成功的事件
     emit('success')
@@ -1085,6 +1170,8 @@ const resetForm = () => {
   selectedPostGroups.value = []
   selectedGroups.value = []
   selectedUsers.value = []
+  selectedDeepUsers.value = []
+  deepInputMode.value = 'manual'
   groupInputMode.value = 'select'
   userInputMode.value = 'select'
   formRef.value?.resetFields()
@@ -1214,6 +1301,9 @@ const normalizePostCollectUrls = (value: string): string => {
   }
   return urls.map(cleanFacebookUrl).join('\n')
 }
+
+const normalizeDeepCollectUrls = (value: string): string =>
+  Array.from(new Set(splitInputUrls(value).map(cleanFacebookUrl))).join('\n')
 
 /** 根据多个关键词生成多个URL(换行分隔) */
 const generateSearchUrls = (taskType: number, keywords: string): string => {
@@ -1361,6 +1451,32 @@ const openUserSelector = () => {
   userSelectorVisible.value = true
 }
 
+const openDeepUserSelector = () => {
+  userSelectorVisible.value = true
+}
+
+const handleDeepInputModeChange = (mode: 'manual' | 'select') => {
+  formData.value.searchUrl = ''
+  if (mode === 'manual') {
+    selectedDeepUsers.value = []
+  }
+}
+
+const refreshDeepUserUrls = () => {
+  formData.value.searchUrl = selectedDeepUsers.value
+    .map((user) => user.url)
+    .filter(Boolean)
+    .join('\n')
+}
+
+const removeSelectedDeepUser = (userId: number) => {
+  const index = selectedDeepUsers.value.findIndex((user) => user.id === userId)
+  if (index > -1) {
+    selectedDeepUsers.value.splice(index, 1)
+    refreshDeepUserUrls()
+  }
+}
+
 /** 处理同行采集输入模式切换 */
 const handleUserInputModeChange = (mode: 'manual' | 'select') => {
   if (mode === 'manual') {
@@ -1389,38 +1505,59 @@ const removeSelectedUser = (userId: number) => {
 
 /** 生成同行采集链接 */
 const generateUserRelationUrls = () => {
+  formData.value.searchUrl = normalizeUserRelationUrls(
+    selectedUsers.value
+      .map((user) => user.url)
+      .filter(Boolean)
+      .join('\n')
+  )
+}
+
+/**
+ * 为同行采集链接补齐关系页参数。
+ * 手动输入常见形式：profile.php?id=xxx、profile.php?id=xxx&、已带旧sk参数的链接。
+ */
+const normalizeUserRelationUrls = (rawUrls: string) => {
+  const relations = relationTypes.value.filter((value) =>
+    ['followers', 'following', 'friends'].includes(value)
+  )
+  if (!relations.length) return rawUrls
+
   const urls: string[] = []
-
-  selectedUsers.value.forEach((user) => {
-    // 保留原始URL（包括查询参数）
-    const originalUrl = user.url
-    // 判断URL是否已有查询参数
-    const hasQuery = originalUrl.includes('?')
-
-    // 根据选中的关系类型生成不同的链接
-    relationTypes.value.forEach((relationType) => {
-      let param = ''
-      if (relationType === 'followers') {
-        param = 'sk=followers'
-      } else if (relationType === 'following') {
-        param = 'sk=following'
-      } else if (relationType === 'friends') {
-        param = 'sk=friends'
-      }
-
-      if (param) {
-        // 如果已有查询参数用 &，否则用 ?
-        const separator = hasQuery ? '&' : '?'
-        urls.push(`${originalUrl}${separator}${param}`)
+  rawUrls
+    .split(/\r?\n/)
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .forEach((rawUrl) => {
+      try {
+        const parsed = new URL(rawUrl)
+        relations.forEach((relation) => {
+          const nextUrl = new URL(parsed.toString())
+          nextUrl.searchParams.set('sk', relation)
+          urls.push(nextUrl.toString())
+        })
+      } catch {
+        // 非标准链接保留原文，只做尾部清理，避免阻断整个任务提交。
+        const baseUrl = rawUrl.replace(/[?&]+$/, '')
+        relations.forEach((relation) => {
+          const separator = baseUrl.includes('?') ? '&' : '?'
+          urls.push(`${baseUrl}${separator}sk=${relation}`)
+        })
       }
     })
-  })
 
-  formData.value.searchUrl = urls.join('\n')
+  return urls.join('\n')
 }
 
 /** 确认用户选择（组件回调） */
 const handleUserConfirm = (users: FbCollectUser[]) => {
+  if (formData.value.taskType === 12) {
+    selectedDeepUsers.value = users
+    refreshDeepUserUrls()
+    message.success(`已选择 ${users.length} 个潜客，生成了 ${users.length} 个深度采集链接`)
+    return
+  }
+
   if (formData.value.taskType === 2 && postSourceMode.value === 'page') {
     selectedPostPages.value = users
     refreshPostPageUrls()
@@ -1452,6 +1589,48 @@ const handleUserConfirm = (users: FbCollectUser[]) => {
   )
 }
 
+/** 打开帖子选择弹框 */
+const openPostSelector = () => {
+  postSelectorVisible.value = true
+}
+
+/** 处理帖子评论点赞采集输入模式切换 */
+const handleCommentLikeInputModeChange = (mode: 'manual' | 'select') => {
+  if (mode === 'manual') {
+    // 切换到手动输入，清空已选帖子
+    selectedPosts.value = []
+    formData.value.searchUrl = ''
+  } else {
+    // 切换到从资源库选择，清空手动输入的链接
+    formData.value.searchUrl = ''
+  }
+}
+
+/** 移除已选择的帖子 */
+const removeSelectedPost = (postId: number) => {
+  const index = selectedPosts.value.findIndex((p) => p.id === postId)
+  if (index > -1) {
+    selectedPosts.value.splice(index, 1)
+    // 重新生成链接
+    refreshCommentLikePostUrls()
+  }
+}
+
+/** 刷新帖子评论点赞采集的URL */
+const refreshCommentLikePostUrls = () => {
+  formData.value.searchUrl = selectedPosts.value.map((post) => post.url).join('\n')
+}
+
+/** 确认帖子选择（组件回调） */
+const handlePostConfirm = (posts: FbCollectPost[]) => {
+  selectedPosts.value = posts
+
+  // 生成帖子链接
+  refreshCommentLikePostUrls()
+
+  message.success(`已选择 ${posts.length} 个帖子，生成了 ${posts.length} 个采集链接`)
+}
+
 // 监听keyword和taskType变化,自动生成URL
 watch(
   () => [formData.value.keyword, formData.value.taskType],
@@ -1479,3 +1658,29 @@ watch(
   { deep: true }
 )
 </script>
+
+<style scoped lang="scss">
+.collect-task-summary {
+  :deep(.el-descriptions__table) {
+    table-layout: fixed;
+  }
+
+  :deep(.el-descriptions__cell) {
+    padding: 10px 14px;
+  }
+
+  :deep(.el-descriptions__label) {
+    min-width: 118px;
+    white-space: nowrap;
+  }
+
+  :deep(.el-descriptions__content) {
+    min-width: 170px;
+    white-space: nowrap;
+  }
+
+  :deep(.el-progress) {
+    min-width: 150px;
+  }
+}
+</style>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-row :gutter="20">
+    <el-row :gutter="10">
       <!-- 左侧：功能卡片 -->
       <el-col :span="8">
         <ContentWrap>
@@ -50,7 +50,7 @@
                 class="!w-140px"
               >
                 <el-option
-                  v-for="dict in getIntDictOptions(DICT_TYPE.FB_COLLECT_TYPE)"
+                  v-for="dict in collectTypeOptions"
                   :key="dict.value"
                   :label="dict.label"
                   :value="dict.value"
@@ -121,7 +121,10 @@
             <el-table-column type="selection" width="55" />
             <el-table-column label="任务类型" align="center" prop="taskType" width="130">
               <template #default="scope">
-                <dict-tag :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
+                <el-tag v-if="scope.row.taskType === DEEP_COLLECT_TASK_TYPE" type="success">
+                  深度采集
+                </el-tag>
+                <dict-tag v-else :type="DICT_TYPE.FB_COLLECT_TYPE" :value="scope.row.taskType" />
               </template>
             </el-table-column>
             <el-table-column
@@ -201,8 +204,13 @@ import { FbCollectGroupApi } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
-import { onCollectionComplete, closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
-import request from '@/config/axios'
+import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
+import { onCollectionComplete, closeBrowser } from '@/utils/wpfBridge'
+import {
+  claimNextAiAgentDetail,
+  markAiAgentCollectFinished,
+  startAiAgentCollectDetail
+} from '@/utils/wpfAiAgentTaskPoller'
 import { Connection, Tools, Tickets } from '@element-plus/icons-vue'
 
 /** FB采集任务 - 左右布局 */
@@ -266,7 +274,8 @@ const parseFollowers = (followersRaw: string): number | null => {
       number *= 1000000000000
     }
 
-    return Math.floor(number)
+    const normalized = Math.floor(number)
+    return normalized > 0 && normalized <= 1000000000 ? normalized : null
   } catch (e) {
     return null
   }
@@ -341,6 +350,13 @@ const functions = [
     disabled: false // 启用个人主页采集
   },
   {
+    type: 'deep-users',
+    title: '深度采集',
+    icon: 'ep:search',
+    description: '进入主页采集联系方式和最近帖子',
+    disabled: false
+  },
+  {
     type: 'groups',
     title: '群组采集',
     icon: 'ep:user',
@@ -358,7 +374,7 @@ const functions = [
     type: 'user-relations',
     title: '同行采集',
     icon: 'ep:user-group',
-    description: '采集粉丝/关注/好友',
+    description: '采集粉丝/关注',
     disabled: false
   },
   {
@@ -378,6 +394,13 @@ const functions = [
 ]
 
 const activeFunction = ref('')
+const DEEP_COLLECT_TASK_TYPE = 12
+const collectTypeOptions = computed(() => {
+  const options = getIntDictOptions(DICT_TYPE.FB_COLLECT_TYPE)
+  return options.some((item) => Number(item.value) === DEEP_COLLECT_TASK_TYPE)
+    ? options
+    : [...options, { label: '深度采集', value: DEEP_COLLECT_TASK_TYPE }]
+})
 const loading = ref(true)
 const list = ref<FbCollect[]>([])
 const total = ref(0)
@@ -426,6 +449,7 @@ const getTaskTypeByFunction = (funcType: string): number => {
     pages: 1,
     posts: 2,
     users: 3,
+    'deep-users': DEEP_COLLECT_TASK_TYPE,
     groups: 4,
     events: 5,
     comments: 11, // 帖子评论点赞采集
@@ -530,12 +554,38 @@ const handleExport = async () => {
   }
 }
 
+const continueNextCollectDetailOrClose = async (
+  accountId?: string | number,
+  currentDetailId?: string | number
+) => {
+  if (!accountId) return
+  const fbAccount = String(accountId)
+  try {
+    markAiAgentCollectFinished(fbAccount, currentDetailId)
+    const nextDetail = await claimNextAiAgentDetail()
+    if (nextDetail) {
+      startAiAgentCollectDetail(nextDetail)
+      message.info(`账号 ${fbAccount} 继续执行账号队列下一条任务`)
+      return
+    }
+    closeBrowser(fbAccount)
+    message.info(`账号 ${fbAccount} 本轮采集已结束，浏览器已关闭`)
+  } catch (error) {
+    console.warn('查询下一条采集明细失败，关闭浏览器', error)
+    closeBrowser(fbAccount)
+  }
+}
+
 /** 初始化：监听采集完成事件并保存结果 */
 onMounted(() => {
   getList()
+  window.addEventListener('fb:collect:saved', getList)
 
   // 注册采集完成事件监听
   onCollectionComplete(async (data) => {
+    if (isAiAgentClaimedDetail(data.detailId)) {
+      return
+    }
     console.log('收到采集完成事件:', data)
 
     try {
@@ -566,12 +616,16 @@ onMounted(() => {
           return item
         })
 
-        await FbCollectPostApi.batchSaveFbCollectPost({
+        const savedCount = await FbCollectPostApi.batchSaveFbCollectPost({
           detailId: detailId,
           results: parsedResults
         })
 
-        message.success(`明细 ${detailId} 帖子采集完成，共采集 ${parsedResults.length} 条数据`)
+        const savedTotal = Number(savedCount || 0)
+        const duplicateTotal = Math.max(0, parsedResults.length - savedTotal)
+        message.success(
+          `明细 ${detailId} 帖子采集完成：采集 ${parsedResults.length} 条，新增保存 ${savedTotal} 条，重复跳过 ${duplicateTotal} 条`
+        )
       } else if (taskType === 4) {
         // 群组采集 - 解析并保存群组数据
         const parsedResults = results.map((item: any) => {
@@ -648,8 +702,7 @@ onMounted(() => {
         }
       }
 
-      // 🔄 检查该账号是否有下一个待执行的任务
-      await checkAndStartNextTask(accountId, results.length)
+      await continueNextCollectDetailOrClose(accountId, detailId)
 
       // 刷新列表
       await getList()
@@ -660,55 +713,9 @@ onMounted(() => {
   })
 })
 
-/**
- * 检查并启动账号的下一个任务
- * @param accountId 账号ID
- * @param collectedCount 本次采集到的数据条数
- */
-const checkAndStartNextTask = async (accountId: string, collectedCount: number = 0) => {
-  try {
-    // 查询该账号的所有待执行明细(status=0)
-    const response = await request.get({
-      url: '/facebook/fb-collect-detail/pending',
-      params: { fbAccount: accountId }
-    })
-
-    const pendingDetails = response.data || []
-
-    if (pendingDetails.length > 0) {
-      // 有下一个任务,复用浏览器继续采集
-      const nextDetail = pendingDetails[0]
-      console.log(`✅ 发现下一个任务: 明细ID=${nextDetail.id}, URL=${nextDetail.searchUrl}`)
-
-      // 启动下一个采集(复用已打开的浏览器)
-      startBrowserCollect(
-        String(nextDetail.id),
-        accountId,
-        null,
-        nextDetail.searchUrl,
-        nextDetail.expectedCount,
-        nextDetail.taskType || 1 // 传递任务类型
-      )
-
-      message.info(`账号 ${accountId} 继续采集下一个链接...`)
-    } else {
-      // 没有下一个任务,关闭浏览器
-      console.log(`✅ 账号 ${accountId} 所有任务已完成,关闭浏览器`)
-
-      // ✅ 如果采集到0条数据，也关闭浏览器（避免浪费资源）
-      if (collectedCount === 0) {
-        console.log(`⚠️ 采集到0条数据，关闭浏览器`)
-        closeBrowser(accountId)
-        message.info(`账号 ${accountId} 本轮任务已结束，未采集到数据`)
-      } else {
-        closeBrowser(accountId)
-        message.success(`账号 ${accountId} 所有任务已完成`)
-      }
-    }
-  } catch (error) {
-    console.error('检查下一个任务失败:', error)
-  }
-}
+onBeforeUnmount(() => {
+  window.removeEventListener('fb:collect:saved', getList)
+})
 </script>
 
 <style scoped lang="scss">

@@ -61,7 +61,7 @@
       </div>
 
       <!-- 右侧：账号列表 -->
-      <div class="flex-1 flex flex-col">
+      <div class="flex-1 min-w-0 flex flex-col">
         <!-- 搜索工作栏 -->
         <el-form
           class="-mb-15px"
@@ -147,14 +147,28 @@
           >
             <Icon icon="ep:delete" class="mr-5px" /> 批量删除
           </el-button>
-          <el-button
-            type="warning"
-            plain
-            :disabled="isEmpty(checkedIds)"
-            @click="openBatchUpdateProxyDialog"
-          >
-            <Icon icon="ep:setting" class="mr-5px" /> 批量修改代理
-          </el-button>
+          <el-dropdown trigger="click" @command="handleBatchCommand">
+            <el-button type="warning" plain :disabled="isEmpty(checkedIds)">
+              <Icon icon="ep:setting" class="mr-5px" /> 批量操作
+              <Icon icon="ep:arrow-down" />
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="group">
+                  <Icon icon="ep:folder" class="mr-5px" /> 批量修改分组
+                </el-dropdown-item>
+                <el-dropdown-item command="proxy">
+                  <Icon icon="ep:connection" class="mr-5px" /> 批量修改代理
+                </el-dropdown-item>
+                <el-dropdown-item command="enable">
+                  <Icon icon="ep:check" class="mr-5px" /> 批量启用
+                </el-dropdown-item>
+                <el-dropdown-item command="disable">
+                  <Icon icon="ep:close" class="mr-5px" /> 批量禁用
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button
             type="primary"
             plain
@@ -163,62 +177,110 @@
           >
             <Icon icon="ep:promotion" class="mr-5px" /> 登录
           </el-button>
+          <el-button
+            type="success"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openWarmupDialog"
+          >
+            <Icon icon="ep:cpu" class="mr-5px" /> 养号
+          </el-button>
+          <el-button
+            type="primary"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openProfileUploadDialog"
+          >
+            <Icon icon="ep:picture" class="mr-5px" /> 资料上传
+          </el-button>
         </div>
 
         <!-- 列表 -->
-        <div class="flex-1 mt-4 overflow-auto">
-          <el-table
-            row-key="id"
-            v-loading="loading"
-            :data="list"
-            :stripe="true"
-            :show-overflow-tooltip="true"
-            @selection-change="handleRowCheckboxChange"
-            style="width: 100%; min-width: 1000px;"
-          >
-            <el-table-column type="selection" width="55" />
-            <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
-            <el-table-column label="密码" align="center" prop="password" width="150" />
-            <el-table-column label="地区" align="center" prop="area" width="100" />
-            <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
-            <el-table-column label="代理" align="center" prop="proxyName" width="150">
-              <template #default="scope">
-                <el-tag v-if="scope.row.proxyName" type="info" size="small">
-                  {{ scope.row.proxyName }}
-                </el-tag>
-                <span v-else class="text-gray-400">-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="账户状态" align="center" prop="status" width="100" />
-            <el-table-column label="备注" align="center" prop="remark" />
-            <el-table-column
-              label="创建时间"
-              align="center"
-              prop="createTime"
-              :formatter="dateFormatter"
-              width="180px"
-            />
-            <el-table-column label="操作" align="center" width="120">
-              <template #default="scope">
-                <el-button
-                  link
-                  type="primary"
-                  @click="openForm('update', scope.row.id)"
-                  v-hasPermi="['facebook:fb-account:update']"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  link
-                  type="danger"
-                  @click="handleDelete(scope.row.id)"
-                  v-hasPermi="['facebook:fb-account:delete']"
-                >
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+        <div class="flex-1 min-w-0 mt-4 overflow-hidden">
+          <div class="fb-account-table-scroll">
+            <el-table
+              row-key="id"
+              v-loading="loading"
+              :data="list"
+              :stripe="true"
+              :fit="false"
+              :show-overflow-tooltip="true"
+              @selection-change="handleRowCheckboxChange"
+              style="width: 100%;"
+            >
+              <el-table-column type="selection" width="55" />
+              <el-table-column label="头像" align="center" width="80">
+                <template #default="scope">
+                  <el-avatar :size="38" :src="scope.row.avatarUrl">
+                    {{ (scope.row.fbAccount || '?').slice(0, 1).toUpperCase() }}
+                  </el-avatar>
+                </template>
+              </el-table-column>
+              <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
+              <el-table-column label="密码" align="center" prop="password" width="150" />
+              <el-table-column label="地区" align="center" prop="area" width="100" />
+              <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
+              <el-table-column label="代理" align="center" prop="proxyName" width="150">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.proxyName" type="info" size="small">
+                    {{ scope.row.proxyName }}
+                  </el-tag>
+                  <span v-else class="text-gray-400">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用状态" align="center" width="100">
+                <template #default="scope">
+                  <el-tag :type="isAccountEnabled(scope.row.status) ? 'success' : 'info'" size="small">
+                    {{ isAccountEnabled(scope.row.status) ? '启用' : '禁用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="账号状态" align="center" width="110">
+                <template #default="scope">
+                  <el-tooltip
+                    v-if="scope.row.loginStatus === 'FAILED' && scope.row.loginErrorReason"
+                    :content="scope.row.loginErrorReason"
+                    placement="top"
+                  >
+                    <el-tag :type="getLoginStatusType(scope.row.loginStatus)" size="small">
+                      {{ getLoginStatusLabel(scope.row.loginStatus) }}
+                    </el-tag>
+                  </el-tooltip>
+                  <el-tag v-else :type="getLoginStatusType(scope.row.loginStatus)" size="small">
+                    {{ getLoginStatusLabel(scope.row.loginStatus) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="备注" align="center" prop="remark" width="180" />
+              <el-table-column
+                label="创建时间"
+                align="center"
+                prop="createTime"
+                :formatter="dateFormatter"
+                width="180px"
+              />
+              <el-table-column label="操作" align="center" width="120" fixed="right">
+                <template #default="scope">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="openForm('update', scope.row.id)"
+                    v-hasPermi="['facebook:fb-account:update']"
+                  >
+                    编辑
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    @click="handleDelete(scope.row.id)"
+                    v-hasPermi="['facebook:fb-account:delete']"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
           <!-- 分页 -->
           <Pagination
             :total="total"
@@ -245,6 +307,10 @@
   
   <!-- 批量修改代理弹窗 -->
   <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
+  <!-- 批量修改分组弹窗 -->
+  <FbAccountBatchUpdateGroupDialog ref="batchUpdateGroupDialogRef" @success="getList" />
+  <FbAccountWarmupDialog ref="warmupDialogRef" />
+  <FbAccountProfileUploadDialog ref="profileUploadDialogRef" @success="getList" />
 </template>
 
 <script setup lang="ts">
@@ -259,6 +325,9 @@ import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
 import FbAccountImportDialog from './FbAccountImportDialog.vue'
 import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
 import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
+import FbAccountBatchUpdateGroupDialog from './FbAccountBatchUpdateGroupDialog.vue'
+import FbAccountWarmupDialog from './FbAccountWarmupDialog.vue'
+import FbAccountProfileUploadDialog from './FbAccountProfileUploadDialog.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
@@ -301,7 +370,73 @@ const cookieImportDialogRef = ref()
 
 // 批量修改代理相关
 const batchUpdateProxyDialogRef = ref()
+const batchUpdateGroupDialogRef = ref()
+const warmupDialogRef = ref()
+const profileUploadDialogRef = ref()
 const loginRunning = ref(false)
+
+const applyGroupNames = () => {
+  const groupMap = new Map(
+    groupList.value.map((group) => [String(group.id), group.groupName || ''])
+  )
+  list.value = list.value.map((account) => ({
+    ...account,
+    groupName: account.groupId == null ? '' : groupMap.get(String(account.groupId)) || ''
+  }))
+}
+
+const isAccountEnabled = (status: unknown) => status === true || status === 1 || status === '1'
+
+const getLoginStatusLabel = (status?: string) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'RUNNING':
+      return '待检测'
+    case 'SUCCESS':
+    case 'NORMAL':
+      return '正常'
+    case 'COOKIE_INVALID':
+    case 'COOKIE_EXPIRED':
+      return 'Cookie失效'
+    case 'ABNORMAL':
+      return '账号被封'
+    case 'ACCOUNT_DISABLED':
+      return '账号被封'
+    case 'INVALID':
+      return '账号异常'
+    case 'NETWORK_ERROR':
+      return '网络异常'
+    case 'FAILED':
+      return '需要验证'
+    case 'PENDING':
+      return '待检测'
+    default:
+      return '待检测'
+  }
+}
+
+const getLoginStatusType = (status?: string) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'RUNNING':
+      return 'warning'
+    case 'SUCCESS':
+    case 'NORMAL':
+      return 'success'
+    case 'COOKIE_INVALID':
+    case 'COOKIE_EXPIRED':
+    case 'ABNORMAL':
+    case 'INVALID':
+    case 'ACCOUNT_DISABLED':
+      return 'danger'
+    case 'FAILED':
+      return 'warning'
+    case 'NETWORK_ERROR':
+      return 'warning'
+    case 'PENDING':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
 
 /** 查询列表 */
 const getList = async () => {
@@ -312,7 +447,8 @@ const getList = async () => {
       groupId: selectedGroupId.value,
     }
     const data = await FbAccountApi.getFbAccountPage(params)
-    list.value = data.list
+    list.value = data.list || []
+    applyGroupNames()
     total.value = data.total
   } finally {
     loading.value = false
@@ -324,6 +460,7 @@ const loadGroups = async () => {
   try {
     const data = await AccountGroupApi.getAllEnabledGroups()
     groupList.value = data || []
+    applyGroupNames()
   } catch (error) {
     console.error('加载分组失败:', error)
   }
@@ -391,7 +528,7 @@ const handleRowCheckboxChange = (records: FbAccount[]) => {
 }
 
 const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
-  const target = list.value.find((item) => item.id === result.accountDbId)
+  const target = list.value.find((item) => String(item.id) === String(result.accountDbId))
   if (!target) return
 
   if (result.status === 'running') {
@@ -403,6 +540,15 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
   } else if (result.status === 'failed') {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '登录失败'
+  } else if (result.status === 'network_error') {
+    // 网络异常只代表本次检测失败，不覆盖账号原有登录状态。
+    message.warning(`${target.fbAccount || target.id} 本次检测网络异常，已保留原账号状态`)
+  } else if (result.status === 'account_disabled') {
+    target.loginStatus = 'ABNORMAL'
+    target.loginErrorReason = result.errorReason || '账号被封或已停用'
+  } else if (result.status === 'cookie_invalid') {
+    target.loginStatus = 'COOKIE_INVALID'
+    target.loginErrorReason = result.errorReason || 'Cookie已失效，当前停留在登录页'
   } else if (result.status === 'skipped') {
     target.loginStatus = 'FAILED'
     target.loginErrorReason = result.errorReason || '缺少登录凭据'
@@ -410,6 +556,23 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
     target.loginStatus = 'PENDING'
     target.loginErrorReason = ''
   }
+}
+
+const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
+  if (!['success', 'failed', 'cookie_invalid', 'account_disabled', 'skipped'].includes(result.status)) return
+  const loginStatus = result.status === 'success'
+    ? 'SUCCESS'
+    : result.status === 'cookie_invalid'
+      ? 'COOKIE_INVALID'
+      : result.status === 'account_disabled'
+        ? 'ABNORMAL'
+        : 'FAILED'
+
+  await FbAccountApi.updateFbAccountLoginResult({
+    id: String(result.accountDbId),
+    loginStatus,
+    loginErrorReason: result.errorReason || ''
+  })
 }
 
 const handleBatchLogin = () => {
@@ -435,9 +598,22 @@ const handleBatchLogin = () => {
     }
   })
 
-  loginRunning.value = true
-  startAccountLoginBatch(payload)
-  message.notifySuccess(`已提交 ${payload.length} 个账号登录`)
+  try {
+    startAccountLoginBatch(payload)
+    loginRunning.value = true
+    message.notifySuccess(`已提交 ${payload.length} 个账号登录`)
+  } catch (error) {
+    console.error('启动批量登录失败:', error)
+    loginRunning.value = false
+    payload.forEach((item) => {
+      const target = list.value.find((account) => account.id === item.id)
+      if (target) {
+        target.loginStatus = 'FAILED'
+        target.loginErrorReason = '启动登录失败'
+      }
+    })
+    message.error('启动批量登录失败')
+  }
 }
 
 /** 导出按钮操作 */
@@ -500,6 +676,38 @@ const openBatchUpdateProxyDialog = () => {
   batchUpdateProxyDialogRef.value.open(checkedIds.value)
 }
 
+/** 处理批量操作 */
+const handleBatchCommand = (command: string) => {
+  if (command === 'group') {
+    batchUpdateGroupDialogRef.value.open(checkedIds.value)
+  } else if (command === 'proxy') {
+    openBatchUpdateProxyDialog()
+  } else if (command === 'enable' || command === 'disable') {
+    void handleBatchStatus(command === 'enable')
+  }
+}
+
+const handleBatchStatus = async (status: boolean) => {
+  if (isEmpty(checkedIds.value)) return
+  try {
+    await message.confirm(`确认${status ? '启用' : '禁用'}选中的 ${checkedIds.value.length} 个账号吗？`)
+    await FbAccountApi.updateFbAccountStatus({ ids: checkedIds.value, status })
+    checkedIds.value = []
+    message.success(`${status ? '启用' : '禁用'}成功`)
+    await getList()
+  } catch {}
+}
+
+const openWarmupDialog = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  warmupDialogRef.value.open(selectedAccounts)
+}
+
+const openProfileUploadDialog = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  profileUploadDialogRef.value.open(selectedAccounts)
+}
+
 /** 初始化 **/
 onMounted(() => {
   loadGroups()
@@ -513,8 +721,16 @@ onMounted(() => {
   onAccountLoginComplete(async ({ summary, results }) => {
     results.forEach((item) => updateAccountLoginState(item))
     loginRunning.value = false
+    await Promise.allSettled(results.map((item) => persistAccountLoginState(item)))
     await getList()
     message.notifySuccess(`批量登录完成，成功 ${summary.success}，失败 ${summary.failed}，跳过 ${summary.skipped}`)
   })
 })
 </script>
+
+<style scoped>
+.fb-account-table-scroll {
+  width: 100%;
+  min-width: 0;
+}
+</style>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-row :gutter="20">
+    <el-row :gutter="10">
       <el-col :span="8">
         <ContentWrap>
           <div class="operation-section">
@@ -50,6 +50,7 @@
                 <el-option label="转帖" :value="10" />
                 <el-option label="帖子评论" :value="15" />
                 <el-option label="群发私信" :value="14" />
+                <el-option label="刷粉" :value="16" />
                 <el-option label="发个人帖" :value="12" />
                 <el-option label="发群帖" :value="13" />
               </el-select>
@@ -99,6 +100,7 @@
                 <el-tag v-else-if="scope.row.taskType === 10" type="success">转帖</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 15" type="warning">帖子评论</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 14" type="warning">群发私信</el-tag>
+                <el-tag v-else-if="scope.row.taskType === 16" type="primary">刷粉</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 12" type="info">发个人帖</el-tag>
                 <el-tag v-else-if="scope.row.taskType === 13" type="danger">发群帖</el-tag>
               </template>
@@ -159,6 +161,7 @@
     <FbOperationForm ref="formRef" @success="getList" />
     <RepostForm ref="repostFormRef" @success="getList" />
     <PostCommentForm ref="postCommentFormRef" @success="getList" />
+    <FollowForm ref="followFormRef" @success="getList" />
     <DmTaskForm ref="dmTaskFormRef" @success="getList" />
     <PublishPostForm ref="publishPostFormRef" @success="getList" />
     <GroupPublishForm ref="groupPublishFormRef" @success="getList" />
@@ -173,10 +176,11 @@ import OperationCard from './components/OperationCard.vue'
 import FbOperationForm from './FbOperationForm.vue'
 import RepostForm from './RepostForm.vue'
 import PostCommentForm from './PostCommentForm.vue'
+import FollowForm from './FollowForm.vue'
 import DmTaskForm from './dmtask/DmTaskForm.vue'
 import PublishPostForm from './PublishPostForm.vue'
 import GroupPublishForm from './GroupPublishForm.vue'
-import { FbAccountApi } from '@/api/facebook/account'
+import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import {
   getFbOperationTaskPage,
   deleteFbOperationTask,
@@ -190,11 +194,11 @@ defineOptions({ name: 'FbOperation' })
 
 const message = useMessage()
 const { t } = useI18n()
-
 const operationTools = [
   { type: 'add-group', title: '链接加组', icon: 'ep:user-filled', disabled: false },
   { type: 'repost', title: '转帖', icon: 'ep:share', disabled: false },
   { type: 'post-comment', title: '帖子评论', icon: 'ep:chat-dot-round', disabled: false },
+  { type: 'follow', title: '刷粉', icon: 'ep:star-filled', disabled: false },
   { type: 'mass-message', title: '群发私信', icon: 'ep:message', disabled: false },
   { type: 'publish-post', title: '发个人帖', icon: 'ep:document-add', disabled: false },
   { type: 'group-publish', title: '发群帖', icon: 'ep:connection', disabled: false }
@@ -240,6 +244,8 @@ const selectTool = (type: string) => {
     repostFormRef.value.open()
   } else if (type === 'post-comment') {
     postCommentFormRef.value.open()
+  } else if (type === 'follow') {
+    followFormRef.value.open()
   } else if (type === 'mass-message') {
     dmTaskFormRef.value.open('create')
   } else if (type === 'publish-post') {
@@ -256,6 +262,7 @@ const getTaskTypeByTool = (toolType: string): number => {
     'add-group': 9,
     repost: 10,
     'post-comment': 15,
+    follow: 16,
     'mass-message': 14,
     'publish-post': 12,
     'group-publish': 13
@@ -290,6 +297,7 @@ const handleQuery = () => {
 const formRef = ref()
 const repostFormRef = ref()
 const postCommentFormRef = ref()
+const followFormRef = ref()
 const dmTaskFormRef = ref()
 const publishPostFormRef = ref()
 const groupPublishFormRef = ref()
@@ -314,7 +322,7 @@ const handleDelete = async (row: FbOperationTask) => {
 const loadAccountCache = async () => {
   try {
     const data = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 500 })
-    accountCache.value = data?.list || []
+    accountCache.value = filterSelectableFbAccounts(data?.list || [])
   } catch (error) {
     console.error('加载账号列表失败:', error)
     accountCache.value = []

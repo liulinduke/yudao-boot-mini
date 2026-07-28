@@ -17,10 +17,43 @@ declare global {
                 expectedCount: number,
                 taskType: number,
                 config?: string,
-                isOperation?: boolean
+                isOperation?: boolean,
+                deviceId?: string
               ) => void
               StopBrowser?: (accountId: string) => void
+              GetAvailableBrowserSlots?: () => number
+              UpdateGlobalConfig?: (disableImages: boolean, disableVideos: boolean, maxConcurrent: number) => void
+              OpenMessageManagerWindow?: () => void
+              OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
+              OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void
+              SetMessageBrowserBounds?: (left: number, top: number, width: number, height: number) => void
+              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string) => void
+              CloseMessageBrowser?: () => void
+              CloseMessageBrowserAccount?: (accountId: string) => void
+              HideMessageBrowser?: () => void
+              StartDmTask?: (
+                taskId: string,
+                detailId: string,
+                accountId: string,
+                cookie: string,
+                targetUserId: string,
+                scriptContent: string
+              ) => void
+              StartGroupPublishTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                actionConfigJson: string,
+                detailId?: string
+              ) => void
               StartAccountLoginBatch: (accountsJson: string) => void
+              StartProfileUpdateTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                deviceId: string,
+                profileConfigJson: string
+              ) => void
             }
           }
         }
@@ -39,9 +72,9 @@ export interface FbAccountLoginBridgePayload {
 }
 
 export interface FbAccountLoginBridgeResult {
-  accountDbId: number
+  accountDbId: string | number
   accountId: string
-  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cookie_invalid' | 'network_error' | 'account_disabled'
   loginMode?: 'cookie' | 'credential'
   errorReason?: string
   cookieSaved?: boolean
@@ -56,19 +89,20 @@ export function startBrowserCollect(
   expectedCount: number,
   taskType: number = 1,
   config?: string,
-  isOperation: boolean = false
+  isOperation: boolean = false,
+  deviceId?: string
 ): void {
   try {
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
       if (config) {
         try {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId)
         } catch (e) {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config)
+          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
         }
       } else {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId)
       }
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
@@ -100,22 +134,8 @@ export function onCollectionComplete(callback: (data: any) => void): void {
   }
 }
 
-/** 监听 WPF 任务执行错误事件。 */
-export function onCollectionError(
-  callback: (data: { accountId?: string; errorMessage?: string; timestamp?: string }) => void
-): void {
-  try {
-    window.addEventListener('fb:collection:error', (event: any) => {
-      const detail = event.detail || {}
-      callback({
-        accountId: detail.accountId,
-        errorMessage: detail.errorMessage,
-        timestamp: detail.timestamp
-      })
-    })
-  } catch (error) {
-    console.error('注册采集错误事件失败', error)
-  }
+export function onCollectionError(callback: (data: { accountId?: string; errorMessage?: string }) => void): void {
+  window.addEventListener('fb:collection:error', (event: any) => callback(event.detail || {}))
 }
 
 export function closeBrowser(accountId: string): void {
@@ -133,12 +153,11 @@ export function closeBrowser(accountId: string): void {
 }
 
 export function startAccountLoginBatch(accounts: FbAccountLoginBridgePayload[]): void {
+  if (!window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
+    throw new Error('WPF 桥接未就绪，请在 WPF 环境中运行')
+  }
   try {
-    if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      window.chrome.webview.hostObjects.sync.wpfBridge.StartAccountLoginBatch(JSON.stringify(accounts))
-    } else {
-      console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')
-    }
+    window.chrome.webview.hostObjects.sync.wpfBridge.StartAccountLoginBatch(JSON.stringify(accounts))
   } catch (error) {
     console.error('启动批量登录失败', error)
     throw error
@@ -153,4 +172,11 @@ export function onAccountLoginComplete(
   callback: (data: { summary: { total: number; success: number; failed: number; skipped: number }; results: FbAccountLoginBridgeResult[] }) => void
 ): void {
   window.addEventListener('fb:account-login:complete', (event: any) => callback(event.detail))
+}
+
+export function onProfileUpdateComplete(callback: (data: any) => void): void {
+  window.addEventListener('fb:profile:update:complete', (event: any) => {
+    const detail = event.detail || {}
+    callback({ ...detail, ...(detail.data || {}) })
+  })
 }

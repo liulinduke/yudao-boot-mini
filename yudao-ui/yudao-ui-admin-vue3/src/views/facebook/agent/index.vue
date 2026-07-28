@@ -415,7 +415,7 @@
               <el-table-column label="发现时间" width="170">
                 <template #default="scope">{{ formatDateTime(scope.row.createTime || scope.row.updateTime) }}</template>
               </el-table-column>
-              <el-table-column label="关键词" prop="keyword" min-width="150" />
+              <el-table-column v-if="!isHideKeywordColumn(detailAgent?.agentType)" label="关键词" prop="keyword" min-width="150" />
               <el-table-column label="发现来源" width="110">
                 <template #default="scope">{{ getDiscoverySourceLabel(scope.row.sourceType) }}</template>
               </el-table-column>
@@ -764,8 +764,10 @@ const isGroupAgent = (type?: string) => ['group_post', 'group_comment'].includes
 const isCompetitorAgent = (type?: string) => type === 'competitor_buyer'
 const isPostLeadAgent = (type?: string) => type === 'post_lead'
 const isPostLeadOrGroupPostAgent = (type?: string) => ['post_lead', 'group_post'].includes(type || '')
-const isCommentLeadAgent = (type?: string) => type === 'group_comment'
+// 竞品监控与群帖评论截流都以评论用户作为最终线索。
+const isCommentLeadAgent = (type?: string) => ['group_comment', 'competitor_buyer'].includes(type || '')
 const isSourceUrlAgent = (type?: string) => isGroupAgent(type) || isCompetitorAgent(type)
+const isHideKeywordColumn = (type?: string) => ['competitor_buyer', 'group_comment', 'group_post'].includes(type || '')
 
 const getAgentTypeLabel = (type?: string) => {
   const map: Record<string, string> = {
