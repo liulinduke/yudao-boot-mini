@@ -1,14 +1,13 @@
 <template>
   <Dialog title="切换语言" v-model="dialogVisible" width="520px">
     <el-form label-width="90px">
-      <el-alert
-        title="不同账号可并行切换，受系统最大浏览器槽位限制；同一账号不会并行执行任务。"
-        type="info"
-        :closable="false"
-        class="mb-4"
-      />
       <el-form-item label="目标语言">
-        <el-select v-model="languageCode" filterable class="w-full" placeholder="请选择 Facebook 语言">
+        <el-select
+          v-model="languageCode"
+          filterable
+          class="w-full"
+          placeholder="请选择 Facebook 语言"
+        >
           <el-option
             v-for="item in facebookLanguages"
             :key="`${item.code}-${item.nativeName}`"
@@ -55,7 +54,7 @@ const submitForm = async () => {
     return
   }
 
-  const target = facebookLanguages.find(item => item.code === languageCode.value)
+  const target = facebookLanguages.find((item) => item.code === languageCode.value)
   if (!target) {
     message.warning('请选择目标语言')
     return
@@ -63,16 +62,18 @@ const submitForm = async () => {
 
   formLoading.value = true
   try {
-    await Promise.all(selectedAccounts.value.map(account =>
-      FbAccountApi.updateFbAccountLanguage(account.id, target.code)
-    ))
+    await Promise.all(
+      selectedAccounts.value.map((account) =>
+        FbAccountApi.updateFbAccountLanguage(account.id, target.code)
+      )
+    )
 
     const bridge = (window as any).chrome?.webview?.hostObjects?.sync?.wpfBridge
     if (!bridge?.SetAccountLanguage) {
       throw new Error('WPF语言切换服务未就绪')
     }
 
-    const payload = selectedAccounts.value.map(account => ({
+    const payload = selectedAccounts.value.map((account) => ({
       accountId: account.fbAccount || '',
       cookie: account.cookie || ''
     }))

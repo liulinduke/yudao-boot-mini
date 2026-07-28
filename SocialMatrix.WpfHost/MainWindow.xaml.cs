@@ -299,7 +299,19 @@ namespace SocialMatrix.WpfHost
             return GetBrowserWindowCount();
         }
 
-        private BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)
+        /// <summary>
+        /// 批量临时任务全部结束后，关闭没有账号 Tab 的统一浏览器窗口。
+        /// 单个账号任务结束时不能在这里关闭，否则下一批会重新创建顶层窗口。
+        /// </summary>
+        public void CloseBrowserMatrixWindowIfEmpty()
+        {
+            if (_browserMatrixWindow != null && _browserMatrixWindow.GetActiveBrowserCount() == 0)
+            {
+                _browserMatrixWindow.Close();
+            }
+        }
+
+        public BrowserMatrixWindow GetOrCreateBrowserMatrixWindow(string accountId)
         {
             if (_browserMatrixWindow != null && _browserMatrixWindow.IsWindowAvailable)
             {

@@ -323,6 +323,20 @@ namespace SocialMatrix.WpfHost.Windows
             return response["value"] ?? response;
         }
 
+        private static bool TryReadLong(JToken token, string propertyName, out long value)
+        {
+            value = 0;
+            var raw = token[propertyName]?.ToString()?.Trim();
+            return !string.IsNullOrWhiteSpace(raw) && long.TryParse(raw, out value);
+        }
+
+        private static int ReadIntOrDefault(JToken token, string propertyName, int defaultValue = 0)
+        {
+            return int.TryParse(token[propertyName]?.ToString()?.Trim(), out var value)
+                ? value
+                : defaultValue;
+        }
+
         private async Task LoadDataAsync()
         {
             try
@@ -330,27 +344,45 @@ namespace SocialMatrix.WpfHost.Windows
                 _loading = true;
                 var accounts = (JArray)await RelayAsync("accounts");
                 var monitors = (JArray)await RelayAsync("monitors");
-                var monitorMap = monitors.OfType<JObject>().ToDictionary(x => x.Value<long>("accountId"), x => x);
+                var monitorMap = new Dictionary<long, JObject>();
+                foreach (var monitor in monitors.OfType<JObject>())
+                {
+                    if (!TryReadLong(monitor, "accountId", out var monitorAccountId))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ 消息监控数据缺少有效 accountId，已跳过: {monitor.ToString(Formatting.None)}");
+                        continue;
+                    }
+                    monitorMap[monitorAccountId] = monitor;
+                }
                 _accounts.Clear();
                 foreach (var token in accounts.OfType<JObject>())
                 {
+                    if (!TryReadLong(token, "id", out var accountId))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ 消息账号数据缺少有效 id，已跳过: {token.ToString(Formatting.None)}");
+                        continue;
+                    }
                     var account = new AccountRow
                     {
-                        Id = token.Value<long>("id"),
+                        Id = accountId,
                         FbAccount = token.Value<string>("fbAccount") ?? "",
                         Cookie = token.Value<string>("cookie") ?? "",
-                        DeviceId = token.Value<long?>("deviceId"),
+                        DeviceId = TryReadLong(token, "deviceId", out var parsedDeviceId)
+                            ? parsedDeviceId
+                            : null,
                         AvatarUrl = token.Value<string>("avatarUrl") ?? ""
                     };
                     if (monitorMap.TryGetValue(account.Id, out var monitor))
                     {
-                        account.ReceiveEnabled = monitor.Value<int?>("receiveEnabled") ?? 0;
-                        account.OnlineStatus = monitor.Value<int?>("onlineStatus") ?? 0;
+                        account.ReceiveEnabled = ReadIntOrDefault(monitor, "receiveEnabled");
+                        account.OnlineStatus = ReadIntOrDefault(monitor, "onlineStatus");
                         account.Mode = monitor.Value<string>("mode") ?? "disabled";
                         account.Enabled = account.ReceiveEnabled == 1;
                         account.State = account.OnlineStatus == 1 ? "在线" : "离线";
-                        account.MessengerUnreadCount = monitor.Value<int?>("messengerUnreadCount") ?? 0;
-                        account.CommentUnreadCount = monitor.Value<int?>("notificationUnreadCount") ?? 0;
+                        account.MessengerUnreadCount = ReadIntOrDefault(monitor, "messengerUnreadCount");
+                        account.CommentUnreadCount = ReadIntOrDefault(monitor, "notificationUnreadCount");
                         account.LastCheckTime = monitor.Value<string>("lastCheckTime") ?? "";
                     }
                     _accounts.Add(account);
@@ -396,8 +428,9 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     if (!_sessions.ContainsKey(row.Id.ToString())) continue;
                     var monitor = (JArray)await RelayAsync("monitors");
-                    var item = monitor.OfType<JObject>().FirstOrDefault(x => x.Value<long>("accountId") == row.Id);
-                    if (item != null && item.Value<long?>("id") is long monitorId)
+                    var item = monitor.OfType<JObject>().FirstOrDefault(x =>
+                        TryReadLong(x, "accountId", out var monitorAccountId) && monitorAccountId == row.Id);
+                    if (item != null && TryReadLong(item, "id", out var monitorId))
                         await RelayAsync("heartbeat", new JObject { ["monitorId"] = monitorId.ToString() });
                 }
             }
@@ -427,7 +460,13 @@ namespace SocialMatrix.WpfHost.Windows
                 });
                 foreach (var token in claims.OfType<JObject>())
                 {
-                    var accountId = token.Value<long>("accountId").ToString();
+                    if (!TryReadLong(token, "accountId", out var claimedAccountId))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ 消息监控领取结果缺少有效 accountId，已跳过: {token.ToString(Formatting.None)}");
+                        continue;
+                    }
+                    var accountId = claimedAccountId.ToString();
                     var row = _accounts.FirstOrDefault(x => x.Id.ToString() == accountId);
                     if (row == null) continue;
                     if (manual) row.OnlineStatus = 1;
@@ -445,12 +484,19 @@ namespace SocialMatrix.WpfHost.Windows
             var url = "https://www.facebook.com/";
             var mode = claim.Value<string>("mode") ?? account.Mode;
             account.State = "正在打开浏览器";
-            var opened = OpenBrowser(account, claim.Value<string>("cookie") ?? account.Cookie, claim.Value<long?>("deviceId"), url, claim.Value<long>("monitorId"), mode);
+            var monitorId = TryReadLong(claim, "monitorId", out var parsedMonitorId)
+                ? parsedMonitorId
+                : (long?)null;
+            var deviceId = TryReadLong(claim, "deviceId", out var parsedDeviceId)
+                ? parsedDeviceId
+                : (long?)null;
+            var opened = OpenBrowser(account, claim.Value<string>("cookie") ?? account.Cookie, deviceId, url, monitorId, mode);
             if (!opened)
             {
                 _ = RelayAsync("reportMonitor", new JObject
                 {
-                    ["monitorId"] = claim.Value<string>("monitorId") ?? claim.Value<long>("monitorId").ToString(),
+                    ["monitorId"] = claim.Value<string>("monitorId")
+                        ?? (TryReadLong(claim, "monitorId", out var failedMonitorId) ? failedMonitorId.ToString() : ""),
                     ["success"] = false,
                     ["errorMessage"] = "消息监控浏览器启动失败，已释放账号锁"
                 });

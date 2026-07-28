@@ -437,7 +437,6 @@ namespace SocialMatrix.WpfHost.Helpers
                 if (resourceType == ResourceType.Image && 
                     !url.Contains("favicon") && !url.Contains("/icon"))
                 {
-                    System.Diagnostics.Debug.WriteLine($"🚫 已阻止图片加载: {url}");
                     callback.Dispose();
                     return CefSharp.CefReturnValue.Cancel;
                 }
@@ -452,7 +451,6 @@ namespace SocialMatrix.WpfHost.Helpers
                     url.EndsWith(".wmv") || url.EndsWith(".flv") ||
                     url.EndsWith(".mkv"))
                 {
-                    System.Diagnostics.Debug.WriteLine($"🚫 已阻止视频加载: {url}");
                     callback.Dispose();
                     return CefSharp.CefReturnValue.Cancel;
                 }

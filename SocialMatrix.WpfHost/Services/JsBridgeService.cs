@@ -241,6 +241,7 @@ namespace SocialMatrix.WpfHost.Services
                         }
                     }
 
+                    mainWindow.CloseBrowserMatrixWindowIfEmpty();
                     System.Diagnostics.Debug.WriteLine($"📊 语言设置完成 - 总计:{accountItems.Count}, 成功:{successCount}, 失败:{failCount}");
                 }
                 catch (Exception ex)
@@ -346,15 +347,26 @@ namespace SocialMatrix.WpfHost.Services
         private async Task SwitchBrowserLanguage(MainWindow mainWindow, string accountId, string cookie,
             string languageCode, string nativeName, string englishName)
         {
-            var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
-            var hadExistingBrowser = browserMatrixWindow?.HasBrowser(accountId) == true;
-            if (browserMatrixWindow == null)
+            var browserMatrixWindow = mainWindow.GetOrCreateBrowserMatrixWindow(accountId);
+            var hadExistingBrowser = browserMatrixWindow.HasBrowser(accountId);
+            Task<BrowserMatrixWindow.FacebookPageState>? readyTask = null;
+            if (!hadExistingBrowser)
             {
+                // 注册首页完成事件后再创建 Tab，不能先创建再延迟等待，否则会错过初始化事件。
+                readyTask = browserMatrixWindow.WaitForBrowserReadyAsync(accountId);
                 var detailId = $"lang_{accountId}_{DateTime.Now.Ticks}";
                 mainWindow.CreateBrowserForAccount(detailId, accountId, cookie, null, 0, taskType: 99);
-                await Task.Delay(500);
-                browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId)
-                    ?? throw new InvalidOperationException("BrowserMatrixWindow创建失败");
+                var completed = await Task.WhenAny(readyTask, Task.Delay(30000));
+                if (completed != readyTask)
+                {
+                    throw new TimeoutException($"账号 {accountId} Facebook 首页初始化超时");
+                }
+                var state = await readyTask;
+                if (state != BrowserMatrixWindow.FacebookPageState.Authenticated)
+                {
+                    throw new InvalidOperationException(
+                        $"账号 {accountId} Facebook 首页未完成登录: {state}");
+                }
             }
             await browserMatrixWindow.SwitchLanguageForAccount(
                 accountId, cookie, languageCode, nativeName, englishName, closeAfterTask: !hadExistingBrowser);

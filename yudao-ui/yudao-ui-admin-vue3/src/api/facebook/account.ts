@@ -37,6 +37,13 @@ export const FbAccountApi = {
     return request.put({ url: '/facebook/fb-account/update-group', data })
   },
 
+  updateFbAccountLanguage: (id: number | string, languageCode: string) => {
+    return request.put({
+      url: '/facebook/fb-account/update-language',
+      params: { id, languageCode }
+    })
+  },
+
   updateFbAccountStatus: (data: FbAccountBatchStatusReqVO) => {
     return request.put({ url: '/facebook/fb-account/update-status', data })
   },
@@ -114,6 +121,7 @@ export interface FbAccount {
   proxyId?: number
   proxyName?: string
   language?: number
+  languageCode?: string
   creationDate?: string
   createTime?: string
 }

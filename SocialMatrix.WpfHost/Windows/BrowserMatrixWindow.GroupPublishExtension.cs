@@ -58,7 +58,7 @@ namespace SocialMatrix.WpfHost.Windows
                     ? detailIdOverride
                     : _accountDetailIds.TryGetValue(accountId, out var mappedDetailId)
                     ? mappedDetailId
-                    : CurrentDetailId ?? "";
+                    : "";
 
                 for (int i = 0; i < targetGroups.Count; i++)
                 {

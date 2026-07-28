@@ -1,6 +1,6 @@
 <template>
   <ContentWrap>
-    <div class="flex gap-4" style="height: calc(100vh - 200px);">
+    <div class="flex gap-4" style="height: calc(100vh - 200px)">
       <!-- 左侧：账号分组 -->
       <div class="w-250px flex-shrink-0">
         <el-card class="h-full" body-style="padding: 10px;">
@@ -12,13 +12,16 @@
               </el-button>
             </div>
           </template>
-          
+
           <el-scrollbar height="calc(100% - 50px)">
             <div
               v-for="group in groupList"
               :key="group.id"
               class="group-item p-2 rounded cursor-pointer mb-2 transition-all"
-              :class="{ 'bg-blue-50 border-blue-400': selectedGroupId === group.id, 'hover:bg-gray-50 border-transparent': selectedGroupId !== group.id }"
+              :class="{
+                'bg-blue-50 border-blue-400': selectedGroupId === group.id,
+                'hover:bg-gray-50 border-transparent': selectedGroupId !== group.id
+              }"
               @click="handleSelectGroup(group.id)"
             >
               <div class="flex justify-between items-center">
@@ -46,7 +49,7 @@
                 {{ group.description || '暂无描述' }}
               </div>
             </div>
-            
+
             <div
               v-if="!selectedGroupId"
               class="group-item p-2 rounded cursor-pointer mb-2 bg-blue-50 border-blue-400"
@@ -96,11 +99,15 @@
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
-            <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
+            <el-button @click="handleQuery"
+              ><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button
+            >
+            <el-button @click="resetQuery"
+              ><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button
+            >
           </el-form-item>
         </el-form>
-        
+
         <!-- 操作按钮栏 -->
         <div class="mt-2 mb-2 flex gap-2 flex-wrap">
           <el-button
@@ -111,7 +118,7 @@
           >
             <Icon icon="ep:plus" class="mr-5px" /> 新增
           </el-button>
-          
+
           <el-dropdown trigger="click" @command="handleImportCommand">
             <el-button type="primary" plain>
               <Icon icon="ep:download" class="mr-5px" /> 导入
@@ -128,7 +135,7 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          
+
           <el-button
             type="success"
             plain
@@ -177,12 +184,7 @@
           >
             <Icon icon="ep:promotion" class="mr-5px" /> 登录
           </el-button>
-          <el-button
-            type="success"
-            plain
-            :disabled="isEmpty(checkedIds)"
-            @click="openWarmupDialog"
-          >
+          <el-button type="success" plain :disabled="isEmpty(checkedIds)" @click="openWarmupDialog">
             <Icon icon="ep:cpu" class="mr-5px" /> 养号
           </el-button>
           <el-button
@@ -192,6 +194,14 @@
             @click="openProfileUploadDialog"
           >
             <Icon icon="ep:picture" class="mr-5px" /> 资料上传
+          </el-button>
+          <el-button
+            type="warning"
+            plain
+            :disabled="isEmpty(checkedIds)"
+            @click="openLanguageDialog"
+          >
+            <Icon icon="ep:translate" class="mr-5px" /> 切换语言
           </el-button>
         </div>
 
@@ -206,7 +216,7 @@
               :fit="false"
               :show-overflow-tooltip="true"
               @selection-change="handleRowCheckboxChange"
-              style="width: 100%;"
+              style="width: 100%"
             >
               <el-table-column type="selection" width="55" />
               <el-table-column label="头像" align="center" width="80">
@@ -230,7 +240,10 @@
               </el-table-column>
               <el-table-column label="启用状态" align="center" width="100">
                 <template #default="scope">
-                  <el-tag :type="isAccountEnabled(scope.row.status) ? 'success' : 'info'" size="small">
+                  <el-tag
+                    :type="isAccountEnabled(scope.row.status) ? 'success' : 'info'"
+                    size="small"
+                  >
                     {{ isAccountEnabled(scope.row.status) ? '启用' : '禁用' }}
                   </el-tag>
                 </template>
@@ -249,6 +262,25 @@
                   <el-tag v-else :type="getLoginStatusType(scope.row.loginStatus)" size="small">
                     {{ getLoginStatusLabel(scope.row.loginStatus) }}
                   </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column align="center" width="150">
+                <template #header>
+                  <el-tooltip
+                    content="这里显示系统保存的切换目标，不会实时读取 Facebook 当前语言；未设置表示使用账号当前语言。"
+                    placement="top"
+                  >
+                    <span class="inline-flex items-center gap-1 cursor-help">
+                      语言
+                      <Icon icon="ep:question-filled" />
+                    </span>
+                  </el-tooltip>
+                </template>
+                <template #default="scope">
+                  <el-tag v-if="scope.row.languageCode" type="info" size="small">
+                    {{ getFacebookLanguageLabel(scope.row.languageCode) }}
+                  </el-tag>
+                  <span v-else class="text-gray-400">账号当前语言</span>
                 </template>
               </el-table-column>
               <el-table-column label="备注" align="center" prop="remark" width="180" />
@@ -295,22 +327,23 @@
 
   <!-- 表单弹窗：添加/修改 -->
   <FbAccountForm ref="formRef" @success="getList" />
-  
+
   <!-- 分组表单弹窗 -->
   <AccountGroupForm ref="groupFormRef" @success="loadGroups" />
-  
+
   <!-- 导入账号弹窗 -->
   <FbAccountImportDialog ref="importDialogRef" @success="getList" />
-  
+
   <!-- 导入Cookie弹窗 -->
   <FbAccountCookieImportDialog ref="cookieImportDialogRef" @success="getList" />
-  
+
   <!-- 批量修改代理弹窗 -->
   <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
   <!-- 批量修改分组弹窗 -->
   <FbAccountBatchUpdateGroupDialog ref="batchUpdateGroupDialogRef" @success="getList" />
   <FbAccountWarmupDialog ref="warmupDialogRef" />
   <FbAccountProfileUploadDialog ref="profileUploadDialogRef" @success="getList" />
+  <SetLanguageDialog ref="languageDialogRef" />
 </template>
 
 <script setup lang="ts">
@@ -328,6 +361,8 @@ import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.v
 import FbAccountBatchUpdateGroupDialog from './FbAccountBatchUpdateGroupDialog.vue'
 import FbAccountWarmupDialog from './FbAccountWarmupDialog.vue'
 import FbAccountProfileUploadDialog from './FbAccountProfileUploadDialog.vue'
+import SetLanguageDialog from './SetLanguageDialog.vue'
+import { facebookLanguages } from './facebookLanguages'
 import { useMessage } from '@/hooks/web/useMessage'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
@@ -351,7 +386,7 @@ const queryParams = reactive({
   pageNo: 1,
   pageSize: 10,
   fbAccount: undefined,
-  proxyId: undefined as number | null | undefined,
+  proxyId: undefined as number | null | undefined
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
@@ -373,6 +408,7 @@ const batchUpdateProxyDialogRef = ref()
 const batchUpdateGroupDialogRef = ref()
 const warmupDialogRef = ref()
 const profileUploadDialogRef = ref()
+const languageDialogRef = ref()
 const loginRunning = ref(false)
 
 const applyGroupNames = () => {
@@ -386,6 +422,12 @@ const applyGroupNames = () => {
 }
 
 const isAccountEnabled = (status: unknown) => status === true || status === 1 || status === '1'
+
+const getFacebookLanguageLabel = (languageCode?: string) => {
+  if (!languageCode) return '账号当前语言'
+  const language = facebookLanguages.find((item) => item.code === languageCode)
+  return language?.nativeName || languageCode
+}
 
 const getLoginStatusLabel = (status?: string) => {
   switch (String(status || '').toUpperCase()) {
@@ -444,7 +486,7 @@ const getList = async () => {
   try {
     const params = {
       ...queryParams,
-      groupId: selectedGroupId.value,
+      groupId: selectedGroupId.value
     }
     const data = await FbAccountApi.getFbAccountPage(params)
     list.value = data.list || []
@@ -559,14 +601,18 @@ const updateAccountLoginState = (result: FbAccountLoginBridgeResult) => {
 }
 
 const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
-  if (!['success', 'failed', 'cookie_invalid', 'account_disabled', 'skipped'].includes(result.status)) return
-  const loginStatus = result.status === 'success'
-    ? 'SUCCESS'
-    : result.status === 'cookie_invalid'
-      ? 'COOKIE_INVALID'
-      : result.status === 'account_disabled'
-        ? 'ABNORMAL'
-        : 'FAILED'
+  if (
+    !['success', 'failed', 'cookie_invalid', 'account_disabled', 'skipped'].includes(result.status)
+  )
+    return
+  const loginStatus =
+    result.status === 'success'
+      ? 'SUCCESS'
+      : result.status === 'cookie_invalid'
+        ? 'COOKIE_INVALID'
+        : result.status === 'account_disabled'
+          ? 'ABNORMAL'
+          : 'FAILED'
 
   await FbAccountApi.updateFbAccountLoginResult({
     id: String(result.accountDbId),
@@ -623,7 +669,7 @@ const handleExport = async () => {
     exportLoading.value = true
     const params = {
       ...queryParams,
-      groupId: selectedGroupId.value,
+      groupId: selectedGroupId.value
     }
     const data = await FbAccountApi.exportFbAccount(params)
     download.excel(data, 'FB账号.xls')
@@ -690,7 +736,9 @@ const handleBatchCommand = (command: string) => {
 const handleBatchStatus = async (status: boolean) => {
   if (isEmpty(checkedIds.value)) return
   try {
-    await message.confirm(`确认${status ? '启用' : '禁用'}选中的 ${checkedIds.value.length} 个账号吗？`)
+    await message.confirm(
+      `确认${status ? '启用' : '禁用'}选中的 ${checkedIds.value.length} 个账号吗？`
+    )
     await FbAccountApi.updateFbAccountStatus({ ids: checkedIds.value, status })
     checkedIds.value = []
     message.success(`${status ? '启用' : '禁用'}成功`)
@@ -708,6 +756,15 @@ const openProfileUploadDialog = () => {
   profileUploadDialogRef.value.open(selectedAccounts)
 }
 
+const openLanguageDialog = () => {
+  const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
+  if (!selectedAccounts.length) {
+    message.warning('请先选择账号')
+    return
+  }
+  languageDialogRef.value.open(selectedAccounts)
+}
+
 /** 初始化 **/
 onMounted(() => {
   loadGroups()
@@ -723,7 +780,9 @@ onMounted(() => {
     loginRunning.value = false
     await Promise.allSettled(results.map((item) => persistAccountLoginState(item)))
     await getList()
-    message.notifySuccess(`批量登录完成，成功 ${summary.success}，失败 ${summary.failed}，跳过 ${summary.skipped}`)
+    message.notifySuccess(
+      `批量登录完成，成功 ${summary.success}，失败 ${summary.failed}，跳过 ${summary.skipped}`
+    )
   })
 })
 </script>

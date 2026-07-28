@@ -7,6 +7,11 @@
         WindowStartupLocation="CenterScreen">
     
     <Grid>
-        <TabControl x:Name="BrowserTabs" Margin="0" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="34" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TabControl x:Name="BrowserTabs" Grid.Row="0" Margin="0" Height="34" />
+        <Grid x:Name="BrowserHostGrid" Grid.Row="1" />
     </Grid>
 </Window>

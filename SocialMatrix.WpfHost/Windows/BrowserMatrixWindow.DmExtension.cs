@@ -67,7 +67,6 @@ namespace SocialMatrix.WpfHost.Windows
         public async Task ExecuteDmDetailAsync(string taskId, string detailId, string accountId, string fbUserId, string messageText)
         {
             _accountDetailIds[accountId] = detailId;
-            CurrentDetailId = detailId;
             _dmTaskIds[accountId] = taskId;
             await SendDirectMessage(accountId, fbUserId, messageText, taskId, detailId);
         }
@@ -75,7 +74,9 @@ namespace SocialMatrix.WpfHost.Windows
         public async Task SendDirectMessage(string accountId, string fbUserId, string messageText, string? taskId = null, string? detailId = null)
         {
             taskId ??= _dmTaskIds.TryGetValue(accountId, out var tid) ? tid : "";
-            detailId ??= _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+            detailId ??= _accountDetailIds.TryGetValue(accountId, out var mappedDetailId)
+                ? mappedDetailId
+                : "";
 
             if (!_browsers.TryGetValue(accountId, out var browser))
             {
@@ -85,7 +86,7 @@ namespace SocialMatrix.WpfHost.Windows
                 return;
             }
 
-            if (!_dmSendingAccounts.Add(accountId))
+            if (!_dmSendingAccounts.TryAdd(accountId, 0))
             {
                 const string runningMessage = "账号正在发送上一条私信";
                 System.Diagnostics.Debug.WriteLine($"⚠️ {runningMessage}: account={accountId}, detail={detailId}");
@@ -186,7 +187,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
             finally
             {
-                _dmSendingAccounts.Remove(accountId);
+                _dmSendingAccounts.TryRemove(accountId, out _);
             }
         }
     }

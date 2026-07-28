@@ -5,10 +5,12 @@ using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Helpers;
 using SocialMatrix.WpfHost.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -21,21 +23,23 @@ namespace SocialMatrix.WpfHost.Windows
     {
         private readonly Dictionary<string, ChromiumWebBrowser> _browsers = new();
         private readonly Dictionary<string, System.Windows.Controls.TabItem> _browserTabs = new();
+        private readonly Dictionary<string, System.Windows.Controls.Grid> _browserContainers = new();
         private readonly Dictionary<string, bool> _browserInitialized = new(); // 跟踪指纹注入状态
+        private readonly Dictionary<string, TaskCompletionSource<FacebookPageState>> _browserReadySignals = new();
         private readonly Dictionary<string, string> _browserLoadErrors = new(); // 账号最近一次页面加载错误
         private readonly object _browserLoadErrorLock = new();
-        private readonly Dictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
-        private readonly Dictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
+        private readonly ConcurrentDictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
+        private readonly ConcurrentDictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
         // 一个账号只有一个浏览器 Tab，也只能同时执行一个业务任务。
         // 采集、AI 获客、运营、私信和资料任务都必须经过这里。
-        private readonly Dictionary<string, string> _activeAccountTasks = new(); // 账号 -> 当前任务明细ID
+        private readonly ConcurrentDictionary<string, string> _activeAccountTasks = new(); // 账号 -> 当前任务明细ID
         private readonly Dictionary<string, IRequestContext> _requestContexts = new(); // 账号 -> 独立请求上下文
-        private readonly Dictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
-        private readonly Dictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
-        private readonly Dictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
-        private readonly HashSet<string> _dmSendingAccounts = new(); // 账号 -> 私信发送中，避免同账号并发串消息
+        private readonly ConcurrentDictionary<string, (string fbUserId, string messageText)> _dmOperationParams = new(); // 账号 -> 私信参数
+        private readonly ConcurrentDictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
+        private readonly ConcurrentDictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
+        private readonly ConcurrentDictionary<string, byte> _dmSendingAccounts = new(); // 账号 -> 私信发送中，避免同账号并发串消息
 
-        private enum FacebookPageState
+        public enum FacebookPageState
         {
             Authenticated,
             LoginPage,
@@ -47,12 +51,20 @@ namespace SocialMatrix.WpfHost.Windows
             Unknown
         }
 
-        // 当前明细ID(用于回传,单任务场景，兼容旧逻辑)
-        public string? CurrentDetailId { get; set; }
-
         // 采集结果回调
         public event Action<string, string, string, int>? OnCollectionComplete; // (detailId, accountId, jsonData, taskType)
         public event Action<string, string>? OnCollectionError;    // (accountId, errorMessage)
+
+        /// <summary>
+        /// 注册一个账号的首页初始化完成等待。调用方必须在创建浏览器前注册。
+        /// </summary>
+        public Task<FacebookPageState> WaitForBrowserReadyAsync(string accountId)
+        {
+            var signal = new TaskCompletionSource<FacebookPageState>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _browserReadySignals[accountId] = signal;
+            return signal.Task;
+        }
 
         // 最大并发数配置（从后端读取，默认19 - 8GB内存推荐值）
         private static int _maxConcurrentBrowsers = 19;
@@ -114,6 +126,7 @@ namespace SocialMatrix.WpfHost.Windows
         {
             InitializeComponent();
             _instances.Add(this);
+            BrowserTabs.SelectionChanged += (_, _) => ShowSelectedBrowserTab();
 
             // 监听窗口大小变化，重新计算布局
             this.SizeChanged += (sender, e) =>
@@ -183,7 +196,9 @@ namespace SocialMatrix.WpfHost.Windows
             }
             _browsers.Clear();
             _browserTabs.Clear();
+            _browserContainers.Clear();
             _browserInitialized.Clear();
+            _browserReadySignals.Clear();
             lock (_browserLoadErrorLock)
             {
                 _browserLoadErrors.Clear();
@@ -266,7 +281,6 @@ namespace SocialMatrix.WpfHost.Windows
             if (!string.IsNullOrEmpty(detailId))
             {
                 _accountDetailIds[accountId] = detailId;
-                CurrentDetailId = detailId;
             }
 
             // 存储是否为运营任务
@@ -398,6 +412,7 @@ namespace SocialMatrix.WpfHost.Windows
             // 创建 Tab 内容容器：顶部显示 URL，浏览器占满剩余空间
             var container = new System.Windows.Controls.Grid();
             container.Tag = accountId; // 保存 accountId 以便后续查找
+            container.Visibility = Visibility.Hidden;
             container.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
             {
                 Height = new System.Windows.GridLength(18)
@@ -476,12 +491,14 @@ namespace SocialMatrix.WpfHost.Windows
             var tab = new System.Windows.Controls.TabItem
             {
                 Header = tabHeader,
-                Content = container,
                 Tag = accountId
             };
             _browserTabs[accountId] = tab;
+            _browserContainers[accountId] = container;
+            BrowserHostGrid.Children.Add(container);
             BrowserTabs.Items.Add(tab);
             BrowserTabs.SelectedItem = tab;
+            ShowSelectedBrowserTab();
 
             // 更新布局
             UpdateLayout();
@@ -529,6 +546,10 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹脚本注入完成 (DeviceName={fingerprint.DeviceName})");
 
                         var pageState = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
+                        if (_browserReadySignals.TryGetValue(accountId, out var readySignal))
+                        {
+                            readySignal.TrySetResult(pageState);
+                        }
                         if (!string.IsNullOrEmpty(cookie))
                         {
                             if (pageState != FacebookPageState.Authenticated)
@@ -566,6 +587,10 @@ namespace SocialMatrix.WpfHost.Windows
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 初始化失败: {ex.Message}");
+                        if (_browserReadySignals.TryGetValue(accountId, out var failedReadySignal))
+                        {
+                            failedReadySignal.TrySetException(ex);
+                        }
                         ReleaseAccountTask(accountId, detailId);
                         OnCollectionError?.Invoke(accountId, $"浏览器初始化失败: {ex.Message}");
                     }
@@ -712,10 +737,32 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
+        /// 所有浏览器都常驻在 BrowserHostGrid 中，Tab 切换只改变显示状态。
+        /// 使用 Hidden 而不是 Collapsed，避免切换时重新创建或重新布局浏览器。
+        /// </summary>
+        private void ShowSelectedBrowserTab()
+        {
+            var selectedAccountId = (BrowserTabs.SelectedItem as System.Windows.Controls.TabItem)?.Tag?.ToString();
+            foreach (var pair in _browserContainers)
+            {
+                pair.Value.Visibility = string.Equals(pair.Key, selectedAccountId, StringComparison.Ordinal)
+                    ? Visibility.Visible
+                    : Visibility.Hidden;
+            }
+        }
+
+        /// <summary>
         /// 关闭浏览器实例
         /// </summary>
         public void CloseBrowser(string accountId)
         {
+            if (Application.Current?.Dispatcher != null
+                && !Application.Current.Dispatcher.CheckAccess())
+            {
+                Application.Current.Dispatcher.Invoke(() => CloseBrowser(accountId));
+                return;
+            }
+
             if (!_browsers.ContainsKey(accountId)) return;
             RemoveBrowserState(accountId, disposeBrowser: true);
             System.Diagnostics.Debug.WriteLine($"✅ 已关闭账号 {accountId} 的浏览器");
@@ -748,9 +795,16 @@ namespace SocialMatrix.WpfHost.Windows
                 _browserTabs.Remove(accountId);
             }
 
+            if (_browserContainers.TryGetValue(accountId, out var container))
+            {
+                BrowserHostGrid.Children.Remove(container);
+                _browserContainers.Remove(accountId);
+            }
+
             _browserInitialized.Remove(accountId);
-            _accountTaskTypes.Remove(accountId);
-            _accountIsOperation.Remove(accountId);
+            _accountTaskTypes.TryRemove(accountId, out _);
+            _accountIsOperation.TryRemove(accountId, out _);
+            ShowSelectedBrowserTab();
             UpdateLayout();
         }
 
@@ -760,9 +814,12 @@ namespace SocialMatrix.WpfHost.Windows
             if (!string.IsNullOrWhiteSpace(detailId)
                 && !string.Equals(activeDetailId, detailId, StringComparison.Ordinal)) return;
 
-            _activeAccountTasks.Remove(accountId);
-            System.Diagnostics.Debug.WriteLine(
-                $"🔓 释放账号任务锁: account={accountId}, detailId={activeDetailId}");
+            if (_activeAccountTasks.TryRemove(
+                    new KeyValuePair<string, string>(accountId, activeDetailId)))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"🔓 释放账号任务锁: account={accountId}, detailId={activeDetailId}");
+            }
         }
 
         private async Task<FacebookPageState> DetectFacebookPageStateWithRetryAsync(ChromiumWebBrowser browser, string accountId)
@@ -966,7 +1023,9 @@ namespace SocialMatrix.WpfHost.Windows
         private async Task StartOperationTask(ChromiumWebBrowser browser, string accountId,
             string searchUrl, int expectedCount, int taskType = 9, string? config = null, string? detailId = null)
         {
-            System.Diagnostics.Debug.WriteLine($"🚀 开始运营任务: taskType={taskType}, url={searchUrl}");
+            System.Diagnostics.Debug.WriteLine(
+                $"🚀 开始运营任务: account={accountId}, detailId={detailId}, taskType={taskType}, " +
+                $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}, url={searchUrl}");
 
             try
             {
@@ -1027,7 +1086,8 @@ namespace SocialMatrix.WpfHost.Windows
                         var addGroupJson = await ExecuteAddGroupTaskAsync(browser, accountId, config);
                         if (addGroupJson != null)
                         {
-                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string callbackDetailId = detailId
+                                ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDetailId) ? mappedDetailId : "");
                             OnCollectionComplete?.Invoke(callbackDetailId, accountId, addGroupJson, 9);
                         }
                         break;
@@ -1048,7 +1108,8 @@ namespace SocialMatrix.WpfHost.Windows
                                 if (!string.IsNullOrEmpty(fbUserId) && !string.IsNullOrEmpty(messageText))
                                 {
                                     string dmTaskId = configObj.ContainsKey("taskId") ? configObj.Value<string>("taskId") ?? "" : "";
-                                    string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+                                    string dmDetailId = detailId
+                                        ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDmDetailId) ? mappedDmDetailId : "");
                                     await SendDirectMessage(accountId, fbUserId, messageText, dmTaskId, dmDetailId);
                                 }
                                 else
@@ -1066,7 +1127,8 @@ namespace SocialMatrix.WpfHost.Windows
                         else if (_dmOperationParams.TryGetValue(accountId, out var dmParams))
                         {
                             string dmTaskId = _dmTaskIds.TryGetValue(accountId, out var tid) ? tid : "";
-                            string dmDetailId = _accountDetailIds.TryGetValue(accountId, out var did) ? did : (CurrentDetailId ?? "");
+                            string dmDetailId = detailId
+                                ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDmDetailId) ? mappedDmDetailId : "");
                             await SendDirectMessage(accountId, dmParams.fbUserId, dmParams.messageText, dmTaskId, dmDetailId);
                         }
                         else
@@ -1100,7 +1162,8 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine("⏳ 转帖脚本执行返回");
                         if (result.Success)
                         {
-                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string callbackDetailId = detailId
+                                ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDetailId) ? mappedDetailId : "");
                             string resultStr = result.Result?.ToString() ?? "[]";
                             System.Diagnostics.Debug.WriteLine($"✅ 转帖执行完成: {resultStr}");
                             OnCollectionComplete?.Invoke(callbackDetailId, accountId, resultStr, taskType);
@@ -1132,7 +1195,8 @@ namespace SocialMatrix.WpfHost.Windows
                         var followResult = await followEvalTask;
                         if (followResult.Success)
                         {
-                            string callbackDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                            string callbackDetailId = detailId
+                                ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDetailId) ? mappedDetailId : "");
                             string resultStr = followResult.Result?.ToString() ?? "[]";
                             System.Diagnostics.Debug.WriteLine($"✅ 刷粉执行完成: {resultStr}");
                             OnCollectionComplete?.Invoke(callbackDetailId, accountId, resultStr, 16);
@@ -1167,7 +1231,8 @@ namespace SocialMatrix.WpfHost.Windows
                                 profileGlobalConfig.DisableImages,
                                 profileGlobalConfig.DisableVideos);
                         }
-                        var profileDetailId = _accountDetailIds.ContainsKey(accountId) ? _accountDetailIds[accountId] : (CurrentDetailId ?? "");
+                        var profileDetailId = detailId
+                            ?? (_accountDetailIds.TryGetValue(accountId, out var mappedProfileDetailId) ? mappedProfileDetailId : "");
                         OnCollectionComplete?.Invoke(profileDetailId, accountId, profileJson, 18);
                         break;
 
@@ -1185,6 +1250,9 @@ namespace SocialMatrix.WpfHost.Windows
             finally
             {
                 ReleaseAccountTask(accountId, detailId);
+                System.Diagnostics.Debug.WriteLine(
+                    $"🏁 运营任务结束: account={accountId}, detailId={detailId}, " +
+                    $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}");
             }
         }
 
@@ -1200,6 +1268,7 @@ namespace SocialMatrix.WpfHost.Windows
             if (actions.Count == 0)
             {
                 OnCollectionError?.Invoke(accountId, "未选择养号动作");
+                CloseBrowser(accountId);
                 return;
             }
 
@@ -1212,6 +1281,25 @@ namespace SocialMatrix.WpfHost.Windows
             int likeProbability = Math.Clamp(config.Value<int?>("likeProbability") ?? 0, 0, 100);
             var random = new Random();
             var deadline = DateTime.UtcNow.AddMinutes(durationMinutes);
+            using var durationCts = new CancellationTokenSource();
+            var durationWatchdog = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(durationMinutes), durationCts.Token);
+                    if (!durationCts.IsCancellationRequested && !browser.IsDisposed)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⏱️ 账号 {accountId} 养号达到设定时长 {durationMinutes} 分钟，立即关闭浏览器");
+                        durationCts.Cancel();
+                        CloseBrowser(accountId);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // 任务提前完成时取消 watchdog。
+                }
+            });
             int friendProfiles = 0;
             int reels = 0;
 
@@ -1219,45 +1307,58 @@ namespace SocialMatrix.WpfHost.Windows
 
             try
             {
-                while (DateTime.UtcNow < deadline)
+                while (DateTime.UtcNow < deadline && !durationCts.IsCancellationRequested && !browser.IsDisposed)
                 {
                     var round = actions.OrderBy(_ => random.Next()).ToList();
                     foreach (var action in round)
                     {
-                        if (DateTime.UtcNow >= deadline || browser.IsDisposed)
+                        if (DateTime.UtcNow >= deadline || durationCts.IsCancellationRequested || browser.IsDisposed)
                             break;
 
                         switch (action.ToLowerInvariant())
                         {
                             case "feed_scroll":
+                                System.Diagnostics.Debug.WriteLine($"🌱 养号动作开始: account={accountId}, action=feed_scroll");
                                 await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com", 30000);
-                                await RunWarmupScriptAsync(browser, GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds));
+                                await RunWarmupScriptAsync(browser,
+                                    GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds),
+                                    GetWarmupScriptTimeoutMs(maxStaySeconds));
                                 break;
                             case "safe_click":
-                                await RunWarmupScriptAsync(browser, GenerateWarmupSafeClickScript(minStaySeconds, maxStaySeconds));
+                                System.Diagnostics.Debug.WriteLine($"🌱 养号动作开始: account={accountId}, action=safe_click");
+                                await RunWarmupScriptAsync(browser,
+                                    GenerateWarmupSafeClickScript(minStaySeconds, maxStaySeconds),
+                                    GetWarmupScriptTimeoutMs(maxStaySeconds));
                                 break;
                             case "friend_profile":
                                 if (friendProfiles >= maxFriendProfiles) break;
+                                System.Diagnostics.Debug.WriteLine($"🌱 养号动作开始: account={accountId}, action=friend_profile");
                                 await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/friends", 30000);
-                                var profileResult = await browser.EvaluateScriptAsync(GenerateWarmupFriendLinkScript());
-                                var profileUrl = profileResult.Success ? profileResult.Result?.ToString() : null;
+                                var profileResult = await EvaluateWarmupScriptAsync(
+                                    browser, GenerateWarmupFriendLinkScript(), 15000);
+                                var profileUrl = profileResult?.Success == true ? profileResult.Result?.ToString() : null;
                                 if (!string.IsNullOrWhiteSpace(profileUrl))
                                 {
                                     await NavigateBrowserToUrlAsync(browser, accountId, profileUrl, 30000);
-                                    await RunWarmupScriptAsync(browser, GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds));
+                                    await RunWarmupScriptAsync(browser,
+                                        GenerateWarmupFeedScript(minStaySeconds, maxStaySeconds),
+                                        GetWarmupScriptTimeoutMs(maxStaySeconds));
                                     friendProfiles++;
                                     await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/friends", 30000);
                                 }
                                 break;
                             case "reels":
                                 if (reels >= maxReels) break;
+                                System.Diagnostics.Debug.WriteLine($"🌱 养号动作开始: account={accountId}, action=reels");
                                 await NavigateBrowserToUrlAsync(browser, accountId, "https://www.facebook.com/reel", 30000);
-                                await RunWarmupScriptAsync(browser, GenerateWarmupReelsScript(minStaySeconds, maxStaySeconds, enableLike, likeProbability));
+                                await RunWarmupScriptAsync(browser,
+                                    GenerateWarmupReelsScript(minStaySeconds, maxStaySeconds, enableLike, likeProbability),
+                                    GetWarmupScriptTimeoutMs(maxStaySeconds));
                                 reels++;
                                 break;
                         }
 
-                        if (DateTime.UtcNow < deadline)
+                        if (DateTime.UtcNow < deadline && !durationCts.IsCancellationRequested)
                             await Task.Delay(random.Next(1000, 3500));
                     }
 
@@ -1266,21 +1367,82 @@ namespace SocialMatrix.WpfHost.Windows
                         break;
                 }
 
-                var detailId = _accountDetailIds.TryGetValue(accountId, out var currentDetailId) ? currentDetailId : (CurrentDetailId ?? "");
-                OnCollectionComplete?.Invoke(detailId, accountId, "{\"success\":true,\"type\":\"warmup\"}", 17);
-                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 养号任务完成");
+                if (!durationCts.IsCancellationRequested && !browser.IsDisposed)
+                {
+                    var detailId = _accountDetailIds.TryGetValue(accountId, out var currentDetailId)
+                        ? currentDetailId
+                        : "";
+                    OnCollectionComplete?.Invoke(detailId, accountId, "{\"success\":true,\"type\":\"warmup\"}", 17);
+                    System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 养号任务完成");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"⏱️ 账号 {accountId} 养号达到设定时长，跳过成功回传");
+                }
+            }
+            catch (Exception ex)
+                when (durationCts.IsCancellationRequested || browser.IsDisposed)
+            {
+                // 到达养号时长后 watchdog 会先关闭浏览器；正在等待的 CEF JS
+                // 任务随后可能返回 TimeoutException，这属于正常收尾，不算任务失败。
+                System.Diagnostics.Debug.WriteLine(
+                    $"⏱️ 账号 {accountId} 养号已结束，忽略浏览器关闭后的脚本异常: {ex.Message}");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 养号任务失败: {ex.Message}");
                 OnCollectionError?.Invoke(accountId, $"养号任务失败: {ex.Message}");
             }
+            finally
+            {
+                durationCts.Cancel();
+                await durationWatchdog;
+                // 养号完成事件不会经过采集结果回传链路，必须由 WPF 在到时或异常后主动关闭浏览器。
+                if (!browser.IsDisposed)
+                {
+                    CloseBrowser(accountId);
+                    System.Diagnostics.Debug.WriteLine($"🛑 账号 {accountId} 养号结束，已关闭浏览器并释放资源");
+                }
+            }
         }
 
-        private static async Task RunWarmupScriptAsync(ChromiumWebBrowser browser, string script)
+        private static int GetWarmupScriptTimeoutMs(int maxStaySeconds)
+        {
+            // JS 停留时间之外保留少量余量；页面脚本异常时不能无限等待。
+            return Math.Clamp((maxStaySeconds + 15) * 1000, 30000, 120000);
+        }
+
+        private static async Task<JavascriptResponse?> EvaluateWarmupScriptAsync(
+            ChromiumWebBrowser browser, string script, int timeoutMs)
+        {
+            var evaluateTask = browser.EvaluateScriptAsync(script);
+            var completed = await Task.WhenAny(evaluateTask, Task.Delay(timeoutMs));
+            if (completed != evaluateTask)
+            {
+                if (browser.IsDisposed)
+                {
+                    return null;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"⚠️ 养号脚本等待超时 ({timeoutMs}ms)，跳过当前动作");
+                return null;
+            }
+
+            try
+            {
+                return await evaluateTask;
+            }
+            catch (Exception) when (browser.IsDisposed)
+            {
+                return null;
+            }
+        }
+
+        private static async Task RunWarmupScriptAsync(ChromiumWebBrowser browser, string script, int timeoutMs)
         {
             if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame) return;
-            var result = await browser.EvaluateScriptAsync(script);
+            var result = await EvaluateWarmupScriptAsync(browser, script, timeoutMs);
+            if (result == null) return;
             if (!result.Success)
                 System.Diagnostics.Debug.WriteLine($"⚠️ 养号脚本执行失败: {result.Message}");
         }
@@ -1407,6 +1569,9 @@ namespace SocialMatrix.WpfHost.Windows
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId,
             string searchUrl, int expectedCount, int taskType = 1, string? config = null, string? detailId = null)
         {
+            System.Diagnostics.Debug.WriteLine(
+                $"🚀 开始采集任务: account={accountId}, detailId={detailId}, taskType={taskType}, " +
+                $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}, url={searchUrl}");
             try
             {
                 System.Diagnostics.Debug.WriteLine($"🚀 开始自动化采集: {searchUrl}");
@@ -1685,9 +1850,8 @@ namespace SocialMatrix.WpfHost.Windows
 
                     // 4. 触发回调,将数据传回(包含 detailId)
                     int actualTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 1;
-                    string callbackDetailId = _accountDetailIds.ContainsKey(accountId)
-                        ? _accountDetailIds[accountId]
-                        : (CurrentDetailId ?? "");
+                    string callbackDetailId = detailId
+                        ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDetailId) ? mappedDetailId : "");
                     OnCollectionComplete?.Invoke(callbackDetailId, accountId, jsonData, actualTaskType);
                 }
                 else
@@ -1705,6 +1869,9 @@ namespace SocialMatrix.WpfHost.Windows
             finally
             {
                 ReleaseAccountTask(accountId, detailId);
+                System.Diagnostics.Debug.WriteLine(
+                    $"🏁 采集任务结束: account={accountId}, detailId={detailId}, " +
+                    $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}");
             }
         }
 
@@ -3093,10 +3260,15 @@ namespace SocialMatrix.WpfHost.Windows
 
             var createdForLanguageTask = closeAfterTask;
             string? restoreUrl = null;
+            TaskCompletionSource<FacebookPageState>? readySignal = null;
             try
             {
                 if (!_browsers.TryGetValue(accountId, out var browser) || browser.IsDisposed)
                 {
+                    // 必须先注册初始化完成信号，再创建浏览器，避免首页加载完成事件先于等待逻辑触发。
+                    readySignal = new TaskCompletionSource<FacebookPageState>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    _browserReadySignals[accountId] = readySignal;
                     CreateBrowser(accountId, "https://www.facebook.com", cookie, null, 0,
                         deviceId: null, taskType: 99, config: null, detailId: null, isOperation: false);
                     createdForLanguageTask = true;
@@ -3110,7 +3282,28 @@ namespace SocialMatrix.WpfHost.Windows
                     {
                         throw new TimeoutException($"账号 {accountId} 浏览器创建超时");
                     }
-                    await Task.Delay(1200);
+
+                    // 新建浏览器必须等待与采集相同的初始化完成事件，再进入语言设置。
+                    System.Diagnostics.Debug.WriteLine($"⏳ 等待账号 {accountId} Facebook 首页初始化完成...");
+                    var readyTask = readySignal.Task;
+                    var completed = await Task.WhenAny(readyTask, Task.Delay(30000));
+                    if (completed != readyTask)
+                    {
+                        throw new TimeoutException($"账号 {accountId} Facebook 首页初始化超时");
+                    }
+                    var homeState = await readyTask;
+                    if (homeState != FacebookPageState.Authenticated)
+                    {
+                        throw new InvalidOperationException(
+                            $"Facebook 首页未完成登录态确认: {GetPageStateMessage(homeState)}");
+                    }
+                    System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Facebook 首页已加载并确认登录");
+                    _browserReadySignals.Remove(accountId);
+                }
+                else
+                {
+                    // 已存在 Tab 也要等当前导航完成，避免在加载中的页面上发起设置页跳转。
+                    await WaitForPageLoad(browser, 30000);
                 }
 
                 restoreUrl = browser.Address;
@@ -3122,7 +3315,8 @@ namespace SocialMatrix.WpfHost.Windows
 
                 System.Diagnostics.Debug.WriteLine($"📌 导航到语言设置页面: {languageUrl}");
 
-                await WaitForPageLoad(browser, 30000);
+                await WaitForFacebookNavigationAsync(browser, languageUrl, 30000);
+                System.Diagnostics.Debug.WriteLine($"📌 语言设置页已就绪，当前地址: {browser.Address}");
 
                 var switchScript = GenerateLanguageSwitchScript(languageCode, nativeName, englishName);
                 System.Diagnostics.Debug.WriteLine($"🚀 执行语言切换脚本");
@@ -3156,6 +3350,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
             finally
             {
+                _browserReadySignals.Remove(accountId);
                 if (createdForLanguageTask)
                 {
                     CloseBrowser(accountId);
@@ -3166,6 +3361,16 @@ namespace SocialMatrix.WpfHost.Windows
                          && !existingBrowser.IsDisposed)
                 {
                     Application.Current.Dispatcher.Invoke(() => existingBrowser.Load(restoreUrl));
+                    try
+                    {
+                        await WaitForPageLoad(existingBrowser, 30000);
+                        System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 已恢复原页面: {restoreUrl}");
+                    }
+                    catch (Exception restoreException)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ 账号 {accountId} 恢复原页面超时: {restoreException.Message}");
+                    }
                 }
                 ReleaseAccountTask(accountId, detailId);
             }
@@ -3396,6 +3601,48 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
+        /// 等待 Facebook 导航真正完成。不能只看 IsLoading，因为调用 Load 后该属性可能尚未切换。
+        /// </summary>
+        private async Task WaitForFacebookNavigationAsync(ChromiumWebBrowser browser, string expectedUrl, int timeoutMs)
+        {
+            var startTime = DateTime.UtcNow;
+            while ((DateTime.UtcNow - startTime).TotalMilliseconds < timeoutMs)
+            {
+                if (browser.IsDisposed)
+                {
+                    throw new InvalidOperationException("语言设置页浏览器已关闭");
+                }
+
+                string address = "";
+                bool isLoading = true;
+                bool canExecute = false;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    address = browser.Address ?? "";
+                    isLoading = browser.IsLoading;
+                    canExecute = browser.CanExecuteJavascriptInMainFrame;
+                });
+
+                var expectedPath = new Uri(expectedUrl).AbsolutePath;
+                var reachedTarget = address.Contains(expectedPath, StringComparison.OrdinalIgnoreCase);
+                if (reachedTarget && !isLoading && canExecute)
+                {
+                    var readyResult = await browser.EvaluateScriptAsync(
+                        "document.readyState === 'complete' && !!document.body");
+                    if (readyResult.Success && readyResult.Result is bool ready && ready)
+                    {
+                        await Task.Delay(1500);
+                        return;
+                    }
+                }
+
+                await Task.Delay(300);
+            }
+
+            throw new TimeoutException($"语言设置页加载超时，当前地址: {browser.Address}");
+        }
+
+        /// <summary>
         /// 生成语言切换JavaScript脚本
         /// </summary>
         private string GenerateLanguageSwitchScript(string languageCode, string selectedNativeName, string selectedEnglishName)
@@ -3410,15 +3657,15 @@ namespace SocialMatrix.WpfHost.Windows
             js.AppendLine("        const norm = value => (value || '').replace(/\\s+/g, ' ').trim().toLowerCase();");
             js.AppendLine("        const visible = el => { const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; };");
             js.AppendLine("        const text = el => norm((el?.innerText || '') + ' ' + (el?.getAttribute('aria-label') || ''));");
-            js.AppendLine("        let accountLanguage = [...document.querySelectorAll('[role=button],button')].find(el => visible(el) && text(el).includes('account language'));");
-            js.AppendLine("        if (!accountLanguage) accountLanguage = [...document.querySelectorAll('[role=button],button')].find(el => visible(el) && /语言|language|idioma|langue|lingua/i.test(text(el)));");
-            js.AppendLine("        if (!accountLanguage) throw new Error('未找到 Account language 设置入口');");
-            js.AppendLine("        accountLanguage.click(); await sleep(900);");
-            js.AppendLine("        const dialog = [...document.querySelectorAll('[role=dialog]')].filter(visible).pop();");
-            js.AppendLine("        if (!dialog) throw new Error('未找到语言选择弹框');");
-            js.AppendLine("        const target = [...dialog.querySelectorAll('[role=radio]')].find(el => { const value = text(el); return value.includes(norm(nativeName)) || value.includes(norm(englishName)); });");
-            js.AppendLine("        if (!target) throw new Error('未找到目标语言: ' + nativeName);");
-            js.AppendLine("        if (target.getAttribute('aria-checked') !== 'true') target.click();");
+            js.AppendLine("        const waitFor = async (finder, label, timeout = 15000) => { const end = Date.now() + timeout; while (Date.now() < end) { const value = finder(); if (value) return value; await sleep(300); } throw new Error('等待' + label + '超时'); };");
+            js.AppendLine("        const accountLanguage = await waitFor(() => [...document.querySelectorAll('[role=button],button')].find(el => visible(el) && (text(el).includes('account language') || /语言|language|idioma|langue|lingua/i.test(text(el)))), 'Account language 设置入口');");
+            js.AppendLine("        accountLanguage.click();");
+            js.AppendLine("        const getDialog = () => [...document.querySelectorAll('[role=dialog]')].filter(visible).pop();");
+            js.AppendLine("        await waitFor(getDialog, '语言选择弹框');");
+            js.AppendLine("        const searchInput = await waitFor(() => { const dialog = getDialog(); return dialog && [...dialog.querySelectorAll('input')].find(el => visible(el) && (el.type === 'text' || el.type === 'search') && !/facebook/i.test(el.getAttribute('aria-label') || '')); }, '语言搜索输入框');");
+            js.AppendLine("        searchInput.focus(); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(searchInput, ''); searchInput.dispatchEvent(new Event('input', { bubbles: true })); for (const char of englishName || nativeName) { await sleep(45); setter.call(searchInput, searchInput.value + char); searchInput.dispatchEvent(new Event('input', { bubbles: true })); } await sleep(500);");
+            js.AppendLine("        const target = await waitFor(() => { const dialog = getDialog(); return dialog && [...dialog.querySelectorAll('[role=radio]')].find(el => { const value = text(el); return value.includes(norm(nativeName)) || value.includes(norm(englishName)); }); }, '目标语言选项');");
+            js.AppendLine("        if (target.getAttribute('aria-checked') !== 'true') { target.click(); await waitFor(() => target.getAttribute('aria-checked') === 'true', '语言选项生效', 5000); }");
             js.AppendLine("        await sleep(1200);");
             js.AppendLine("        return JSON.stringify({ success: true, message: nativeName });");
             js.AppendLine("    } catch (e) {");

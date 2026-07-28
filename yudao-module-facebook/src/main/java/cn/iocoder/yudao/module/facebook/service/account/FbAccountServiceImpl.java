@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
@@ -40,6 +41,7 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Override
     public Long createFbAccount(FbAccountSaveReqVO createReqVO) {
         FbAccountDO fbAccount = BeanUtils.toBean(createReqVO, FbAccountDO.class);
+        ensureDeviceId(fbAccount);
         handleEmptyCookie(fbAccount);
         fbAccountMapper.insert(fbAccount);
         return fbAccount.getId();
@@ -203,6 +205,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             account.setStatus(true);
             account.setCreateTime(now);
             account.setUpdateTime(now);
+            ensureDeviceId(account);
             handleEmptyCookie(account);
 
             fbAccountMapper.insert(account);
@@ -235,6 +238,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             account.setStatus(true);
             account.setCreateTime(now);
             account.setUpdateTime(now);
+            ensureDeviceId(account);
 
             fbAccountMapper.insert(account);
         }
@@ -320,6 +324,17 @@ public class FbAccountServiceImpl implements FbAccountService {
     private void handleEmptyCookie(FbAccountDO account) {
         if (StrUtil.isEmpty(account.getCookie())) {
             account.setCookie("[]");
+        }
+    }
+
+    /**
+     * 设备 ID 是账号级固定指纹标识。新增和导入时未填写则自动生成，
+     * 后续浏览器会基于该值生成稳定的设备名称。
+     */
+    private void ensureDeviceId(FbAccountDO account) {
+        if (account.getDeviceId() == null || account.getDeviceId() == 0L) {
+            account.setDeviceId(ThreadLocalRandom.current().nextLong(
+                    1_000_000_000_000L, 9_000_000_000_000_000L));
         }
     }
 
