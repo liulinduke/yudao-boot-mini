@@ -102,6 +102,10 @@ public class FbAccountRespVO {
     @ExcelProperty("语言设置")
     private Integer language;
 
+    @Schema(description = "Facebook界面语言代码", example = "en_US")
+    @ExcelProperty("Facebook界面语言代码")
+    private String languageCode;
+
     @Schema(description = "注册日期")
     @ExcelProperty("注册日期")
     private LocalDateTime creationDate;

@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Windows;
 
 namespace SocialMatrix.WpfHost.Services
@@ -147,28 +150,45 @@ namespace SocialMatrix.WpfHost.Services
         }
 
         /// <summary>
-        /// Vue 调用此方法设置账号语言并调用指纹浏览器切换
+        /// Vue 调用此方法批量切换 Facebook 账号语言。不同账号按可用槽位并行执行，同一账号保持任务串行。
         /// </summary>
-        /// <param name="accountIds">账号ID数组(JSON字符串)</param>
-        /// <param name="language">语言：1-英文，2-中文</param>
-        public void SetAccountLanguage(string accountIds, int language)
+        /// <param name="accountPayload">账号对象数组(JSON字符串)，包含 accountId 和 cookie</param>
+        /// <param name="languageSpec">语言描述JSON，包含 code、nativeName、englishName</param>
+        public void SetAccountLanguage(string accountPayload, string languageSpec)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 try
                 {
-                    // 1. 解析accountIds JSON数组
-                    var accountIdList = JsonConvert.DeserializeObject<List<string>>(accountIds);
-                    if (accountIdList == null || accountIdList.Count == 0)
+                    var accountItems = new List<(string AccountId, string Cookie)>();
+                    var tokens = JArray.Parse(accountPayload ?? "[]");
+                    foreach (var token in tokens)
                     {
-                        MessageBox.Show("没有选择任何账号", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        var accountId = token.Type == JTokenType.String
+                            ? token.ToString()
+                            : token["accountId"]?.ToString() ?? "";
+                        if (!string.IsNullOrWhiteSpace(accountId))
+                        {
+                            accountItems.Add((accountId, token.Type == JTokenType.Object
+                                ? token["cookie"]?.ToString() ?? ""
+                                : ""));
+                        }
+                    }
+
+                    var languageObject = languageSpec?.TrimStart().StartsWith("{") == true
+                        ? JObject.Parse(languageSpec)
+                        : new JObject();
+                    var languageCode = languageObject["code"]?.ToString() ?? languageSpec ?? "";
+                    var nativeName = languageObject["nativeName"]?.ToString() ?? languageCode;
+                    var englishName = languageObject["englishName"]?.ToString() ?? languageCode;
+                    if (accountItems.Count == 0 || string.IsNullOrWhiteSpace(languageCode))
+                    {
+                        MessageBox.Show("没有选择账号或语言", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
 
-                    string langName = language == 1 ? "英文" : "中文";
-                    System.Diagnostics.Debug.WriteLine($"🌐 开始为 {accountIdList.Count} 个账号设置语言为{langName}");
+                    System.Diagnostics.Debug.WriteLine($"🌐 开始为 {accountItems.Count} 个账号设置语言: {languageCode}");
 
-                    // 2. 获取MainWindow实例以访问浏览器矩阵窗口
                     var mainWindow = Application.Current.MainWindow as MainWindow;
                     if (mainWindow == null)
                     {
@@ -176,27 +196,52 @@ namespace SocialMatrix.WpfHost.Services
                         return;
                     }
 
-                    // 3. 遍历每个账号，执行语言切换
                     int successCount = 0;
                     int failCount = 0;
-
-                    foreach (var accountId in accountIdList)
+                    async Task ProcessAccountAsync((string AccountId, string Cookie) item)
                     {
                         try
                         {
-                            await SwitchBrowserLanguage(mainWindow, accountId, language);
-                            successCount++;
-                            System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 语言切换成功");
+                            await SwitchBrowserLanguage(mainWindow, item.AccountId, item.Cookie, languageCode, nativeName, englishName);
+                            Interlocked.Increment(ref successCount);
+                            System.Diagnostics.Debug.WriteLine($"✅ 账号 {item.AccountId} 语言切换成功");
                         }
                         catch (Exception ex)
                         {
-                            failCount++;
-                            System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 语言切换失败: {ex.Message}");
+                            Interlocked.Increment(ref failCount);
+                            System.Diagnostics.Debug.WriteLine($"❌ 账号 {item.AccountId} 语言切换失败: {ex.Message}");
                         }
                     }
 
-                    // 4. 记录结果
-                    System.Diagnostics.Debug.WriteLine($"📊 语言设置完成 - 总计:{accountIdList.Count}, 成功:{successCount}, 失败:{failCount}");
+                    var existingAccounts = accountItems
+                        .Where(item => mainWindow.GetBrowserMatrixWindowForAccount(item.AccountId)?.HasBrowser(item.AccountId) == true)
+                        .ToList();
+                    var newAccounts = accountItems
+                        .Where(item => mainWindow.GetBrowserMatrixWindowForAccount(item.AccountId)?.HasBrowser(item.AccountId) != true)
+                        .ToList();
+
+                    // 已有 Tab 不新增槽位，可以并行切换；每个账号自身仍由账号任务锁保证串行。
+                    await Task.WhenAll(existingAccounts.Select(ProcessAccountAsync));
+
+                    // 新 Tab 按当前可用槽位分批并行，任务完成后 Tab 会释放，下一批再进入。
+                    var occupied = mainWindow.GetActiveBrowserWindowCount();
+                    var availableSlots = Math.Max(0, BrowserMatrixWindow.MaxConcurrentBrowsers - occupied);
+                    if (newAccounts.Count > 0 && availableSlots == 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⛔ 语言切换未启动新账号：当前浏览器已达到最大槽位 {BrowserMatrixWindow.MaxConcurrentBrowsers}");
+                        failCount += newAccounts.Count;
+                    }
+                    else
+                    {
+                        for (var offset = 0; offset < newAccounts.Count; offset += Math.Max(1, availableSlots))
+                        {
+                            var wave = newAccounts.Skip(offset).Take(Math.Max(1, availableSlots)).ToList();
+                            await Task.WhenAll(wave.Select(ProcessAccountAsync));
+                        }
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"📊 语言设置完成 - 总计:{accountItems.Count}, 成功:{successCount}, 失败:{failCount}");
                 }
                 catch (Exception ex)
                 {
@@ -208,6 +253,17 @@ namespace SocialMatrix.WpfHost.Services
                     );
                 }
             });
+        }
+
+        // 兼容旧版前端调用。
+        public void SetAccountLanguage(string accountPayload, int language)
+        {
+            SetAccountLanguage(accountPayload, JsonConvert.SerializeObject(new
+            {
+                code = language == 1 ? "en_US" : "zh_CN",
+                nativeName = language == 1 ? "English (US)" : "中文(简体)",
+                englishName = language == 1 ? "English (US)" : "Simplified Chinese (China)"
+            }));
         }
         
         /// <summary>
@@ -287,41 +343,21 @@ namespace SocialMatrix.WpfHost.Services
         /// <summary>
         /// 为单个账号切换浏览器语言
         /// </summary>
-        private async Task SwitchBrowserLanguage(MainWindow mainWindow, string accountId, int language)
+        private async Task SwitchBrowserLanguage(MainWindow mainWindow, string accountId, string cookie,
+            string languageCode, string nativeName, string englishName)
         {
-            // 调用指纹浏览器API打开浏览器并执行语言设置
-            string languageUrl = "https://www.facebook.com/settings/?tab=language_and_region";
-            string detailId = $"lang_{accountId}_{DateTime.Now.Ticks}";
-            
-            System.Diagnostics.Debug.WriteLine($"🚀 启动指纹浏览器进行语言设置: 账号={accountId}, 语言={(language == 1 ? "英文" : "中文")}");
-            
             var browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
-            
+            var hadExistingBrowser = browserMatrixWindow?.HasBrowser(accountId) == true;
             if (browserMatrixWindow == null)
             {
-                // 如果窗口不存在，先创建
-                mainWindow.CreateBrowserForAccount(detailId, accountId, null, languageUrl, 0, taskType: 99);
-                
-                // 等待窗口创建
+                var detailId = $"lang_{accountId}_{DateTime.Now.Ticks}";
+                mainWindow.CreateBrowserForAccount(detailId, accountId, cookie, null, 0, taskType: 99);
                 await Task.Delay(500);
-                
-                browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
-                if (browserMatrixWindow == null)
-                {
-                    throw new InvalidOperationException("BrowserMatrixWindow创建失败");
-                }
+                browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId)
+                    ?? throw new InvalidOperationException("BrowserMatrixWindow创建失败");
             }
-            else
-            {
-                // 窗口已存在，直接创建浏览器
-                mainWindow.CreateBrowserForAccount(detailId, accountId, null, languageUrl, 0, taskType: 99);
-            }
-            
-            // 等待浏览器加载完成（通过检查浏览器实例是否存在）
-            await WaitForBrowserReady(browserMatrixWindow, accountId, 15000);
-
-            // 调用语言切换方法
-            await browserMatrixWindow.SwitchLanguageForAccount(accountId, language);
+            await browserMatrixWindow.SwitchLanguageForAccount(
+                accountId, cookie, languageCode, nativeName, englishName, closeAfterTask: !hadExistingBrowser);
         }
         
         /// <summary>

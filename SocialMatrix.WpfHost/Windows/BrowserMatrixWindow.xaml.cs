@@ -528,7 +528,7 @@ namespace SocialMatrix.WpfHost.Windows
                         await FingerprintInjector.InjectScriptAsync(browser, fingerprint);
                         System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹脚本注入完成 (DeviceName={fingerprint.DeviceName})");
 
-                        var pageState = await DetectFacebookPageStateAsync(browser, accountId);
+                        var pageState = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
                         if (!string.IsNullOrEmpty(cookie))
                         {
                             if (pageState != FacebookPageState.Authenticated)
@@ -765,6 +765,30 @@ namespace SocialMatrix.WpfHost.Windows
                 $"🔓 释放账号任务锁: account={accountId}, detailId={activeDetailId}");
         }
 
+        private async Task<FacebookPageState> DetectFacebookPageStateWithRetryAsync(ChromiumWebBrowser browser, string accountId)
+        {
+            FacebookPageState state = FacebookPageState.Unknown;
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                state = await DetectFacebookPageStateAsync(browser, accountId);
+                if (state == FacebookPageState.Authenticated
+                    || state == FacebookPageState.LoginPage
+                    || state == FacebookPageState.NetworkError
+                    || state == FacebookPageState.Checkpoint
+                    || state == FacebookPageState.AccountDisabled
+                    || state == FacebookPageState.VerificationRequired)
+                {
+                    return state;
+                }
+
+                if (attempt < 4)
+                {
+                    await Task.Delay(1000);
+                }
+            }
+            return state;
+        }
+
         private async Task<FacebookPageState> DetectFacebookPageStateAsync(ChromiumWebBrowser browser, string accountId = "")
         {
             string loadError = "";
@@ -818,6 +842,17 @@ namespace SocialMatrix.WpfHost.Windows
     }
 
     if (has(['[role=""feed""]', '[data-pagelet=""MainFeed""]', '[aria-label=""Home""]', '[aria-label=""首页""]', 'nav[aria-label=""Primary""]'])) {
+        return 'AUTHENTICATED';
+    }
+
+    // Facebook 主页面由 React 异步渲染，弹窗、语言或新版 DOM 变化时可能暂时没有上述 feed 特征。
+    // c_user 只能作为登录兜底，登录表单和明确异常页面仍优先返回，不会掩盖 Cookie 失效。
+    const hasAuthCookie = /(?:^|;\s*)c_user=\d+/.test(document.cookie || '');
+    const hasAuthenticatedChrome = has([
+        '[role=""main""]', '[aria-label*=""Your profile"" i]', '[aria-label*=""你的主页"" i]',
+        'a[href*=""/profile.php""]', 'a[href*=""/friends""]', '[data-pagelet*=""Feed"" i]'
+    ]);
+    if (hasAuthCookie && (hasAuthenticatedChrome || bodyText.length > 80)) {
         return 'AUTHENTICATED';
     }
     return 'UNKNOWN';
@@ -1516,7 +1551,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 // 使用页面状态检测，网络异常不再误判为 Cookie 失效。
-                var pageStateAfterNav = await DetectFacebookPageStateAsync(browser, accountId);
+                var pageStateAfterNav = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
                 System.Diagnostics.Debug.WriteLine($"🔍 导航后账号状态: {pageStateAfterNav}");
 
                 if (pageStateAfterNav != FacebookPageState.Authenticated)
@@ -3045,22 +3080,40 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         /// <summary>
-        /// 为指定账号切换Facebook语言设置
+        /// 为指定账号切换 Facebook 语言设置。账号级任务严格串行，临时创建的 Tab 完成后释放。
         /// </summary>
-        /// <param name="accountId">账号ID</param>
-        /// <param name="language">语言：1-英文，2-中文</param>
-        public async Task SwitchLanguageForAccount(string accountId, int language)
+        public async Task SwitchLanguageForAccount(string accountId, string cookie, string languageCode,
+            string nativeName, string englishName, bool closeAfterTask = false)
         {
-            if (!_browsers.TryGetValue(accountId, out var browser))
+            var detailId = $"language-{accountId}-{DateTime.Now.Ticks}";
+            if (!_activeAccountTasks.TryAdd(accountId, detailId))
             {
-                throw new InvalidOperationException($"账号 {accountId} 的浏览器实例不存在");
+                throw new InvalidOperationException($"账号 {accountId} 正在执行其它任务，语言切换已跳过");
             }
 
-            System.Diagnostics.Debug.WriteLine($"🔄 开始为账号 {accountId} 切换语言为 {(language == 1 ? "英文" : "中文")}");
-
+            var createdForLanguageTask = closeAfterTask;
+            string? restoreUrl = null;
             try
             {
-                // 1. 导航到Facebook语言设置页面
+                if (!_browsers.TryGetValue(accountId, out var browser) || browser.IsDisposed)
+                {
+                    CreateBrowser(accountId, "https://www.facebook.com", cookie, null, 0,
+                        deviceId: null, taskType: 99, config: null, detailId: null, isOperation: false);
+                    createdForLanguageTask = true;
+                    var waitStart = DateTime.UtcNow;
+                    while ((!_browsers.TryGetValue(accountId, out browser) || browser.IsDisposed)
+                           && (DateTime.UtcNow - waitStart).TotalSeconds < 15)
+                    {
+                        await Task.Delay(200);
+                    }
+                    if (browser == null || browser.IsDisposed)
+                    {
+                        throw new TimeoutException($"账号 {accountId} 浏览器创建超时");
+                    }
+                    await Task.Delay(1200);
+                }
+
+                restoreUrl = browser.Address;
                 string languageUrl = "https://www.facebook.com/settings/?tab=language_and_region";
                 Application.Current.Dispatcher.Invoke(() =>
                 {
@@ -3069,11 +3122,9 @@ namespace SocialMatrix.WpfHost.Windows
 
                 System.Diagnostics.Debug.WriteLine($"📌 导航到语言设置页面: {languageUrl}");
 
-                // 2. 等待页面加载完成
-                await WaitForPageLoad(browser, 15000); // 最多等待15秒
+                await WaitForPageLoad(browser, 30000);
 
-                // 3. 注入JavaScript脚本执行语言切换
-                var switchScript = GenerateLanguageSwitchScript(language);
+                var switchScript = GenerateLanguageSwitchScript(languageCode, nativeName, englishName);
                 System.Diagnostics.Debug.WriteLine($"🚀 执行语言切换脚本");
 
                 var result = await browser.EvaluateScriptAsync(switchScript);
@@ -3102,6 +3153,21 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 语言切换异常: {ex.Message}");
                 throw;
+            }
+            finally
+            {
+                if (createdForLanguageTask)
+                {
+                    CloseBrowser(accountId);
+                }
+                else if (!string.IsNullOrWhiteSpace(restoreUrl)
+                         && !restoreUrl.Contains("/settings/", StringComparison.OrdinalIgnoreCase)
+                         && _browsers.TryGetValue(accountId, out var existingBrowser)
+                         && !existingBrowser.IsDisposed)
+                {
+                    Application.Current.Dispatcher.Invoke(() => existingBrowser.Load(restoreUrl));
+                }
+                ReleaseAccountTask(accountId, detailId);
             }
         }
 
@@ -3332,71 +3398,31 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 生成语言切换JavaScript脚本
         /// </summary>
-        private string GenerateLanguageSwitchScript(int language)
+        private string GenerateLanguageSwitchScript(string languageCode, string selectedNativeName, string selectedEnglishName)
         {
             var js = new System.Text.StringBuilder();
 
             js.AppendLine("(async function() {");
             js.AppendLine("    try {");
-            js.AppendLine("        console.log('[语言切换] 开始执行');");
-            js.AppendLine("");
-            js.AppendLine("        // 1. 查找并点击编辑按钮");
-            js.AppendLine("        const editButton = document.querySelector('div[role=main] div[role=button]');");
-            js.AppendLine("        if (!editButton) {");
-            js.AppendLine("            throw new Error('未找到编辑按钮');");
-            js.AppendLine("        }");
-            js.AppendLine("        editButton.click();");
-            js.AppendLine("        console.log('[语言切换] 已点击编辑按钮');");
-            js.AppendLine("");
-            js.AppendLine("        // 2. 等待对话框出现");
-            js.AppendLine("        await new Promise(resolve => setTimeout(resolve, 2000));");
-            js.AppendLine("");
-            js.AppendLine("        // 3. 查找对应的语言选项");
-            js.AppendLine($"        const targetLang = '{(language == 1 ? "English" : "中文")}';");
-            js.AppendLine($"        const subLang = '{(language == 1 ? "US" : "简体")}';");
-            js.AppendLine("");
-            js.AppendLine("        const radios = Array.from(document.querySelectorAll('div[role=dialog] div[data-visualcompletion]>div[role=radio] span[id]'));");
-            js.AppendLine("        const targetRadio = radios.find(span => ");
-            js.AppendLine("            span.innerText.includes(targetLang) && span.innerText.includes(subLang)");
-            js.AppendLine("        );");
-            js.AppendLine("");
-            js.AppendLine("        if (!targetRadio) {");
-            js.AppendLine("            throw new Error(`未找到语言选项: ${targetLang} (${subLang})`);");
-            js.AppendLine("        }");
-            js.AppendLine("");
-            js.AppendLine("        // 4. 点击语言选项");
-            js.AppendLine("        targetRadio.click();");
-            js.AppendLine("        console.log('[语言切换] 已选择语言:', targetLang);");
-            js.AppendLine("");
-            js.AppendLine("        // 5. 等待一下让UI更新");
-            js.AppendLine("        await new Promise(resolve => setTimeout(resolve, 1000));");
-            js.AppendLine("");
-            js.AppendLine("        // 6. 查找并点击保存按钮");
-            js.AppendLine("        const saveButton = Array.from(document.querySelectorAll('div[role=dialog] button[type=submit], div[role=dialog] div[role=button]'))");
-            js.AppendLine("            .find(btn => btn.innerText.includes('Save') || btn.innerText.includes('保存') || btn.innerText.includes('Simpan'));");
-            js.AppendLine("");
-            js.AppendLine("        if (saveButton) {");
-            js.AppendLine("            saveButton.click();");
-            js.AppendLine("            console.log('[语言切换] 已点击保存按钮');");
-            js.AppendLine("        } else {");
-            js.AppendLine("            console.warn('[语言切换] 未找到保存按钮，可能已自动保存');");
-            js.AppendLine("        }");
-            js.AppendLine("");
-            js.AppendLine("        // 7. 等待操作完成");
-            js.AppendLine("        await new Promise(resolve => setTimeout(resolve, 2000));");
-            js.AppendLine("");
-            js.AppendLine("        console.log('[语言切换] 完成');");
-            js.AppendLine("");
-            js.AppendLine("        return JSON.stringify({");
-            js.AppendLine("            success: true,");
-            js.AppendLine("            message: '语言切换成功'");
-            js.AppendLine("        });");
+            js.AppendLine($"        const nativeName = {JsonConvert.SerializeObject(selectedNativeName)};");
+            js.AppendLine($"        const englishName = {JsonConvert.SerializeObject(selectedEnglishName)};");
+            js.AppendLine("        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));");
+            js.AppendLine("        const norm = value => (value || '').replace(/\\s+/g, ' ').trim().toLowerCase();");
+            js.AppendLine("        const visible = el => { const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; };");
+            js.AppendLine("        const text = el => norm((el?.innerText || '') + ' ' + (el?.getAttribute('aria-label') || ''));");
+            js.AppendLine("        let accountLanguage = [...document.querySelectorAll('[role=button],button')].find(el => visible(el) && text(el).includes('account language'));");
+            js.AppendLine("        if (!accountLanguage) accountLanguage = [...document.querySelectorAll('[role=button],button')].find(el => visible(el) && /语言|language|idioma|langue|lingua/i.test(text(el)));");
+            js.AppendLine("        if (!accountLanguage) throw new Error('未找到 Account language 设置入口');");
+            js.AppendLine("        accountLanguage.click(); await sleep(900);");
+            js.AppendLine("        const dialog = [...document.querySelectorAll('[role=dialog]')].filter(visible).pop();");
+            js.AppendLine("        if (!dialog) throw new Error('未找到语言选择弹框');");
+            js.AppendLine("        const target = [...dialog.querySelectorAll('[role=radio]')].find(el => { const value = text(el); return value.includes(norm(nativeName)) || value.includes(norm(englishName)); });");
+            js.AppendLine("        if (!target) throw new Error('未找到目标语言: ' + nativeName);");
+            js.AppendLine("        if (target.getAttribute('aria-checked') !== 'true') target.click();");
+            js.AppendLine("        await sleep(1200);");
+            js.AppendLine("        return JSON.stringify({ success: true, message: nativeName });");
             js.AppendLine("    } catch (e) {");
-            js.AppendLine("        console.error('[语言切换] 错误:', e);");
-            js.AppendLine("        return JSON.stringify({");
-            js.AppendLine("            success: false,");
-            js.AppendLine("            message: e.message");
-            js.AppendLine("        });");
+            js.AppendLine("        return JSON.stringify({ success: false, message: e?.message || String(e) });");
             js.AppendLine("    }");
             js.AppendLine("})();");
 

@@ -105,8 +105,8 @@ public class FbAccountController {
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")
     public CommonResult<Boolean> updateFbAccountLanguage(
             @RequestParam("id") Long id,
-            @RequestParam("language") Integer language) {
-        fbAccountService.updateFbAccountLanguage(id, language);
+            @RequestParam("languageCode") String languageCode) {
+        fbAccountService.updateFbAccountLanguage(id, languageCode);
         return success(true);
     }
 

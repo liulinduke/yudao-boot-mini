@@ -40,7 +40,8 @@ export interface FbAccount {
           reason: string; // 异常原因
           proxy: string; // 代理
           proxyId: number; // 代理ID
-          language?: number; // 语言设置：1-英文，2-中文
+          language?: number; // 旧语言字段，仅兼容历史数据
+          languageCode?: string; // Facebook界面语言代码
           creationDate: string | Dayjs; // 注册日期
   }
 
@@ -82,10 +83,10 @@ export const FbAccountApi = {
   },
 
   // 更新FB账号语言设置
-  updateFbAccountLanguage: async (id: number, language: number) => {
+  updateFbAccountLanguage: async (id: number, languageCode: string) => {
     return await request.put({
       url: `/facebook/fb-account/update-language`,
-      params: { id, language }
+      params: { id, languageCode }
     })
   },
 

@@ -117,6 +117,8 @@ public class FbAccountDO extends TenantBaseDO {
      * 语言设置：1-英文，2-中文
      */
     private Integer language;
+    /** Facebook界面语言代码，例如 en_US、zh_CN。 */
+    private String languageCode;
     /**
      * 注册日期
      */

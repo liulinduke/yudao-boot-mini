@@ -8,12 +8,18 @@
     <PlatformTarget>x64</PlatformTarget>
     <RootNamespace>SocialMatrix.WpfHost</RootNamespace>
     <AssemblyName>SocialMatrix.WpfHost</AssemblyName>
+    <ApplicationIcon>Assets\social-matrix.ico</ApplicationIcon>
     <!-- 禁用自动框架兼容性检查 -->
     <DisableImplicitFrameworkReferences>false</DisableImplicitFrameworkReferences>
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
     <!-- 允许不安全代码（CefSharp 需要） -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WPF 主窗口和 Windows 任务栏使用的应用图标 -->
+    <Resource Include="Assets\social-matrix.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- WebView2 -->

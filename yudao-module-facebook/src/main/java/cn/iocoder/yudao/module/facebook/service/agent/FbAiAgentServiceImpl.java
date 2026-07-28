@@ -513,7 +513,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             long missingTargetUsers = countQualifiedMissingTargetUsers(currentLeadIds, threshold);
             long existingTargetTouches = countQualifiedExistingTargetTouches(currentLeadIds, threshold);
             addRunLog(config.getId(), "AI分析完成",
-                    String.format("分析%s个，达标%s个，触达阈值%s", analyzedUsers, qualifiedUsers, threshold), "success");
+                    String.format("分析%s个，达标%s个，触达阈值%s", analyzedUsers, qualifiedUsers,
+                            formatUserAnalysisThreshold(currentLeadIds, threshold)), "success");
             int queuedTouches = queueHighIntentTouches(config, accountIds, currentLeadIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentLeadIds);
             refreshDiscoveryStats(config.getId());
@@ -531,7 +532,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
             addRunLog(config.getId(), "AI分析完成",
-                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedPosts, qualifiedPosts, mapScoreToIntent(threshold) + "/" + threshold), "success");
+                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedPosts, qualifiedPosts,
+                            formatPostAnalysisThreshold(currentPostIds, threshold)), "success");
             int queuedTouches = queuePostHighIntentTouches(config, accountIds, currentPostIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentPostIds);
             refreshDiscoveryStats(config.getId());
@@ -552,7 +554,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     saveSummary.duplicateCount > 0 ? "warning" : "success");
             addRunLog(config.getId(), "AI分析完成",
                     String.format("分析%s条，达标%s条，触达阈值%s", analyzedPosts, qualifiedPosts,
-                            mapScoreToIntent(threshold) + "/" + threshold), "success");
+                            formatPostAnalysisThreshold(currentPostIds, threshold)), "success");
             queuePostHighIntentTouches(config, accountIds, currentPostIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentPostIds);
             refreshDiscoveryStats(config.getId());
@@ -597,7 +599,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             long missingTargetUsers = countQualifiedMissingTargetUsers(currentCommentLeadIds, threshold);
             long existingTargetTouches = countQualifiedExistingTargetTouches(currentCommentLeadIds, threshold);
             addRunLog(config.getId(), "AI分析完成",
-                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedUsers, qualifiedUsers, mapScoreToIntent(threshold) + "/" + threshold), "success");
+                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedUsers, qualifiedUsers,
+                            formatUserAnalysisThreshold(currentCommentLeadIds, threshold)), "success");
             int queuedTouches = queueCommentLeadDmTouches(config, accountIds, currentCommentLeadIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentCommentLeadIds);
             refreshDiscoveryStats(config.getId());
@@ -615,7 +618,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             long missingTargetUsers = countQualifiedMissingTargetUsers(currentCommentLeadIds, threshold);
             long existingTargetTouches = countQualifiedExistingTargetTouches(currentCommentLeadIds, threshold);
             addRunLog(config.getId(), "AI分析完成",
-                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedUsers, qualifiedUsers, mapScoreToIntent(threshold) + "/" + threshold), "success");
+                    String.format("分析%s条，达标%s条，触达阈值%s", analyzedUsers, qualifiedUsers,
+                            formatUserAnalysisThreshold(currentCommentLeadIds, threshold)), "success");
             int queuedTouches = queueCommentLeadDmTouches(config, accountIds, currentCommentLeadIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentCommentLeadIds);
             refreshDiscoveryStats(config.getId());
@@ -2043,6 +2047,49 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectUserDO::getId, leadIds)
                 .ge(FbCollectUserDO::getProductRelevanceScore, threshold));
         return count == null ? 0 : count;
+    }
+
+    /**
+     * 运行日志同时显示配置的触达门槛和本批线索实际最高评分，避免把二者混为一谈。
+     */
+    private String formatUserAnalysisThreshold(List<Long> leadIds, int threshold) {
+        int highestScore = 0;
+        if (CollUtil.isNotEmpty(leadIds)) {
+            List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                    .in(FbCollectUserDO::getId, leadIds)
+                    .select(FbCollectUserDO::getProductRelevanceScore));
+            highestScore = users.stream()
+                    .map(FbCollectUserDO::getProductRelevanceScore)
+                    .filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .max()
+                    .orElse(0);
+        }
+        return formatAnalysisThreshold(threshold, highestScore);
+    }
+
+    private String formatPostAnalysisThreshold(List<Long> postIds, int threshold) {
+        int highestScore = 0;
+        if (CollUtil.isNotEmpty(postIds)) {
+            List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
+                    .in(FbCollectPostDO::getId, postIds)
+                    .select(FbCollectPostDO::getProductRelevanceScore));
+            highestScore = posts.stream()
+                    .map(FbCollectPostDO::getProductRelevanceScore)
+                    .filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .max()
+                    .orElse(0);
+        }
+        return formatAnalysisThreshold(threshold, highestScore);
+    }
+
+    private String formatAnalysisThreshold(int threshold, int highestScore) {
+        String thresholdText = mapScoreToIntent(threshold) + "/" + threshold;
+        if (highestScore <= 0) {
+            return thresholdText;
+        }
+        return thresholdText + "，最高意向" + mapScoreToIntent(highestScore) + "/" + highestScore;
     }
 
     private long countQualifiedPostLeads(List<Long> postIds, int threshold) {

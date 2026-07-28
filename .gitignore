@@ -61,8 +61,6 @@ application-my.yaml
 SocialMatrix.WpfHost/bin/
 SocialMatrix.WpfHost/obj/
 SocialMatrix.WpfHost/.vs/
-.tmp-wpf-build/
-.tmp-wpf-obj/
 
 # Exclude SQL files
 sql/

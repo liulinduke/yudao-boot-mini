@@ -65,7 +65,7 @@ public interface FbAccountService {
      * @param id 编号
      * @param language 语言：1-英文，2-中文
      */
-    void updateFbAccountLanguage(Long id, Integer language);
+    void updateFbAccountLanguage(Long id, String languageCode);
 
     /**
      * 批量更新FB账号代理
