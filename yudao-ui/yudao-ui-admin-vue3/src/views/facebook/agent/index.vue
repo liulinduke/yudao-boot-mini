@@ -415,7 +415,7 @@
               <el-table-column label="发现时间" width="170">
                 <template #default="scope">{{ formatDateTime(scope.row.createTime || scope.row.updateTime) }}</template>
               </el-table-column>
-              <el-table-column label="关键词" prop="keyword" min-width="150" />
+              <el-table-column v-if="!isHideKeywordColumn(detailAgent?.agentType)" label="关键词" prop="keyword" min-width="150" />
               <el-table-column label="发现来源" width="110">
                 <template #default="scope">{{ getDiscoverySourceLabel(scope.row.sourceType) }}</template>
               </el-table-column>
@@ -440,6 +440,14 @@
               </el-table-column>
               <el-table-column v-if="isCommentLeadAgent(detailAgent?.agentType)" label="评论用户" min-width="160">
                 <template #default="scope">{{ scope.row.userName || scope.row.commentUser || '-' }}</template>
+              </el-table-column>
+              <el-table-column v-if="isCommentLeadAgent(detailAgent?.agentType)" label="评论者主页" min-width="220">
+                <template #default="scope">
+                  <el-link v-if="scope.row.url" :href="scope.row.url" target="_blank" type="primary">
+                    {{ scope.row.url }}
+                  </el-link>
+                  <span v-else>-</span>
+                </template>
               </el-table-column>
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
@@ -663,7 +671,7 @@ const agentEntries = [
     type: 'competitor_buyer',
     title: 'AI竞品监控',
     icon: 'ep:trend-charts',
-    description: '从竞品买家和互动用户中识别潜客',
+    description: '从竞品买家主页帖子的评论中识别潜客',
     disabled: false
   }
 ]
@@ -756,8 +764,10 @@ const isGroupAgent = (type?: string) => ['group_post', 'group_comment'].includes
 const isCompetitorAgent = (type?: string) => type === 'competitor_buyer'
 const isPostLeadAgent = (type?: string) => type === 'post_lead'
 const isPostLeadOrGroupPostAgent = (type?: string) => ['post_lead', 'group_post'].includes(type || '')
-const isCommentLeadAgent = (type?: string) => type === 'group_comment'
+// 竞品监控与群帖评论截流都以评论用户作为最终线索。
+const isCommentLeadAgent = (type?: string) => ['group_comment', 'competitor_buyer'].includes(type || '')
 const isSourceUrlAgent = (type?: string) => isGroupAgent(type) || isCompetitorAgent(type)
+const isHideKeywordColumn = (type?: string) => ['competitor_buyer', 'group_comment', 'group_post'].includes(type || '')
 
 const getAgentTypeLabel = (type?: string) => {
   const map: Record<string, string> = {

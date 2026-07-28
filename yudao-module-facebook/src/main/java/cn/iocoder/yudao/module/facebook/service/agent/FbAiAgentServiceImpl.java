@@ -254,7 +254,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectUserDO::getId, leadIds)
                 .orderByDesc(FbCollectUserDO::getCreateTime)
                 .orderByDesc(FbCollectUserDO::getId));
-        if (config != null && AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())) {
+        if (config != null && (AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())
+                || AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType()))) {
             enrichCommentLeadPostFields(records);
         }
         int pageNo = Math.max(pageReqVO.getPageNo(), 1);
