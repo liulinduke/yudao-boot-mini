@@ -96,17 +96,24 @@ public class FbAccountServiceImpl implements FbAccountService {
         return fbAccountMapper.selectPage(pageReqVO);
     }
 
+
     @Override
-    public void updateFbAccountLanguage(Long id, Integer language) {
+    public void updateFbAccountLanguage(Long id, String languageCode) {
         validateFbAccountExists(id);
-        if (language != 1 && language != 2) {
-            throw new IllegalArgumentException("语言设置只能是1(英文)或2(中文)");
+        if (StrUtil.isBlank(languageCode)) {
+            throw new IllegalArgumentException("语言代码不能为空");
         }
         FbAccountDO updateObj = new FbAccountDO();
         updateObj.setId(id);
-        updateObj.setLanguage(language);
+        updateObj.setLanguageCode(languageCode);
+        if ("en_US".equalsIgnoreCase(languageCode)) {
+            updateObj.setLanguage(1);
+        } else if (languageCode.toLowerCase(Locale.ROOT).startsWith("zh_")) {
+            updateObj.setLanguage(2);
+        }
         fbAccountMapper.updateById(updateObj);
     }
+
 
     @Override
     @Transactional(rollbackFor = Exception.class)
