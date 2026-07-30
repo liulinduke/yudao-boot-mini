@@ -7,18 +7,43 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace SocialMatrix.WpfHost.Windows
 {
     public partial class MessageManagerWindow : Window
     {
+        private sealed class AvatarImageConverter : IValueConverter
+        {
+            public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+            {
+                var url = value?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(url)) return null;
+
+                try
+                {
+                    return new BitmapImage(new Uri(url, UriKind.RelativeOrAbsolute));
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+                => throw new NotSupportedException();
+        }
+
         private sealed class AccountRow : INotifyPropertyChanged
         {
             public long Id { get; set; }
@@ -175,7 +200,10 @@ namespace SocialMatrix.WpfHost.Windows
             check.AddHandler(CheckBox.CheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
             check.AddHandler(CheckBox.UncheckedEvent, new RoutedEventHandler(AccountSelectionChanged));
             var avatar = new FrameworkElementFactory(typeof(System.Windows.Controls.Image));
-            avatar.SetBinding(System.Windows.Controls.Image.SourceProperty, new System.Windows.Data.Binding(nameof(AccountRow.AvatarUrl)));
+            avatar.SetBinding(System.Windows.Controls.Image.SourceProperty, new System.Windows.Data.Binding(nameof(AccountRow.AvatarUrl))
+            {
+                Converter = new AvatarImageConverter()
+            });
             avatar.SetValue(FrameworkElement.WidthProperty, 30d);
             avatar.SetValue(FrameworkElement.HeightProperty, 30d);
             avatar.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));

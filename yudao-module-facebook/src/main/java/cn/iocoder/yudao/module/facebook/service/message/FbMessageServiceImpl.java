@@ -67,6 +67,7 @@ public class FbMessageServiceImpl implements FbMessageService {
                     item.put("fbAccount", blankDefault(account.getFbAccount(), ""));
                     item.put("cookie", blankDefault(account.getCookie(), ""));
                     item.put("deviceId", account.getDeviceId() == null ? "" : String.valueOf(account.getDeviceId()));
+                    item.put("avatarUrl", blankDefault(account.getAvatarUrl(), ""));
                     return item;
                 }).collect(Collectors.toList());
     }

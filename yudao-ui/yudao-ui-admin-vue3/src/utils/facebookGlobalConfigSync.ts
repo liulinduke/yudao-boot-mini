@@ -7,6 +7,8 @@ const DEFAULT_CONFIG = {
   maxConcurrent: 19
 }
 
+let lastSyncedSignature = ''
+
 export interface FacebookGlobalBrowserConfig {
   disableImages: boolean
   disableVideos: boolean
@@ -52,6 +54,11 @@ function writeCachedConfig(config: FacebookGlobalBrowserConfig): void {
 }
 
 async function syncToWpf(config: FacebookGlobalBrowserConfig): Promise<boolean> {
+  const signature = `${config.disableImages}|${config.disableVideos}|${config.maxConcurrent}`
+  if (signature === lastSyncedSignature) {
+    return true
+  }
+
   for (let attempt = 0; attempt < 10; attempt++) {
     const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
     if (bridge?.UpdateGlobalConfig) {
@@ -61,6 +68,7 @@ async function syncToWpf(config: FacebookGlobalBrowserConfig): Promise<boolean> 
           config.disableVideos,
           config.maxConcurrent
         ))
+        lastSyncedSignature = signature
         return true
       } catch (error) {
         console.warn('[WPF] 更新 Facebook 浏览器配置失败，将重试:', error)
