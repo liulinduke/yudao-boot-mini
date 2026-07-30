@@ -21,7 +21,7 @@
           <el-descriptions-item label="状态">
             <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="taskDetail.status" />
           </el-descriptions-item>
-          <el-descriptions-item label="总期望数量">{{
+          <el-descriptions-item label="预计总采集数">{{
             taskDetail.totalExpectedCount || 0
           }}</el-descriptions-item>
           <el-descriptions-item label="总已采集">{{
@@ -375,7 +375,7 @@
             v-model="formData.commentExpectedCount"
             :min="1"
             :max="10000"
-            style="width: 100%"
+            style="width: 180px"
           />
         </el-form-item>
 
@@ -388,7 +388,7 @@
             v-model="formData.likeExpectedCount"
             :min="1"
             :max="10000"
-            style="width: 100%"
+            style="width: 180px"
           />
         </el-form-item>
 
@@ -491,15 +491,20 @@
 
         <el-form-item
           v-if="formData.taskType !== 11 && formData.taskType !== 12"
-          label="期望数量"
+          :label="singleTargetCountLabel"
           prop="expectedCount"
         >
-          <el-input-number
-            v-model="formData.expectedCount"
-            :min="1"
-            :max="10000"
-            style="width: 100%"
-          />
+          <div class="flex items-center gap-3">
+            <el-input-number
+              v-model="formData.expectedCount"
+              :min="1"
+              :max="10000"
+              style="width: 180px"
+            />
+            <span class="whitespace-nowrap text-sm text-gray-500">
+              期望采集总数：{{ estimatedTotalCount }} 条
+            </span>
+          </div>
         </el-form-item>
 
         <el-form-item label="采集间隔(秒)" prop="intervalSeconds">
@@ -507,7 +512,7 @@
             v-model="formData.intervalSeconds"
             :min="1"
             :max="300"
-            style="width: 100%"
+            style="width: 180px"
           />
         </el-form-item>
 
@@ -528,7 +533,7 @@
               min-width="300"
               show-overflow-tooltip
             />
-            <el-table-column label="期望/已采" width="120">
+            <el-table-column label="目标数/已采" width="120">
               <template #default="scope">
                 {{ scope.row.expectedCount }}/{{ scope.row.collectedCount || 0 }}
               </template>
@@ -560,8 +565,9 @@
             stripe
             border
             max-height="500"
+            class="collect-result-table"
           >
-            <el-table-column label="发帖人" prop="postUser" width="150" />
+            <el-table-column label="发帖人" prop="postUser" width="150" show-overflow-tooltip />
             <el-table-column label="帖子链接" prop="url" min-width="250" show-overflow-tooltip />
             <el-table-column label="来源" prop="fromResource" width="100" />
             <el-table-column label="群组名称" prop="groupName" width="150" show-overflow-tooltip />
@@ -583,8 +589,9 @@
             stripe
             border
             max-height="500"
+            class="collect-result-table"
           >
-            <el-table-column label="评论者" prop="userName" width="150" />
+            <el-table-column label="评论者" prop="userName" width="150" show-overflow-tooltip />
             <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
             <el-table-column label="头像" width="80">
               <template #default="scope">
@@ -604,7 +611,7 @@
                 {{ scope.row.config ? JSON.parse(scope.row.config).replyCount || 0 : 0 }}
               </template>
             </el-table-column>
-            <el-table-column label="评论时间" prop="lastPostSummary" width="120" />
+            <el-table-column label="评论时间" prop="lastPostSummary" width="120" show-overflow-tooltip />
             <el-table-column
               label="评论内容"
               prop="profileStatus"
@@ -621,8 +628,9 @@
             stripe
             border
             max-height="500"
+            class="collect-result-table"
           >
-            <el-table-column label="群组名称" prop="groupName" width="200" />
+            <el-table-column label="群组名称" prop="groupName" width="200" show-overflow-tooltip />
             <el-table-column label="群组链接" prop="url" min-width="300" show-overflow-tooltip />
             <el-table-column label="类型" prop="type" width="100" />
             <el-table-column label="成员数" prop="memberQuantity" width="120" />
@@ -636,8 +644,9 @@
             stripe
             border
             max-height="500"
+            class="collect-result-table"
           >
-            <el-table-column label="用户名" prop="userName" width="150" />
+            <el-table-column label="用户名" prop="userName" width="150" show-overflow-tooltip />
             <el-table-column label="主页链接" prop="url" min-width="240" show-overflow-tooltip />
             <el-table-column label="电话" prop="phonenumber" width="130" />
             <el-table-column label="WhatsApp" prop="whatsapp" width="130" />
@@ -667,9 +676,9 @@
           </el-table>
 
           <!-- 个人主页采集结果显示（默认） -->
-          <el-table v-else :data="filteredUserList" stripe border max-height="500">
-            <el-table-column label="Facebook ID" prop="fbUserId" width="180" />
-            <el-table-column label="用户名" prop="userName" width="150" />
+          <el-table v-else :data="filteredUserList" stripe border max-height="500" class="collect-result-table">
+            <el-table-column label="Facebook ID" prop="fbUserId" width="180" show-overflow-tooltip />
+            <el-table-column label="用户名" prop="userName" width="150" show-overflow-tooltip />
             <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
             <el-table-column label="粉丝数" prop="followers" width="100" />
             <el-table-column label="所在地" prop="city" width="120" />
@@ -745,7 +754,7 @@ const taskDetail = ref<any>(null) // 主表详情
 const detailList = ref<any[]>([]) // 明细列表
 const userList = ref<any[]>([]) // 采集结果列表
 const userPageNo = ref(1) // 用户数据页码
-const userPageSize = ref(20) // 用户数据每页条数
+const userPageSize = ref(10) // 用户数据每页条数
 const filteredUserList = computed(() => {
   // 分页
   const start = (userPageNo.value - 1) * userPageSize.value
@@ -766,6 +775,65 @@ const formData = ref({
   intervalSeconds: 5,
   remark: ''
 })
+
+const getNonEmptyLineCount = (value: string | undefined) =>
+  (value || '')
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean).length
+
+/** 当前表单中实际会生成的关键词、链接或资源目标数量。 */
+const collectionTargetCount = computed(() => {
+  const taskType = formData.value.taskType
+  if (taskType === 2) {
+    if (postSourceMode.value === 'page' && postPageInputMode.value === 'select') {
+      return selectedPostPages.value.length
+    }
+    if (postSourceMode.value === 'group' && postGroupInputMode.value === 'select') {
+      return selectedPostGroups.value.length
+    }
+    return formData.value.searchType === 1
+      ? getNonEmptyLineCount(formData.value.keyword)
+      : getNonEmptyLineCount(formData.value.searchUrl)
+  }
+  if (taskType === 7) {
+    return groupInputMode.value === 'select'
+      ? selectedGroups.value.length
+      : getNonEmptyLineCount(formData.value.searchUrl)
+  }
+  if (taskType === 8) {
+    return userInputMode.value === 'select'
+      ? selectedUsers.value.length
+      : getNonEmptyLineCount(formData.value.searchUrl)
+  }
+  if (taskType === 11) {
+    return commentLikeInputMode.value === 'select'
+      ? selectedPosts.value.length
+      : getNonEmptyLineCount(formData.value.searchUrl)
+  }
+  return formData.value.searchType === 1
+    ? getNonEmptyLineCount(formData.value.keyword)
+    : getNonEmptyLineCount(formData.value.searchUrl)
+})
+
+const singleTargetCountLabel = computed(() => {
+  const labels: Record<number, string> = {
+    1: '每个主页采集数量',
+    2: '每个目标采集数量',
+    3: '每个用户采集数量',
+    4: '每个群组采集数量',
+    5: '每个活动采集数量',
+    6: '每个目标采集数量',
+    7: '每个群组采集数量',
+    8: '每个用户采集数量'
+  }
+  return labels[formData.value.taskType || 0] || '单个目标采集数量'
+})
+
+const estimatedTotalCount = computed(() =>
+  collectionTargetCount.value * Math.max(Number(formData.value.expectedCount) || 0, 0)
+)
+
 const formRules = reactive({
   accountIds: [{ required: true, message: '请选择采集账号', trigger: 'change' }],
   taskType: [{ required: true, message: '请选择采集类型', trigger: 'change' }],
@@ -841,7 +909,7 @@ const formRules = reactive({
       }
     }
   ],
-  expectedCount: [{ required: true, message: '请输入期望数量', trigger: 'blur' }],
+  expectedCount: [{ required: true, message: '请输入单个目标采集数量', trigger: 'blur' }],
   commentExpectedCount: [{ required: true, message: '请输入评论期望数量', trigger: 'blur' }],
   likeExpectedCount: [{ required: true, message: '请输入点赞期望数量', trigger: 'blur' }],
   intervalSeconds: [{ required: true, message: '请输入采集间隔', trigger: 'blur' }]
@@ -1159,7 +1227,7 @@ const resetForm = () => {
   detailList.value = []
   userList.value = []
   userPageNo.value = 1
-  userPageSize.value = 20
+  userPageSize.value = 10
   activeTab.value = 'details'
   commentLikeOptions.value = ['comment', 'like'] // 重置评论点赞选项
   likeExpectedCount.value = 100 // 重置点赞期望数量
@@ -1193,10 +1261,21 @@ const getDetailProgress = (detail: any) => {
 }
 
 /** 格式化日期 */
-const formatDate = (date: string | Date | null | undefined) => {
+const formatDate = (date: any) => {
   if (!date) return '-'
-  const d = new Date(date)
-  return d.toLocaleString('zh-CN', {
+  // 兼容后端返回 ISO 字符串、时间数组 [年, 月, 日, 时, 分, 秒] 等格式。
+  const normalizedDate = Array.isArray(date)
+    ? new Date(
+        Number(date[0]),
+        Number(date[1]) - 1,
+        Number(date[2]),
+        Number(date[3] || 0),
+        Number(date[4] || 0),
+        Number(date[5] || 0)
+      )
+    : new Date(date)
+  if (Number.isNaN(normalizedDate.getTime())) return '-'
+  return normalizedDate.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -1660,6 +1739,18 @@ watch(
 </script>
 
 <style scoped lang="scss">
+.collect-result-table {
+  :deep(.el-table__cell) {
+    white-space: nowrap;
+  }
+
+  :deep(.cell) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .collect-task-summary {
   :deep(.el-descriptions__table) {
     table-layout: fixed;

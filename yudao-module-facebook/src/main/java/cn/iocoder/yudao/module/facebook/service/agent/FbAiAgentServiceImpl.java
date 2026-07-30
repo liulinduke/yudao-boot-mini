@@ -892,23 +892,22 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             task.setStatus(1);
             task.setStartTime(LocalDateTime.now());
             task.setRemark(AUTO_COLLECT_REMARK + ":" + normalizedKeyword);
-            task.setTotalExpectedCount(accountIdLongs.size() * DEFAULT_COLLECT_EXPECTED_COUNT);
+            Long accountId = accountIdLongs.get(created % accountIdLongs.size());
+            task.setTotalExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
             task.setTotalCollectedCount(0);
-            task.setAccountCount(accountIdLongs.size());
+            task.setAccountCount(1);
             task.setUrlCount(1);
-            task.setFbAccount(accountMap.get(accountIdLongs.get(0)));
+            task.setFbAccount(accountMap.get(accountId));
             collectMapper.insert(task);
 
-            for (Long accountId : accountIdLongs) {
-                FbCollectDetailDO detail = new FbCollectDetailDO();
-                detail.setTaskId(task.getId());
-                detail.setFbAccount(StrUtil.blankToDefault(accountMap.get(accountId), "account_" + accountId));
-                detail.setSearchUrl(searchUrl);
-                detail.setExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
-                detail.setCollectedCount(0);
-                detail.setStatus(0);
-                collectDetailMapper.insert(detail);
-            }
+            FbCollectDetailDO detail = new FbCollectDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setFbAccount(StrUtil.blankToDefault(accountMap.get(accountId), "account_" + accountId));
+            detail.setSearchUrl(searchUrl);
+            detail.setExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
+            detail.setCollectedCount(0);
+            detail.setStatus(0);
+            collectDetailMapper.insert(detail);
             created++;
         }
         return created;
@@ -1468,23 +1467,22 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             task.setStatus(1);
             task.setStartTime(LocalDateTime.now());
             task.setRemark(AUTO_GROUP_COLLECT_REMARK + ":" + groupIdOrUrl);
-            task.setTotalExpectedCount(accountIdLongs.size() * DEFAULT_COLLECT_EXPECTED_COUNT);
+            Long accountId = accountIdLongs.get(created % accountIdLongs.size());
+            task.setTotalExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
             task.setTotalCollectedCount(0);
-            task.setAccountCount(accountIdLongs.size());
+            task.setAccountCount(1);
             task.setUrlCount(1);
-            task.setFbAccount(accountMap.get(accountIdLongs.get(0)));
+            task.setFbAccount(accountMap.get(accountId));
             collectMapper.insert(task);
 
-            for (Long accountId : accountIdLongs) {
-                FbCollectDetailDO detail = new FbCollectDetailDO();
-                detail.setTaskId(task.getId());
-                detail.setFbAccount(StrUtil.blankToDefault(accountMap.get(accountId), "account_" + accountId));
-                detail.setSearchUrl(groupUrl);
-                detail.setExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
-                detail.setCollectedCount(0);
-                detail.setStatus(0);
-                collectDetailMapper.insert(detail);
-            }
+            FbCollectDetailDO detail = new FbCollectDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setFbAccount(StrUtil.blankToDefault(accountMap.get(accountId), "account_" + accountId));
+            detail.setSearchUrl(groupUrl);
+            detail.setExpectedCount(DEFAULT_COLLECT_EXPECTED_COUNT);
+            detail.setCollectedCount(0);
+            detail.setStatus(0);
+            collectDetailMapper.insert(detail);
             created++;
         }
         return created;

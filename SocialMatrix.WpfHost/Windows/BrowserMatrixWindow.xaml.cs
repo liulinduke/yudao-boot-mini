@@ -2744,8 +2744,14 @@ namespace SocialMatrix.WpfHost.Windows
                 const url = groupLinkEl.href.split('?')[0];
                 if (!url || seenUrls.has(url)) return null;
 
-                // ✅ 从 aria-label 属性获取群组名称（Facebook 群组页面的名称在这个属性中）
-                const groupName = groupLinkEl.getAttribute('aria-label') || groupLinkEl.textContent.trim();
+                // 群组卡片中第一个 /groups/ 链接通常是头像，aria-label 会带有
+                // ""Profile photo of"" 前缀；优先取卡片内真正有文本的群组标题链接。
+                const titleLinkEl = Array.from(card.querySelectorAll('a[href*=""/groups/""]'))
+                    .find(el => (el.textContent || '').trim() &&
+                        !(el.getAttribute('aria-label') || '').toLowerCase().startsWith('profile photo of'));
+                const rawGroupName = titleLinkEl ? titleLinkEl.textContent.trim() :
+                    (groupLinkEl.getAttribute('aria-label') || groupLinkEl.textContent.trim());
+                const groupName = rawGroupName.replace(/^profile photo of\s+/i, '').trim();
                 if (!groupName) return null;
 
                 let type = 'Public';
@@ -2755,20 +2761,35 @@ namespace SocialMatrix.WpfHost.Windows
                     if (ariaLabel.includes('Private') || ariaLabel.includes('Closed')) type = 'Private';
                 }
 
-                let memberQuantity = '', activeQuantity = '';
-                const allSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
-                for (const span of allSpans) {
-                    const text = span.textContent.trim();
+                let memberQuantity = null, activeQuantity = '';
+                // 统计信息有时不在 span[dir=auto] 中，而是在组合文本或 div 中。
+                // 同时读取卡片完整可见文本，避免只拿到群组名称却漏掉活跃度。
+                const statTexts = [card.innerText || '', ...Array.from(card.querySelectorAll('span[dir=""auto""]'))
+                    .map(span => span.textContent || '')];
+                for (const rawText of statTexts) {
+                    const text = String(rawText).replace(/\s+/g, ' ').trim();
                     if (!text) continue;
 
-                    const memberMatch = text.match(/([\d]+[\.,]?\d*)\s*(K|M|B|members?)/i);
+                    const memberMatch = text.match(/([\d]+[\.,]?\d*)\s*(K|M|B)?\s*members?/i);
                     if (memberMatch && !memberQuantity) {
-                        memberQuantity = text;
+                        const rawNumber = Number(memberMatch[1].replace(/,/g, ''));
+                        const unit = (memberMatch[2] || '').toUpperCase();
+                        const multiplier = unit === 'K' ? 1000 : unit === 'M' ? 1000000 : unit === 'B' ? 1000000000 : 1;
+                        if (Number.isFinite(rawNumber)) memberQuantity = Math.round(rawNumber * multiplier);
+
+                        // 统计栏格式通常为：Public · 19K members · 40+ posts a day。
+                        // 成员数后面的最后一段就是活跃度，直接按中点拆分，避免依赖具体文案。
+                        const memberEnd = (memberMatch.index || 0) + memberMatch[0].length;
+                        const afterMembers = text.slice(memberEnd);
+                        const statParts = afterMembers.split(/[·•]/).map(part => part.trim()).filter(Boolean);
+                        if (statParts.length > 0 && !activeQuantity) {
+                            activeQuantity = statParts[statParts.length - 1];
+                        }
                         continue;
                     }
 
-                    const activeMatch = text.match(/[\d]+\s*(posts?).*?(day|week|month)/i);
-                    if (activeMatch && !activeQuantity) activeQuantity = text;
+                    const activeMatch = text.match(/([\d][\d,.]*\s*\+?\s*posts?\s+a\s+(?:day|week|month))/i);
+                    if (activeMatch && !activeQuantity) activeQuantity = activeMatch[1].trim();
                 }
 
                 seenUrls.add(url);

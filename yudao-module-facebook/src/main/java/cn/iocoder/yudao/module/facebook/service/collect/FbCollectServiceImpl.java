@@ -71,11 +71,17 @@ public class FbCollectServiceImpl implements FbCollectService {
             accountIds = Collections.singletonList(0L); // 占位
         }
             
-        int accountCount = accountIds.size();
         int urlCount = urls.size();
+        // 一个目标只分配给一个账号。目标少于账号时，未被分配的账号不启动；
+        // 目标多于账号时按账号顺序轮询，后续目标进入同一账号的串行队列。
+        List<Long> assignedAccountIds = selectAssignedAccounts(accountIds, urlCount);
+        if (CollUtil.isEmpty(assignedAccountIds)) {
+            throw exception(FB_COLLECT_NOT_EXISTS);
+        }
+        int accountCount = assignedAccountIds.size();
             
         // 3. 计算总数
-        int totalExpectedCount = accountCount * urlCount * createReqVO.getExpectedCount();
+        int totalExpectedCount = urlCount * createReqVO.getExpectedCount();
             
         // 4. 创建主任务
         FbCollectDO task = BeanUtils.toBean(createReqVO, FbCollectDO.class);
@@ -87,32 +93,28 @@ public class FbCollectServiceImpl implements FbCollectService {
         task.setStartTime(LocalDateTime.now()); // 设置开始时间
         fbCollectMapper.insert(task);
             
-        Map<Long, String> accountMap = resolveAccountMap(accountIds, createReqVO.getFbAccount());
+        Map<Long, String> accountMap = resolveAccountMap(assignedAccountIds, createReqVO.getFbAccount());
 
-        // 5. 创建明细记录(每个账号×每个链接)
+        // 5. 创建明细记录(每个目标只分配一个账号)
         List<FbCollectCreateRespVO.DetailInfo> detailInfos = new ArrayList<>();
             
-        for (Long accountId : accountIds) {
+        for (int i = 0; i < urls.size(); i++) {
+            Long accountId = assignedAccountIds.get(i % assignedAccountIds.size());
             String fbAccount = accountMap.getOrDefault(accountId, "account_" + accountId);
-            for (String url : urls) {
-                FbCollectDetailDO detail = new FbCollectDetailDO();
-                detail.setTaskId(task.getId());
-                detail.setFbAccount(fbAccount);
-                detail.setSearchUrl(url.trim());
-                detail.setExpectedCount(createReqVO.getExpectedCount());
-                detail.setCollectedCount(0);
-                detail.setStatus(0); // 待执行
-                fbCollectDetailMapper.insert(detail);
-                accountTaskQueueService.push("collect", detail.getId(), detail.getFbAccount());
-                    
-                // 收集明细信息
-                detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
-                    detail.getId(),
-                    fbAccount,
-                    url.trim(),
-                    null
-                ));
-            }
+            String url = urls.get(i).trim();
+            FbCollectDetailDO detail = new FbCollectDetailDO();
+            detail.setTaskId(task.getId());
+            detail.setFbAccount(fbAccount);
+            detail.setSearchUrl(url);
+            detail.setExpectedCount(createReqVO.getExpectedCount());
+            detail.setCollectedCount(0);
+            detail.setStatus(0); // 待执行
+            fbCollectDetailMapper.insert(detail);
+            accountTaskQueueService.push("collect", detail.getId(), detail.getFbAccount());
+
+            detailInfos.add(new FbCollectCreateRespVO.DetailInfo(
+                detail.getId(), fbAccount, url, null
+            ));
         }
             
         // 6. 返回所有明细ID列表
@@ -145,7 +147,12 @@ public class FbCollectServiceImpl implements FbCollectService {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
 
-        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(accountIds);
+        List<Long> assignedAccountIds = selectAssignedAccounts(accountIds, urls.size());
+        if (CollUtil.isEmpty(assignedAccountIds)) {
+            throw exception(FB_COLLECT_NOT_EXISTS);
+        }
+
+        List<FbAccountDO> accountList = fbAccountMapper.selectBatchIds(assignedAccountIds);
         Map<Long, String> accountMap = accountList.stream()
                 .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
 
@@ -156,7 +163,7 @@ public class FbCollectServiceImpl implements FbCollectService {
         task.setExpectedCount(1);
         task.setTotalExpectedCount(urls.size());
         task.setTotalCollectedCount(0);
-        task.setAccountCount(accountIds.size());
+        task.setAccountCount(assignedAccountIds.size());
         task.setUrlCount(urls.size());
         task.setStatus(1);
         task.setStartTime(LocalDateTime.now());
@@ -164,7 +171,7 @@ public class FbCollectServiceImpl implements FbCollectService {
 
         List<FbCollectCreateRespVO.DetailInfo> detailInfos = new ArrayList<>();
         for (int i = 0; i < urls.size(); i++) {
-            Long accountId = accountIds.get(i % accountIds.size());
+            Long accountId = assignedAccountIds.get(i % assignedAccountIds.size());
             String fbAccount = accountMap.get(accountId);
             if (fbAccount == null || fbAccount.trim().isEmpty()) {
                 fbAccount = "account_" + accountId;
@@ -190,6 +197,17 @@ public class FbCollectServiceImpl implements FbCollectService {
         }
 
         return new FbCollectCreateRespVO(task.getId(), detailInfos);
+    }
+
+    private List<Long> selectAssignedAccounts(List<Long> accountIds, int targetCount) {
+        if (CollUtil.isEmpty(accountIds) || targetCount <= 0) {
+            return Collections.emptyList();
+        }
+        return accountIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .limit(Math.min(accountIds.size(), targetCount))
+                .collect(Collectors.toList());
     }
 
     private Map<Long, String> resolveAccountMap(List<Long> accountIds, String fallbackFbAccount) {

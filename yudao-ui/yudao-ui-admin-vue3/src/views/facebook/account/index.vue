@@ -15,12 +15,25 @@
 
           <el-scrollbar height="calc(100% - 50px)">
             <div
+              class="group-item p-2 rounded cursor-pointer mb-2 transition-all"
+              :class="{
+                'bg-blue-50 border-blue-400': selectedGroupId === null,
+                'hover:bg-gray-50 border-transparent': selectedGroupId !== null
+              }"
+              @click="handleSelectGroup(null)"
+            >
+              <div class="flex justify-between items-center">
+                <span class="text-sm font-bold">全部账号</span>
+              </div>
+            </div>
+
+            <div
               v-for="group in groupList"
               :key="group.id"
               class="group-item p-2 rounded cursor-pointer mb-2 transition-all"
               :class="{
-                'bg-blue-50 border-blue-400': selectedGroupId === group.id,
-                'hover:bg-gray-50 border-transparent': selectedGroupId !== group.id
+                'bg-blue-50 border-blue-400': String(selectedGroupId) === String(group.id),
+                'hover:bg-gray-50 border-transparent': String(selectedGroupId) !== String(group.id)
               }"
               @click="handleSelectGroup(group.id)"
             >
@@ -50,15 +63,6 @@
               </div>
             </div>
 
-            <div
-              v-if="!selectedGroupId"
-              class="group-item p-2 rounded cursor-pointer mb-2 bg-blue-50 border-blue-400"
-              @click="handleSelectGroup(null)"
-            >
-              <div class="flex justify-between items-center">
-                <span class="text-sm font-bold">全部账号</span>
-              </div>
-            </div>
           </el-scrollbar>
         </el-card>
       </div>

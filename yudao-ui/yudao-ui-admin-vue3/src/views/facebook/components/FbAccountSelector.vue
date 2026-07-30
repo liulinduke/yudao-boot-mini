@@ -225,8 +225,12 @@ onMounted(loadOptions)
 .account-selector-trigger {
   display: flex;
   align-items: center;
+  width: 280px;
+  max-width: 100%;
+  height: 32px;
   min-height: 32px;
-  padding: 3px 10px;
+  box-sizing: border-box;
+  padding: 0 10px;
   border: 1px solid var(--el-border-color);
   border-radius: 4px;
   background: var(--el-fill-color-blank);
