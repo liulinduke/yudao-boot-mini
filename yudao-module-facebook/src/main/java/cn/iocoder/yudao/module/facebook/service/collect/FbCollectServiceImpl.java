@@ -60,11 +60,11 @@ public class FbCollectServiceImpl implements FbCollectService {
             return createDeepCollect(createReqVO);
         }
         // 1. 解析URL列表
-        List<String> urls = Arrays.stream(createReqVO.getSearchUrl().split("\\n"))
+        List<String> rawUrls = Arrays.stream(createReqVO.getSearchUrl().split("\\n"))
             .filter(url -> url.trim().length() > 0)
             .collect(Collectors.toList());
             
-        if (CollUtil.isEmpty(urls)) {
+        if (CollUtil.isEmpty(rawUrls)) {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
             
@@ -75,6 +75,8 @@ public class FbCollectServiceImpl implements FbCollectService {
             accountIds = Collections.singletonList(0L); // 占位
         }
             
+        // 同一目标的多个关系页始终共用一个任务和账号；多个目标之间再按账号分配。
+        List<String> urls = new ArrayList<>(rawUrls);
         int urlCount = urls.size();
         // 一个目标只分配给一个账号。目标少于账号时，未被分配的账号不启动；
         // 目标多于账号时按账号顺序轮询，后续目标进入同一账号的串行队列。
@@ -86,10 +88,17 @@ public class FbCollectServiceImpl implements FbCollectService {
         int accountCount = assignedAccountIds.size();
             
         // 3. 计算总数
-        int totalExpectedCount = urlCount * createReqVO.getExpectedCount();
+        int totalExpectedCount = urls.stream()
+                .mapToInt(url -> createReqVO.getExpectedCount() * relationCount(url, createReqVO.getTaskType()))
+                .sum();
             
         // 4. 创建主任务
         FbCollectDO task = BeanUtils.toBean(createReqVO, FbCollectDO.class);
+        // 同行采集的主任务 expected_count 表示页面展示的期望采集总数；
+        // 明细 expected_count 仍表示当前目标包含的关系页采集数量。
+        if (Integer.valueOf(8).equals(createReqVO.getTaskType())) {
+            task.setExpectedCount(totalExpectedCount);
+        }
         task.setTotalExpectedCount(totalExpectedCount);
         task.setTotalCollectedCount(0);
         task.setAccountCount(accountCount);
@@ -111,7 +120,7 @@ public class FbCollectServiceImpl implements FbCollectService {
             detail.setTaskId(task.getId());
             detail.setFbAccount(fbAccount);
             detail.setSearchUrl(url);
-            detail.setExpectedCount(createReqVO.getExpectedCount());
+            detail.setExpectedCount(createReqVO.getExpectedCount() * relationCount(url, createReqVO.getTaskType()));
             detail.setCollectedCount(0);
             detail.setStatus(0); // 待执行
             fbCollectDetailMapper.insert(detail);
@@ -124,6 +133,17 @@ public class FbCollectServiceImpl implements FbCollectService {
             
         // 6. 返回所有明细ID列表
         return new FbCollectCreateRespVO(task.getId(), detailInfos);
+    }
+
+    private int relationCount(String url, Integer taskType) {
+        if (!Integer.valueOf(8).equals(taskType) || url == null || !url.contains("||")) {
+            return 1;
+        }
+        int count = (int) Arrays.stream(url.split("\\|\\|"))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .count();
+        return Math.max(count, 1);
     }
 
     private FbCollectCreateRespVO createDeepCollect(FbCollectSaveReqVO createReqVO) {

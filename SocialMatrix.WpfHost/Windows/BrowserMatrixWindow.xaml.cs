@@ -66,6 +66,11 @@ namespace SocialMatrix.WpfHost.Windows
             return signal.Task;
         }
 
+        public string? GetActiveDetailId(string accountId)
+        {
+            return _activeAccountTasks.TryGetValue(accountId, out var detailId) ? detailId : null;
+        }
+
         // 最大并发数配置（从后端读取，默认19 - 8GB内存推荐值）
         private static int _maxConcurrentBrowsers = 19;
         public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
@@ -666,6 +671,13 @@ namespace SocialMatrix.WpfHost.Windows
                 var err = $"账号 {accountId} 首次加载仍为空白页，请重试登录";
                 System.Diagnostics.Debug.WriteLine($"❌ {err}");
                 OnCollectionError?.Invoke(accountId, err);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_browsers.ContainsKey(accountId))
+                    {
+                        RemoveBrowserState(accountId, disposeBrowser: true);
+                    }
+                }));
             }
         }
 
@@ -1584,6 +1596,14 @@ namespace SocialMatrix.WpfHost.Windows
                     return;
                 }
 
+                // 同行采集的一个目标可能包含粉丝、关注等多个关系页；
+                // 在同一个账号任务内依次采集，避免为每种关系重复创建任务。
+                if (taskType == 8 && TryGetRelationUrls(config, out var relationUrls) && relationUrls.Count > 1)
+                {
+                    await ExecuteUserRelationBatchAsync(browser, accountId, expectedCount, relationUrls, detailId);
+                    return;
+                }
+
                 // 1. 导航到搜索页面（使用 Dispatcher 确保在 UI 线程执行）
                 Application.Current.Dispatcher.Invoke(() =>
                 {
@@ -1873,6 +1893,64 @@ namespace SocialMatrix.WpfHost.Windows
                     $"🏁 采集任务结束: account={accountId}, detailId={detailId}, " +
                     $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}");
             }
+        }
+
+        private bool TryGetRelationUrls(string? config, out List<string> relationUrls)
+        {
+            relationUrls = new List<string>();
+            if (string.IsNullOrWhiteSpace(config)) return false;
+            try
+            {
+                var configObj = Newtonsoft.Json.Linq.JObject.Parse(config);
+                if (configObj["relationUrls"] is not Newtonsoft.Json.Linq.JArray urls) return false;
+                relationUrls = urls.Values<string>()
+                    .Where(url => !string.IsNullOrWhiteSpace(url))
+                    .Select(url => url!.Trim())
+                    .ToList();
+                return relationUrls.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task ExecuteUserRelationBatchAsync(ChromiumWebBrowser browser, string accountId,
+            int expectedCount, List<string> relationUrls, string? detailId)
+        {
+            var allResults = new Newtonsoft.Json.Linq.JArray();
+            int baseCount = expectedCount / relationUrls.Count;
+            int remainder = expectedCount % relationUrls.Count;
+
+            for (int i = 0; i < relationUrls.Count; i++)
+            {
+                int relationTarget = baseCount + (i < remainder ? 1 : 0);
+                if (relationTarget <= 0) continue;
+                Application.Current.Dispatcher.Invoke(() => browser.Load(relationUrls[i]));
+                await WaitForPageLoad(browser, 30000);
+                await Task.Delay(1200);
+
+                var script = GenerateUserRelationCollectScript(relationTarget);
+                var result = await browser.EvaluateScriptAsync(script);
+                if (!result.Success || result.Result == null) continue;
+                var json = result.Result is string value
+                    ? value
+                    : System.Text.Json.JsonSerializer.Serialize(result.Result);
+                try
+                {
+                    var items = Newtonsoft.Json.Linq.JArray.Parse(json);
+                    foreach (var item in items) allResults.Add(item);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 关系页结果解析失败: {ex.Message}");
+                }
+            }
+
+            int actualTaskType = _accountTaskTypes.ContainsKey(accountId) ? _accountTaskTypes[accountId] : 8;
+            string callbackDetailId = detailId
+                ?? (_accountDetailIds.TryGetValue(accountId, out var mappedDetailId) ? mappedDetailId : "");
+            OnCollectionComplete?.Invoke(callbackDetailId, accountId, allResults.ToString(Newtonsoft.Json.Formatting.None), actualTaskType);
         }
 
         /// <summary>
@@ -2931,18 +3009,20 @@ namespace SocialMatrix.WpfHost.Windows
                     return null;
                 }
                 
-                // ✅ 获取URL
-                var url = nameLink.href;
-                if (!url || !url.includes('facebook.com')) {
+                // ✅ 获取并归一化用户主页链接。
+                // Facebook 关系页可能返回 profile.php、用户名主页，或群组内 /user/ 链接，
+                // 不能直接把关系页链接当成用户主页保存。
+                var href = nameLink.href;
+                if (!href || !href.includes('facebook.com')) {
                     console.log('Invalid URL');
                     return null;
                 }
-                
-                // 跳过当前用户导航链接和已见过的链接
-                if (url.includes('&sk=') || seenUserIds.has(url)) {
-                    console.log('Skip link');
-                    return null;
-                }
+
+                var linkUrl = new URL(href, window.location.href);
+                var pathname = linkUrl.pathname || '';
+                var profileId = linkUrl.searchParams.get('id') || '';
+                var groupUserMatch = pathname.match(/\/user\/(\d+)/);
+                profileId = profileId || (groupUserMatch ? groupUserMatch[1] : '');
 
                 // ✅ 获取用户名
                 var userName = nameLink.textContent.trim();
@@ -2951,21 +3031,28 @@ namespace SocialMatrix.WpfHost.Windows
                     return null;
                 }
                 
-                // ✅ 获取用户ID（支持两种格式）
-                var fbUserId = '';
-                var idMatch = url.match(/[?&]id=(\\d+)/);
-                if (idMatch) {
-                    // profile.php?id=123格式，只取数字部分
-                    fbUserId = idMatch[1];
+                // ✅ profile.php 使用 id；普通主页使用路径名称。
+                var fbUserId = profileId;
+                var normalizedUrl = '';
+                if (fbUserId) {
+                    normalizedUrl = 'https://www.facebook.com/profile.php?id=' + encodeURIComponent(fbUserId);
                 } else {
-                    // 用户名格式：https://www.facebook.com/username
-                    var cleanUrl = url.replace('https://www.facebook.com/', '');
-                    var urlParts = cleanUrl.split('?')[0].split('/');
-                    fbUserId = urlParts[0];
+                    var pathParts = pathname.split('/').filter(Boolean);
+                    var username = pathParts[0] || '';
+                    if (!username || ['profile.php', 'groups', 'pages', 'people'].includes(username.toLowerCase())) {
+                        console.log('No valid profile name:', href);
+                        return null;
+                    }
+                    fbUserId = username;
+                    normalizedUrl = 'https://www.facebook.com/' + username;
                 }
                 
                 if (!fbUserId) {
                     console.log('No user ID');
+                    return null;
+                }
+                if (seenUserIds.has(fbUserId)) {
+                    console.log('Skip duplicate user:', fbUserId);
                     return null;
                 }
 
@@ -2977,12 +3064,13 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 var fromResource = 'peer_follower';
-                if (window.location.href.includes('&sk=following')) fromResource = 'peer_following';
-                else if (window.location.href.includes('&sk=friends')) fromResource = 'peer_friend';
+                var relation = new URL(window.location.href).searchParams.get('sk');
+                if (relation === 'following') fromResource = 'peer_following';
+                else if (relation === 'friends') fromResource = 'peer_friend';
 
                 console.log('Found:', userName, fbUserId);
-                seenUserIds.add(url);
-                return { fbUserId: fbUserId, userName: userName, url: url, avatar: avatar, dataType: 1, fromResource: fromResource, syncTime: new Date().toISOString() };
+                seenUserIds.add(fbUserId);
+                return { fbUserId: fbUserId, userName: userName, url: normalizedUrl, avatar: avatar, dataType: 1, fromResource: fromResource, syncTime: new Date().toISOString() };
             } catch (e) {
                 console.warn('Extract user relation failed:', e);
                 return null;

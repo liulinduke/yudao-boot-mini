@@ -7,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using SocialMatrix.WpfHost.Services;
 using SocialMatrix.WpfHost.Windows;
 using System;
@@ -348,7 +349,15 @@ namespace SocialMatrix.WpfHost
             // 登录页/Cookie 失效由 Vue relay 持久化到账号登录状态，WPF 不直接改业务数据。
             browserMatrixWindow.OnCollectionError += (accId, errorMessage) =>
             {
-                Dispatcher.Invoke(() => ReturnCollectionErrorToVue(accId, errorMessage));
+                Dispatcher.Invoke(() =>
+                {
+                    var detailId = browserMatrixWindow.GetActiveDetailId(accId);
+                    ReturnCollectionErrorToVue(accId, detailId, errorMessage);
+                    if (IsNetworkLoadError(errorMessage))
+                    {
+                        browserMatrixWindow.CloseBrowser(accId);
+                    }
+                });
             };
 
             RegisterAccountLoginWindowEvents(browserMatrixWindow);
@@ -402,7 +411,7 @@ namespace SocialMatrix.WpfHost
             }
         }
 
-        private void ReturnCollectionErrorToVue(string accountId, string errorMessage)
+        private void ReturnCollectionErrorToVue(string accountId, string? detailId, string errorMessage)
         {
             try
             {
@@ -410,6 +419,7 @@ namespace SocialMatrix.WpfHost
                 var detail = JsonConvert.SerializeObject(new
                 {
                     accountId,
+                    detailId,
                     errorMessage,
                     timestamp = DateTime.UtcNow
                 });
@@ -420,6 +430,11 @@ namespace SocialMatrix.WpfHost
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 回传账号异常状态失败: {ex.Message}");
             }
+        }
+
+        private static bool IsNetworkLoadError(string errorMessage)
+        {
+            return Regex.IsMatch(errorMessage ?? "", "ConnectionClosed|网络|网络连接|页面加载失败|空白页|This site can.?t be reached|ERR_|超时", RegexOptions.IgnoreCase);
         }
 
         /// <summary>

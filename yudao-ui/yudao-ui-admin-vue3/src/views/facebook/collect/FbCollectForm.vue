@@ -830,14 +830,15 @@ const singleTargetCountLabel = computed(() => {
     5: '每个活动采集数量',
     6: '每个目标采集数量',
     7: '每个群组采集数量',
-    8: '每个用户采集数量'
+    8: '每个目标采集数量'
   }
   return labels[formData.value.taskType || 0] || '单个目标采集数量'
 })
 
-const estimatedTotalCount = computed(() =>
-  collectionTargetCount.value * Math.max(Number(formData.value.expectedCount) || 0, 0)
-)
+const estimatedTotalCount = computed(() => {
+  const relationCount = formData.value.taskType === 8 ? relationTypes.value.length : 1
+  return collectionTargetCount.value * relationCount * Math.max(Number(formData.value.expectedCount) || 0, 0)
+})
 
 const formRules = reactive({
   accountIds: [{ required: true, message: '请选择采集账号', trigger: 'change' }],
@@ -1609,7 +1610,7 @@ const normalizeUserRelationUrls = (rawUrls: string) => {
   )
   if (!relations.length) return rawUrls
 
-  const urls: string[] = []
+  const urls = new Set<string>()
   rawUrls
     .split(/\r?\n/)
     .map((url) => url.trim())
@@ -1617,22 +1618,24 @@ const normalizeUserRelationUrls = (rawUrls: string) => {
     .forEach((rawUrl) => {
       try {
         const parsed = new URL(rawUrl)
+        // 提交时可能再次经过标准化，先去掉原有关系参数，避免重复展开。
+        parsed.searchParams.delete('sk')
         relations.forEach((relation) => {
           const nextUrl = new URL(parsed.toString())
           nextUrl.searchParams.set('sk', relation)
-          urls.push(nextUrl.toString())
+          urls.add(nextUrl.toString())
         })
       } catch {
         // 非标准链接保留原文，只做尾部清理，避免阻断整个任务提交。
         const baseUrl = rawUrl.replace(/[?&]+$/, '')
         relations.forEach((relation) => {
           const separator = baseUrl.includes('?') ? '&' : '?'
-          urls.push(`${baseUrl}${separator}sk=${relation}`)
+          urls.add(`${baseUrl}${separator}sk=${relation}`)
         })
       }
     })
 
-  return urls.join('\n')
+  return Array.from(urls).join('\n')
 }
 
 /** 确认用户选择（组件回调） */

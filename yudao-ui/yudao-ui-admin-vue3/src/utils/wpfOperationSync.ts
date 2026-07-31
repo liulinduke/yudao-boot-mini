@@ -15,6 +15,7 @@ import {
 import { closeBrowser, onCollectionComplete } from '@/utils/wpfBridge'
 import { onCollectionError } from '@/utils/wpfBridge'
 import { FbAccountApi } from '@/api/facebook/account'
+import { FbCollectApi } from '@/api/facebook/collect'
 
 const handledCollectDetailIds = new Set<string>()
 const handledDmDetailIds = new Set<string>()
@@ -94,6 +95,20 @@ export function setupWpfOperationSync() {
 
   onCollectionError(async (data) => {
     const reason = String(data.errorMessage || '')
+    const detailId = String(data.detailId || '')
+    const accountId = String(data.accountId || '')
+    if (detailId && accountId && !/账号正在执行任务|当前明细/.test(reason)) {
+      try {
+        await FbCollectApi.markDetailFailed({
+          detailId,
+          errorMessage: reason || '浏览器加载失败'
+        })
+        await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+        window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
+      } catch (error) {
+        console.error('[采集异常] 明细失败状态保存失败:', error)
+      }
+    }
     if (!/cookie|登录页|重新登录|checkpoint|账号被封/i.test(reason) || !data.accountId) return
 
     try {

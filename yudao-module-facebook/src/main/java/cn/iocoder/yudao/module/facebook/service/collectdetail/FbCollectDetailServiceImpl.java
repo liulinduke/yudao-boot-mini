@@ -455,7 +455,10 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         item.setDetailId(detail.getId());
         item.setFbAccount(detail.getFbAccount());
         item.setCookie(account == null ? null : account.getCookie());
-        item.setSearchUrl(detail.getSearchUrl());
+        // 同行采集一条明细可能包含多个关系页，首次导航使用第一个 URL，
+        // 完整关系 URL 列表通过 actionConfig 下发给 WPF。
+        item.setSearchUrl(Integer.valueOf(8).equals(task == null ? null : task.getTaskType())
+                ? firstRelationUrl(detail.getSearchUrl()) : detail.getSearchUrl());
         item.setSourceUserId(detail.getSourceUserId());
         item.setExpectedCount(detail.getExpectedCount());
         item.setTaskType(task == null ? 1 : task.getTaskType());
@@ -463,6 +466,18 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     }
 
     private String buildCollectRuntimeConfig(FbCollectDetailDO detail, FbCollectDO task) {
+        if (task != null && Integer.valueOf(8).equals(task.getTaskType())
+                && StrUtil.contains(detail.getSearchUrl(), "||")) {
+            cn.hutool.json.JSONArray relationUrls = cn.hutool.json.JSONUtil.createArray();
+            for (String url : detail.getSearchUrl().split("\\|\\|")) {
+                if (StrUtil.isNotBlank(url)) {
+                    relationUrls.add(url.trim());
+                }
+            }
+            return cn.hutool.json.JSONUtil.createObj()
+                    .set("relationUrls", relationUrls)
+                    .toString();
+        }
         if (task != null && Integer.valueOf(11).equals(task.getTaskType())
                 && (StrUtil.startWith(task.getRemark(), "AI群帖评论截流-评论采集:")
                 || StrUtil.startWith(task.getRemark(), "AI竞品监控-评论采集:"))) {
@@ -527,6 +542,13 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                 .set("maxPostsPerPage", 1000)
                 .set("maxScrolls", 240);
         return runtimeConfig.toString();
+    }
+
+    private String firstRelationUrl(String searchUrl) {
+        if (StrUtil.isBlank(searchUrl)) {
+            return searchUrl;
+        }
+        return searchUrl.split("\\|\\|", 2)[0].trim();
     }
 
     private int resolveGroupPostRecentDays(FbAiAgentConfigDO config) {

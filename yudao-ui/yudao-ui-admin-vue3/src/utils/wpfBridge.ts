@@ -134,7 +134,7 @@ export function onCollectionComplete(callback: (data: any) => void): void {
   }
 }
 
-export function onCollectionError(callback: (data: { accountId?: string; errorMessage?: string }) => void): void {
+export function onCollectionError(callback: (data: { accountId?: string; detailId?: string; errorMessage?: string }) => void): void {
   window.addEventListener('fb:collection:error', (event: any) => callback(event.detail || {}))
 }
 

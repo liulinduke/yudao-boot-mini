@@ -12,8 +12,8 @@
           />
         </el-form-item>
         <el-form-item label="群组类型">
-          <el-select v-model="queryParams.type" placeholder="请选择类型" clearable>
-            <el-option label="公开" value="Publik" />
+          <el-select v-model="queryParams.type" placeholder="请选择类型" clearable class="!w-180px">
+            <el-option label="公开" value="Public" />
             <el-option label="私密" value="Private" />
           </el-select>
         </el-form-item>
@@ -32,13 +32,12 @@
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column label="群组ID" prop="id" width="100" />
         <el-table-column label="群组名称" prop="groupName" min-width="200" show-overflow-tooltip />
         <el-table-column label="群组链接" prop="url" min-width="250" show-overflow-tooltip />
         <el-table-column label="类型" prop="type" width="100">
           <template #default="scope">
-            <el-tag :type="scope.row.type === 'Publik' ? 'success' : 'warning'">
-              {{ scope.row.type }}
+            <el-tag :type="scope.row.type === 'Public' ? 'success' : 'warning'">
+              {{ scope.row.type === 'Public' ? '公开' : '私密' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -89,7 +88,7 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'confirm': [selectedGroups: FbCollectGroup[]]
+  confirm: [selectedGroups: FbCollectGroup[]]
 }>()
 
 // 状态
@@ -104,18 +103,23 @@ const selectedGroups = ref<FbCollectGroup[]>([])
 // 查询参数
 const queryParams = reactive({
   groupName: '',
-  type: ''
+  type: 'Public'
 })
 
 // 监听 modelValue 变化
-watch(() => props.modelValue, (val) => {
-  visible.value = val
-  if (val) {
-    // 打开时重置并加载数据
-    pageNo.value = 1
-    loadList()
+watch(
+  () => props.modelValue,
+  (val) => {
+    visible.value = val
+    if (val) {
+      // 打开时重置并加载数据
+      pageNo.value = 1
+      queryParams.groupName = ''
+      queryParams.type = 'Public'
+      loadList()
+    }
   }
-})
+)
 
 // 监听 visible 变化
 watch(visible, (val) => {
@@ -130,7 +134,7 @@ const loadList = async () => {
       pageNo: pageNo.value,
       pageSize: pageSize.value
     }
-    
+
     // 添加查询条件
     if (queryParams.groupName) {
       params.groupName = queryParams.groupName
@@ -138,7 +142,7 @@ const loadList = async () => {
     if (queryParams.type) {
       params.type = queryParams.type
     }
-    
+
     const response = await FbCollectGroupApi.getFbCollectGroupPage(params)
     list.value = response.list || []
     total.value = response.total || 0
@@ -153,7 +157,7 @@ const loadList = async () => {
 /** 重置查询 */
 const resetQuery = () => {
   queryParams.groupName = ''
-  queryParams.type = ''
+  queryParams.type = 'Public'
   pageNo.value = 1
   loadList()
 }
@@ -169,7 +173,7 @@ const handleConfirm = () => {
     message.warning('请至少选择一个群组')
     return
   }
-  
+
   emit('confirm', selectedGroups.value)
   visible.value = false
 }
