@@ -8,6 +8,7 @@ export interface FbOperationTask {
   expectedCount: number
   actualCount?: number
   accountIds?: string
+  accountSelectionMode?: 'AUTO' | 'MANUAL'
   startTime?: string
   endTime?: string
   remark?: string
@@ -69,6 +70,7 @@ export interface FbOperationTaskSaveReqVO {
   taskType: number
   taskName?: string
   accountIds: string[]
+  accountSelectionMode?: 'AUTO' | 'MANUAL'
   targetUrls?: string
   targetGroupIds?: string
   postUrl?: string

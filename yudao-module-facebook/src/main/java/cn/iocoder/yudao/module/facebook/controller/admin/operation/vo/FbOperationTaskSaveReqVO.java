@@ -22,8 +22,10 @@ public class FbOperationTaskSaveReqVO {
     private String taskName;
 
     @Schema(description = "账号ID列表", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotEmpty(message = "账号ID列表不能为空")
     private List<String> accountIds;
+
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode = "AUTO";
 
     @Schema(description = "目标链接列表", example = "https://www.facebook.com/profile.php?id=xxx")
     private String targetUrls;

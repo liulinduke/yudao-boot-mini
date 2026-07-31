@@ -17,6 +17,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountTaskAllocationService;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
@@ -49,6 +50,9 @@ public class FbCollectServiceImpl implements FbCollectService {
     @Resource
     private FbAiAgentCollectQueueService accountTaskQueueService;
 
+    @Resource
+    private FbAccountTaskAllocationService accountAllocationService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FbCollectCreateRespVO createFbCollect(FbCollectSaveReqVO createReqVO) {
@@ -74,7 +78,8 @@ public class FbCollectServiceImpl implements FbCollectService {
         int urlCount = urls.size();
         // 一个目标只分配给一个账号。目标少于账号时，未被分配的账号不启动；
         // 目标多于账号时按账号顺序轮询，后续目标进入同一账号的串行队列。
-        List<Long> assignedAccountIds = selectAssignedAccounts(accountIds, urlCount);
+        List<Long> assignedAccountIds = accountAllocationService.selectAccounts(
+                createReqVO.getAccountSelectionMode(), accountIds, urlCount, "collect", List.of("collect"));
         if (CollUtil.isEmpty(assignedAccountIds)) {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
@@ -147,7 +152,8 @@ public class FbCollectServiceImpl implements FbCollectService {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
 
-        List<Long> assignedAccountIds = selectAssignedAccounts(accountIds, urls.size());
+        List<Long> assignedAccountIds = accountAllocationService.selectAccounts(
+                createReqVO.getAccountSelectionMode(), accountIds, urls.size(), "collect", List.of("collect"));
         if (CollUtil.isEmpty(assignedAccountIds)) {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }

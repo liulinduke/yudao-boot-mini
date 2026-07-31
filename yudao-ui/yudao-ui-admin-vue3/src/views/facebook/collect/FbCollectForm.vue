@@ -62,8 +62,12 @@
         label-width="140px"
         v-if="formType === 'create'"
       >
-        <el-form-item label="采集账号" prop="accountIds">
-          <FbAccountSelector v-model="formData.accountIds" placeholder="请选择账号" class="w-full" />
+        <el-form-item
+          label="采集账号"
+          prop="accountIds"
+          :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+        >
+          <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
         <!-- 帖子采集：同一入口下按来源切换 -->
@@ -765,6 +769,7 @@ const filteredUserList = computed(() => {
 const formData = ref({
   id: undefined,
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   taskType: undefined, // 采集类型(1主页/2帖子/3用户等),由功能卡片自动设置
   searchType: 1, // 搜索方式(0链接/1关键词),默认关键词采集
   keyword: '', // 搜索关键词(仅searchType=1时使用)
@@ -1149,6 +1154,7 @@ const submitForm = async () => {
     // 准备任务数据(包含所有账号和URL)
     const taskData: any = {
       accountIds: selectedAccounts.map((acc) => acc.id), // 传递账号ID列表
+      accountSelectionMode: data.accountSelectionMode,
       fbAccount: selectedAccounts[0]?.fbAccount, // 使用第一个账号的 fbAccount(后端会遍历)
       taskType: data.taskType, // 采集类型(1主页/2帖子/3用户等)
       searchType: data.searchType, // 搜索方式(0链接/1关键词)
@@ -1213,6 +1219,7 @@ const resetForm = () => {
   formData.value = {
     id: undefined,
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     taskType: undefined, // 采集类型(由功能卡片自动设置)
     searchType: 1, // 搜索方式(默认关键词采集)
     keyword: '',
@@ -1301,7 +1308,7 @@ const getUrlPlaceholder = (taskType?: number) => {
   const placeholders: Record<number, string> = {
     1: '请输入公共主页采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/pages?q=关键词',
     2: '请输入帖子采集链接，多个链接请换行分隔。\n示例：https://facebook.com/search/top?q=关键词',
-    3: '请输入个人主页采集链接，多个链接请换行分隔。\n在 Facebook 搜索目标用户后，复制浏览器地址栏的完整链接。\n示例：https://facebook.com/search/people?q=关键词',
+    3: '请输入个人主页采集链接，多个链接请换行分隔。\n在 Facebook 搜索目标用户后，复制浏览器地址栏的完整链接。\n示例：https://facebook.com/search/people?q=关键词&filters=xxx',
     4: '请输入群组采集链接，多个链接请换行分隔。\n示例：https://facebook.com/groups/xxx',
     5: '请输入活动采集链接，多个链接请换行分隔。\n示例：https://facebook.com/events/xxx',
     6: '请输入评论采集链接，多个链接请换行分隔。\n示例：https://facebook.com/xxx/posts/xxx',

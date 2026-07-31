@@ -39,6 +39,9 @@ public class FbCollectDO extends BaseDO {
      * 枚举 {@link TODO fb_search_type 对应的类}
      */
     private Integer taskType;
+
+    /** 账号分配模式：AUTO/MANUAL。 */
+    private String accountSelectionMode;
     /**
      * 采集链接
      */

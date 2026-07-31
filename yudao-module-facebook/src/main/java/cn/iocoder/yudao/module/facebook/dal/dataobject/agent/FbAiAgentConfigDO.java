@@ -40,6 +40,11 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private String searchMode;
 
     /**
+     * 关键词搜索链接模板。链接模式下仅替换其中的 q 参数，保留其他筛选条件。
+     */
+    private String searchUrlTemplate;
+
+    /**
      * 用户主营/出口产品
      */
     private String exportProduct;
@@ -85,12 +90,12 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private Integer targetCustomerCount;
 
     /**
-     * 执行频率：daily
+     * 执行频率：1-7天，1表示每天
      */
     private String executeFrequency;
 
     /**
-     * 每日执行时间，格式 HH:mm
+     * 执行时间，格式 HH:mm
      */
     private String executeTime;
 
@@ -113,6 +118,9 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
      * 执行账号ID列表，逗号分隔
      */
     private String accountIds;
+
+    /** 账号分配模式：AUTO/MANUAL。 */
+    private String accountSelectionMode;
 
     /**
      * 监控群组ID列表，逗号分隔

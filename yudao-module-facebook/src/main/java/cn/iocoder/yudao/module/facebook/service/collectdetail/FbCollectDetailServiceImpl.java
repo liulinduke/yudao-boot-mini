@@ -23,6 +23,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskDetai
 import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAccountTaskQueueItem;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -50,6 +51,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbAccountMapper fbAccountMapper;
     @Resource
     private FbAiAgentCollectQueueService aiAgentCollectQueueService;
+    @Resource
+    private FbAccountActionStatService actionStatService;
     @Resource
     private FbDmTaskMapper dmTaskMapper;
     @Resource
@@ -165,6 +168,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
 
             FbCollectDO task = taskMap.get(detail.getTaskId());
             FbAccountDO account = accountMap.get(detail.getFbAccount());
+            if (account != null) actionStatService.markStarted(account.getId(), "collect");
             FbCollectPendingDetailRespVO item = buildPendingDetailResp(detail, task, account);
             item.setSourceType("collect");
             item.setActionConfig(buildCollectRuntimeConfig(detail, task));
@@ -421,6 +425,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         FbAccountDO account = fbAccountMapper.selectOne(new LambdaQueryWrapper<FbAccountDO>()
                 .eq(FbAccountDO::getFbAccount, detail.getFbAccount())
                 .last("LIMIT 1"));
+        if (account != null) actionStatService.markStarted(account.getId(), "collect");
         FbCollectPendingDetailRespVO item = buildPendingDetailResp(detail, task, account);
         item.setActionConfig(buildCollectRuntimeConfig(detail, task));
         return item;
@@ -526,7 +531,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
 
     private int resolveGroupPostRecentDays(FbAiAgentConfigDO config) {
         if (config == null || StrUtil.isBlank(config.getPersonaConfig())) {
-            return 3;
+            return defaultRecentDays(config);
         }
         try {
             cn.hutool.json.JSONObject persona = cn.hutool.json.JSONUtil.parseObj(config.getPersonaConfig());
@@ -535,15 +540,15 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                     ? (cn.hutool.json.JSONObject) groupPostConfig
                     : cn.hutool.json.JSONUtil.parseObj(groupPostConfig);
             Integer recentDays = groupConfig.getInt("recentDays");
-            return recentDays != null && recentDays > 0 ? recentDays : 3;
+            return recentDays != null && recentDays > 0 ? recentDays : defaultRecentDays(config);
         } catch (Exception ignored) {
-            return 3;
+            return defaultRecentDays(config);
         }
     }
 
     private int resolveCompetitorRecentDays(FbAiAgentConfigDO config) {
         if (config == null || StrUtil.isBlank(config.getPersonaConfig())) {
-            return 3;
+            return defaultRecentDays(config);
         }
         try {
             cn.hutool.json.JSONObject persona = cn.hutool.json.JSONUtil.parseObj(config.getPersonaConfig());
@@ -552,9 +557,21 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                     ? (cn.hutool.json.JSONObject) competitorConfig
                     : cn.hutool.json.JSONUtil.parseObj(competitorConfig);
             Integer recentDays = competitor.getInt("recentDays");
-            return recentDays != null && recentDays > 0 ? recentDays : 3;
+            return recentDays != null && recentDays > 0 ? recentDays : defaultRecentDays(config);
         } catch (Exception ignored) {
-            return 3;
+            return defaultRecentDays(config);
+        }
+    }
+
+    private int defaultRecentDays(FbAiAgentConfigDO config) {
+        if (config == null || StrUtil.isBlank(config.getExecuteFrequency()) || "daily".equals(config.getExecuteFrequency())) {
+            return 1;
+        }
+        try {
+            int intervalDays = Integer.parseInt(config.getExecuteFrequency());
+            return intervalDays >= 1 && intervalDays <= 7 ? intervalDays : 1;
+        } catch (NumberFormatException ex) {
+            return 1;
         }
     }
 

@@ -17,6 +17,8 @@ export interface FbCollect {
   endTime: string | Dayjs // 结束时间
   remark: string // 备注
   sourceUserIds?: Array<string | number> // 深度采集来源资源库用户ID
+  accountSelectionMode?: 'AUTO' | 'MANUAL'
+  accountIds?: Array<string | number>
 }
 
 // FB采集任务 API

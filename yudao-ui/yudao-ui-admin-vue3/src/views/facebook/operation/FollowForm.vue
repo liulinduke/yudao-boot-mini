@@ -33,8 +33,12 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="账号配置" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="账号配置"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['follow']" class="w-full" />
       </el-form-item>
 
       <el-form-item label="备注" prop="remark">
@@ -76,6 +80,7 @@ const followCommand = ref('follow')
 const formData = ref({
   targetUrl: '',
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   intervalRisk: 'high',
   remark: ''
 })
@@ -131,7 +136,7 @@ const submitForm = async () => {
 
   const targetUrl = normalizeTargetUrl(formData.value.targetUrl)
   const accountIds = formData.value.accountIds || []
-  if (accountIds.length === 0) {
+    if (formData.value.accountSelectionMode === 'MANUAL' && accountIds.length === 0) {
     message.warning('请选择执行账号')
     return
   }
@@ -162,6 +167,7 @@ const submitForm = async () => {
       taskType: TASK_TYPE,
       taskName: `刷粉_${timestamp}`,
       accountIds,
+      accountSelectionMode: formData.value.accountSelectionMode,
       targetUrls: targetUrl,
       postUrl: targetUrl,
       actionConfig: JSON.stringify(configData),
@@ -183,6 +189,7 @@ const resetForm = () => {
   formData.value = {
     targetUrl: '',
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     intervalRisk: 'high',
     remark: ''
   }

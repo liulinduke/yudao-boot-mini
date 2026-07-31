@@ -28,8 +28,12 @@
       </el-form-item>
 
       <!-- 执行账号 -->
-      <el-form-item label="执行账号" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="执行账号"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['repost']" class="w-full" />
       </el-form-item>
 
       <!-- 执行项配置 -->
@@ -358,6 +362,7 @@ const formRef = ref()
 const formData = ref({
   postUrl: '',
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   remark: ''
 })
 
@@ -537,6 +542,7 @@ const submitForm = async () => {
       taskType: 10, // 转贴任务（运营任务从10开始，避免与采集任务冲突）
       taskName: `转帖_${timestamp}`,
       accountIds: formData.value.accountIds,
+      accountSelectionMode: formData.value.accountSelectionMode,
       postUrl: formData.value.postUrl,
       actionConfig: JSON.stringify(configData),
       expectedCount: expectedCount,
@@ -558,6 +564,7 @@ const resetForm = () => {
   formData.value = {
     postUrl: '',
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     remark: ''
   }
   selectedActions.value = []

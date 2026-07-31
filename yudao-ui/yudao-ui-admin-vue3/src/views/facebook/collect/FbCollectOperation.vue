@@ -32,7 +32,7 @@
     <Dialog title="新建采集任务" v-model="dialogVisible" width="600px">
       <el-form :model="taskForm" label-width="100px">
         <el-form-item label="采集账号">
-          <FbAccountSelector v-model="taskForm.accountIds" placeholder="请选择账号" class="w-full" />
+          <FbAccountSelector v-model="taskForm.accountIds" v-model:selection-mode="taskForm.accountSelectionMode" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
         <el-form-item label="期望数量">
@@ -62,7 +62,6 @@
 
 <script setup lang="ts">
 import { FbCollectApi } from '@/api/facebook/collect'
-import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
 import FbAccountSelector from '../components/FbAccountSelector.vue'
 import FunctionCard from './components/FunctionCard.vue'
 import TaskList from './components/TaskList.vue'
@@ -122,12 +121,10 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const taskListRef = ref()
 
-// 账号列表
-const accounts = ref<FbAccount[]>([])
-
 // 任务表单
 const taskForm = reactive({
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   expectedCount: 100,
   urls: '',
   interval: 5
@@ -143,24 +140,13 @@ const selectFunction = (type: string) => {
   dialogVisible.value = true
 }
 
-/** 加载账号列表 */
-const loadAccounts = async () => {
-  try {
-    const data = await FbAccountApi.getFbAccountPage({
-      pageNo: 1,
-      pageSize: 1000,
-      status: true
-    })
-    accounts.value = filterSelectableFbAccounts(data.list || [])
-  } catch (error) {
-    console.error('加载账号列表失败:', error)
-  }
-}
-
 /** 提交任务 */
 const submitTask = async () => {
   // 验证
-  if (!taskForm.accountIds || taskForm.accountIds.length === 0) {
+  if (
+    taskForm.accountSelectionMode === 'MANUAL' &&
+    (!taskForm.accountIds || taskForm.accountIds.length === 0)
+  ) {
     message.warning('请选择采集账号')
     return
   }
@@ -183,37 +169,21 @@ const submitTask = async () => {
       return
     }
 
-    // 获取选中的账号信息
-    const selectedAccounts = accounts.value.filter((acc) =>
-      taskForm.accountIds.includes(String(acc.id))
-    )
-
-    // 为每个账号创建采集任务
-    let createdCount = 0
-    for (const account of selectedAccounts) {
-      for (const url of urls) {
-        const taskData: any = {
-          fbAccount: account.fbAccount || '',
-          taskType: getTaskTypeByFunction(activeFunction.value),
-          searchUrl: url,
-          searchType: 0, // 0表示链接搜索
-          expectedCount: taskForm.expectedCount,
-          intervalSeconds: taskForm.interval,
-          status: 0, // 待执行
-          collectedCount: 0,
-          remark: `自动化采集-${activeFunction.value}`
-        }
-
-        const result = await FbCollectApi.createFbCollect(taskData)
-
-        // 调用WPF启动浏览器进行采集
-        if (result && result.data) {
-          const taskId = result.data
-          await startBrowserCollection(account, url, taskId)
-          createdCount++
-        }
-      }
+    // 一次提交全部目标，由后端按账号分配模式统一拆分明细并进入账号队列。
+    const taskData: any = {
+      accountIds: taskForm.accountIds,
+      accountSelectionMode: taskForm.accountSelectionMode,
+      taskType: getTaskTypeByFunction(activeFunction.value),
+      searchUrl: urls.join('\n'),
+      searchType: 0,
+      expectedCount: taskForm.expectedCount,
+      intervalSeconds: taskForm.interval,
+      status: 0,
+      collectedCount: 0,
+      remark: `自动化采集-${activeFunction.value}`
     }
+    const result = await FbCollectApi.createFbCollect(taskData)
+    const createdCount = result?.data?.detailInfos?.length || result?.data?.details?.length || urls.length
 
     message.success(`已创建 ${createdCount} 个采集任务`)
 
@@ -246,41 +216,15 @@ const getTaskTypeByFunction = (funcType: string): number => {
   return typeMap[funcType] || 1
 }
 
-/** 启动浏览器采集 */
-const startBrowserCollection = async (account: FbAccount, url: string, taskId: number) => {
-  try {
-    message.info(`正在启动指纹浏览器...`)
-
-    // 调用WPF桥接，打开浏览器矩阵窗口并启动自动化采集
-    if ((window as any).chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      ;(window as any).chrome.webview.hostObjects.sync.wpfBridge.StartBrowser(
-        account.id,
-        account.cookie || null,
-        url,
-        taskForm.expectedCount
-      )
-      message.info(`已为账号 ${account.fbAccount} 启动自动化采集，请稍后...`)
-    } else {
-      message.warning('WPF桥接未就绪，请在WPF环境中运行')
-    }
-  } catch (error) {
-    console.error('启动浏览器失败:', error)
-    message.error(`启动浏览器失败: ${(error as Error).message}`)
-  }
-}
-
 /** 重置表单 */
 const resetForm = () => {
   taskForm.accountIds = []
+  taskForm.accountSelectionMode = 'AUTO'
   taskForm.urls = ''
   taskForm.expectedCount = 100
   taskForm.interval = 5
 }
 
-/** 初始化 */
-onMounted(() => {
-  loadAccounts()
-})
 </script>
 
 <style scoped lang="scss">

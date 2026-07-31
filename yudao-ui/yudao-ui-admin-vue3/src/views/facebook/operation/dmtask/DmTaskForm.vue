@@ -83,8 +83,12 @@
       </el-form-item>
 
       <!-- 3. 执行账号 -->
-      <el-form-item label="执行账号" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="执行账号"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['dm']" class="w-full" />
       </el-form-item>
 
       <!-- 4. 群发间隔 -->
@@ -163,6 +167,7 @@ const formData = ref({
   scriptType: 1,
   appendRandomEmoji: false,
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   minIntervalSeconds: 4,
   maxIntervalSeconds: 10,
   remark: ''
@@ -397,7 +402,10 @@ const submitForm = async () => {
     message.warning(scriptType.value === 1 ? '请输入话术' : '请选择话术')
     return
   }
-  if (formData.value.accountIds.length === 0) {
+  if (
+    formData.value.accountSelectionMode === 'MANUAL' &&
+    formData.value.accountIds.length === 0
+  ) {
     message.warning('请选择执行账号')
     return
   }
@@ -450,6 +458,7 @@ const resetForm = () => {
     scriptType: 1,
     appendRandomEmoji: false,
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     minIntervalSeconds: 4,
     maxIntervalSeconds: 10,
     remark: ''

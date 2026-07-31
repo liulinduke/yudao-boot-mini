@@ -119,6 +119,14 @@ public class FbAccountController {
         return success(true);
     }
 
+    @GetMapping("/selector-options")
+    @Operation(summary = "获取FB任务账号候选及使用统计")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:query')")
+    public CommonResult<List<FbAccountSelectorOptionRespVO>> getSelectorOptions(
+            @Valid FbAccountSelectorOptionReqVO reqVO) {
+        return success(fbAccountService.getSelectorOptions(reqVO));
+    }
+
     @PutMapping("/update-group")
     @Operation(summary = "批量更新FB账号分组")
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:update')")

@@ -5,6 +5,13 @@ export const FbAccountApi = {
     return request.get({ url: '/facebook/fb-account/page', params })
   },
 
+  getSelectorOptions: (params: FbAccountSelectorOptionReqVO) => {
+    return request.get<FbAccountSelectorOption[]>({
+      url: '/facebook/fb-account/selector-options',
+      params
+    })
+  },
+
   getFbAccount: (id: number) => {
     return request.get({ url: '/facebook/fb-account/get', params: { id } })
   },
@@ -94,6 +101,27 @@ export interface FbAccountPageReqVO {
   proxyId?: number
   creationDate?: string[]
   createTime?: string[]
+}
+
+export interface FbAccountSelectorOptionReqVO {
+  scene?: string
+  actionTypes?: string[]
+  targetCount?: number
+  accountIds?: Array<number | string>
+}
+
+export interface FbAccountSelectorOption {
+  id: number | string
+  fbAccount?: string
+  groupId?: number | string | null
+  status?: boolean
+  loginStatus?: string
+  eligible?: boolean
+  disabledReason?: string
+  today?: Record<string, number>
+  limits?: Record<string, number>
+  total?: Record<string, number>
+  lastExecuteTime?: string
 }
 
 export interface FbAccount {

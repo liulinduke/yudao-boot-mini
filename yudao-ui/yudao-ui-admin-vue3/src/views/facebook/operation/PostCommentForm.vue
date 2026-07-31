@@ -52,8 +52,12 @@
         </div>
       </el-form-item>
 
-      <el-form-item label="执行账号" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="执行账号"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['comment']" class="w-full" />
       </el-form-item>
 
       <el-form-item label="执行项" required>
@@ -163,6 +167,7 @@ const commentRemainingMap = ref<Record<string, number>>({})
 
 const formData = ref({
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   manualPostUrls: '',
   selectedPosts: [] as any[],
   remark: ''
@@ -235,7 +240,11 @@ const commentQuotaSummary = computed(() => {
     0
   )
   const totalPosts = getPostUrls().length
-  if (accountIds.length === 0) return '评论额度预检查：请先选择执行账号'
+  if (accountIds.length === 0) {
+    return formData.value.accountSelectionMode === 'AUTO'
+      ? '评论额度将由系统按可用账号自动分配'
+      : '评论额度预检查：请先选择执行账号'
+  }
   return `评论额度预检查：剩余 ${totalRemaining} 次，可分配评论 ${Math.min(totalRemaining, totalPosts)} / ${totalPosts} 个帖子`
 })
 
@@ -345,6 +354,7 @@ const submitForm = async () => {
       taskType: TASK_TYPE,
       taskName: `帖子评论_${timestamp}`,
       accountIds: formData.value.accountIds,
+      accountSelectionMode: formData.value.accountSelectionMode,
       postUrls,
       postUrl: postUrls[0],
       actionConfig: JSON.stringify(configData),
@@ -372,6 +382,7 @@ const submitForm = async () => {
 const resetForm = () => {
   formData.value = {
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     manualPostUrls: '',
     selectedPosts: [],
     remark: ''

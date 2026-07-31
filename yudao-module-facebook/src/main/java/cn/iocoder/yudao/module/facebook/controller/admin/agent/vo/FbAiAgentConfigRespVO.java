@@ -24,6 +24,9 @@ public class FbAiAgentConfigRespVO {
     @Schema(description = "搜索方式")
     private String searchMode;
 
+    @Schema(description = "关键词搜索链接模板")
+    private String searchUrlTemplate;
+
     @Schema(description = "用户主营/出口产品")
     private String exportProduct;
 
@@ -54,7 +57,8 @@ public class FbAiAgentConfigRespVO {
     @Schema(description = "执行频率")
     private String executeFrequency;
 
-    @Schema(description = "每日执行时间，格式 HH:mm")
+
+    @Schema(description = "执行时间，格式 HH:mm")
     private String executeTime;
 
     @Schema(description = "最近一次自动调度执行时间")

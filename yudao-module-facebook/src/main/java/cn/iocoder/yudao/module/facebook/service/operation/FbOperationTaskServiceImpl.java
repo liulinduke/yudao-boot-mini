@@ -26,6 +26,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountTaskAllocationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -91,6 +92,9 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     @Resource
     private FbAiAgentCollectQueueService accountTaskQueueService;
 
+    @Resource
+    private FbAccountTaskAllocationService accountAllocationService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createOperationTask(FbOperationTaskSaveReqVO createReqVO) {
@@ -104,13 +108,21 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         FbOperationTaskDO task = BeanUtils.toBean(createReqVO, FbOperationTaskDO.class);
         task.setStatus(0); // 待执行
         task.setActualCount(0);
-        task.setAccountIds(String.join(",", createReqVO.getAccountIds()));
+        List<String> requestedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
+        List<Long> requestedIds = requestedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList());
+        List<Long> selectedIds = accountAllocationService.selectAccounts(
+                createReqVO.getAccountSelectionMode(), requestedIds,
+                Math.max(1, createReqVO.getExpectedCount()), "operation",
+                resolveActionTypes(createReqVO.getTaskType(), createReqVO.getActionConfig()));
+        if (CollUtil.isEmpty(selectedIds)) {
+            throw invalidParamException("没有可用的Facebook账号，请检查账号状态或每日额度");
+        }
+        List<String> normalizedAccountIds = selectedIds.stream().map(String::valueOf).collect(Collectors.toList());
+        task.setAccountIds(String.join(",", normalizedAccountIds));
+        task.setAccountSelectionMode(createReqVO.getAccountSelectionMode());
         operationTaskMapper.insert(task);
 
         // 2. 规范化账号ID并查询账号信息映射
-        List<String> normalizedAccountIds = createReqVO.getAccountIds().stream()
-                .map(id -> String.valueOf(id).trim())
-                .collect(Collectors.toList());
         List<Long> accountIdLongs = normalizedAccountIds.stream()
                 .map(Long::valueOf)
                 .collect(Collectors.toList());
@@ -171,10 +183,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     }
 
     private Long createFollowTask(FbOperationTaskSaveReqVO createReqVO) {
-        List<String> normalizedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
-        if (CollUtil.isEmpty(normalizedAccountIds)) {
-            throw invalidParamException("执行账号不能为空");
-        }
+        List<String> requestedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
 
         JSONObject actionConfig = parseActionConfig(createReqVO.getActionConfig());
         List<Integer> selectedActions = parseActionList(actionConfig);
@@ -188,6 +197,14 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         String targetUrl = resolveFollowTargetUrl(createReqVO, actionConfig);
         if (StrUtil.isBlank(targetUrl)) {
             throw invalidParamException("目标主页链接不能为空");
+        }
+
+        List<Long> selectedIds = accountAllocationService.selectAccounts(
+                createReqVO.getAccountSelectionMode(), requestedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList()),
+                Math.max(1, createReqVO.getExpectedCount()), "operation", Collections.singletonList("follow"));
+        List<String> normalizedAccountIds = selectedIds.stream().map(String::valueOf).collect(Collectors.toList());
+        if (CollUtil.isEmpty(normalizedAccountIds)) {
+            throw invalidParamException("所选账号没有可用的关注额度");
         }
         if (!targetUrl.matches("(?i)^https?://(www\\.)?facebook\\.com/.+")) {
             throw invalidParamException("请输入有效的 Facebook 主页链接");
@@ -214,6 +231,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         task.setTaskType(FOLLOW_TASK_TYPE);
         task.setStatus(0);
         task.setActualCount(0);
+        task.setAccountSelectionMode(createReqVO.getAccountSelectionMode());
         task.setExpectedCount(executableAccountIds.size());
         task.setAccountIds(String.join(",", executableAccountIds));
         task.setActionConfig(taskConfig.toString());
@@ -245,10 +263,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
     }
 
     private Long createPostCommentTask(FbOperationTaskSaveReqVO createReqVO) {
-        List<String> normalizedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
-        if (CollUtil.isEmpty(normalizedAccountIds)) {
-            throw invalidParamException("执行账号不能为空");
-        }
+        List<String> requestedAccountIds = normalizeAccountIds(createReqVO.getAccountIds());
 
         JSONObject actionConfig = parseActionConfig(createReqVO.getActionConfig());
         List<Integer> selectedActions = parseActionList(actionConfig);
@@ -268,6 +283,15 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         boolean appendRandomEmoji = actionConfig.getBool("commentAppendRandomEmoji", false);
         if (selectedActions.contains(6) && CollUtil.isEmpty(commentScripts)) {
             throw invalidParamException("已勾选评论，评论话术不能为空");
+        }
+
+        List<Long> selectedIds = accountAllocationService.selectAccounts(
+                createReqVO.getAccountSelectionMode(), requestedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList()),
+                normalizedPostUrls.size(), "operation", selectedActions.contains(6)
+                        ? Collections.singletonList("comment") : Collections.emptyList());
+        List<String> normalizedAccountIds = selectedIds.stream().map(String::valueOf).collect(Collectors.toList());
+        if (CollUtil.isEmpty(normalizedAccountIds)) {
+            throw invalidParamException("没有可用的Facebook账号，请检查账号状态或每日额度");
         }
 
         List<Long> accountIdLongs = normalizedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList());
@@ -346,6 +370,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         task.setTaskType(POST_COMMENT_TASK_TYPE);
         task.setStatus(0);
         task.setActualCount(0);
+        task.setAccountSelectionMode(createReqVO.getAccountSelectionMode());
         task.setExpectedCount(expectedCount);
         task.setAccountIds(String.join(",", normalizedAccountIds));
         task.setActionConfig(taskConfig.toString());
@@ -654,6 +679,10 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
                 .eq(FbOperationAddGroupResultDO::getDetailId, detailId));
         addGroupResultMapper.insertBatch(results);
 
+        results.stream()
+                .filter(r -> r.getJoinStatus() != null && (r.getJoinStatus() == 1 || r.getJoinStatus() == 3))
+                .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.JOIN_GROUP));
+
         // 更新明细的实际完成数量和状态
         int successCount = (int) results.stream()
                 .filter(r -> r.getJoinStatus() != null && (r.getJoinStatus() == 1 || r.getJoinStatus() == 3)) // 1-成功 3-已加入/待审核
@@ -728,6 +757,19 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
                 .filter(r -> r.getActionType() != null && r.getActionType() == FOLLOW_ACTION_TYPE)
                 .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
                 .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.FOLLOW));
+
+        FbOperationTaskDO parentTask = operationTaskMapper.selectById(detail.getTaskId());
+        Integer parentTaskType = parentTask == null ? null : parentTask.getTaskType();
+        if (POST_COMMENT_TASK_TYPE == parentTaskType) {
+            results.stream()
+                    .filter(r -> r.getActionType() != null && r.getActionType() == 6)
+                    .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
+                    .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.COMMENT));
+        } else if (REPOST_TASK_TYPE == parentTaskType) {
+            results.stream()
+                    .filter(r -> r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3))
+                    .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.REPOST));
+        }
 
         // actualCount = 成功数（含待审核）；任务完结 = 全部执行项已回报（成败都算执行完）
         int successCount = (int) results.stream()
@@ -1076,6 +1118,19 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         }
         addNormalizedPostUrl(normalized, actionConfig.getStr("postUrl"));
         return new ArrayList<>(normalized);
+    }
+
+    private List<String> resolveActionTypes(Integer taskType, String rawConfig) {
+        if (Integer.valueOf(14).equals(taskType)) return Collections.singletonList("dm");
+        if (Integer.valueOf(10).equals(taskType)) return Collections.singletonList("repost");
+        if (Integer.valueOf(9).equals(taskType)) return Collections.singletonList("join_group");
+        if (Integer.valueOf(16).equals(taskType)) return Collections.singletonList("follow");
+        JSONObject config = parseActionConfig(rawConfig);
+        JSONArray actions = config.getJSONArray("actions");
+        if (actions != null && actions.toList(Integer.class).contains(6)) {
+            return Collections.singletonList("comment");
+        }
+        return Collections.emptyList();
     }
 
     private String resolveFollowTargetUrl(FbOperationTaskSaveReqVO createReqVO, JSONObject actionConfig) {

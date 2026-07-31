@@ -45,7 +45,7 @@
               <el-select v-model="queryParams.agentType" clearable class="!w-150px">
                 <el-option label="AI群帖获客" value="group_post" />
                 <el-option label="AI帖子获客" value="post_lead" />
-                <el-option label="AI主页获客" value="page_lead" />
+                <el-option label="AI公共主页获客" value="page_lead" />
                 <el-option label="AI群帖评论截流" value="group_comment" />
                 <el-option label="AI竞品监控" value="competitor_buyer" />
               </el-select>
@@ -162,6 +162,18 @@
               <el-radio-button label="link">链接搜索</el-radio-button>
             </el-radio-group>
           </el-form-item>
+          <el-form-item
+            v-if="!isSourceUrlAgent(wizardForm.agentType) && wizardForm.searchMode === 'link'"
+            label="搜索链接模板"
+            prop="searchUrlTemplate"
+          >
+            <el-input
+              v-model="wizardForm.searchUrlTemplate"
+              type="textarea"
+              :rows="3"
+              placeholder="粘贴 Facebook 搜索条件链接，系统只替换 q 参数并保留 filters 条件"
+            />
+          </el-form-item>
           <el-form-item label="主营/出口产品" prop="exportProduct">
             <el-input v-model="wizardForm.exportProduct" placeholder="例如：Bathroom Faucet / Auto Parts" />
           </el-form-item>
@@ -233,8 +245,12 @@
               </div>
             </el-form-item>
           </template>
-          <el-form-item label="账号池" prop="accountIds">
-            <FbAccountSelector v-model="wizardState.accountIdList" class="w-full" />
+          <el-form-item
+            label="账号池"
+            prop="accountIds"
+            :rules="wizardState.accountSelectionMode === 'MANUAL' ? wizardRules.accountIds : []"
+          >
+            <FbAccountSelector v-model="wizardState.accountIdList" v-model:selection-mode="wizardState.accountSelectionMode" scene="agent" class="w-full" />
           </el-form-item>
           <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType) && !isPostLeadAgent(wizardForm.agentType)" label="目标国家">
             <el-select
@@ -261,7 +277,7 @@
           </el-form-item>
           <el-form-item label="执行频率">
             <el-select v-model="wizardForm.executeFrequency" class="!w-180px">
-              <el-option label="每天" value="daily" />
+              <el-option v-for="day in intervalDayOptions" :key="day" :label="day === 1 ? '每天' : `每隔${day}天`" :value="String(day)" />
             </el-select>
           </el-form-item>
           <el-form-item label="执行时间" prop="executeTime">
@@ -269,7 +285,7 @@
               v-model="wizardForm.executeTime"
               format="HH:mm"
               value-format="HH:mm"
-              placeholder="选择每天执行时间"
+              placeholder="选择执行时间"
               class="!w-180px"
             />
           </el-form-item>
@@ -279,11 +295,12 @@
                 <el-input-number v-model="wizardState.recentDays" :min="1" :max="30" />
                 <span>{{ isCompetitorAgent(wizardForm.agentType) ? '天主页帖子' : '天群帖' }}</span>
               </div>
+              <div class="form-tip">建议采集天数不超过执行频率周期（{{ collectionCycleDays }}天），否则可能采集到重复内容。</div>
             </el-form-item>
           </template>
 
           <template v-else>
-          <el-form-item v-if="isPostLeadAgent(wizardForm.agentType)" label="帖子过滤">
+          <el-form-item v-if="isPostLeadAgent(wizardForm.agentType) && wizardForm.searchMode !== 'link'" label="帖子过滤">
             <el-checkbox v-model="wizardState.latestPosts">最新帖</el-checkbox>
           </el-form-item>
           <el-form-item label="种子关键词" prop="seedKeywords">
@@ -655,9 +672,9 @@ const agentEntries = [
   },
    {
     type: 'page_lead',
-    title: 'AI主页获客',
+    title: 'AI公共主页获客',
     icon: 'ep:office-building',
-    description: '首页搜索发现主页客户，深度采集后自动筛选和触达',
+    description: '首页搜索发现公共主页客户，深度采集后自动筛选和触达',
     disabled: false
   },
   {
@@ -689,8 +706,10 @@ const wizardForm = reactive<FbAiAgentConfig>({
   agentName: '',
   agentType: 'page_lead',
   searchMode: 'keyword',
+  searchUrlTemplate: '',
   exportProduct: '',
   accountIds: '',
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   seedKeywords: '[]',
   keywordPool: '[]',
   keywordCursor: 0,
@@ -698,7 +717,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
   aiKeywordExpandEnabled: true,
   aiKeywordExpandCount: 20,
   targetCustomerCount: 1000,
-  executeFrequency: 'daily',
+  executeFrequency: '1',
   executeTime: '09:00',
   targetCountries: '[]',
   autoCommentEnabled: true,
@@ -714,6 +733,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
 
 const wizardState = reactive({
   accountIdList: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   targetCountryList: [] as string[],
   seedKeywordsText: '',
   keywordPoolList: [] as string[],
@@ -726,9 +746,20 @@ const wizardState = reactive({
   competitorSourceMode: 'select' as 'manual' | 'select',
   manualCompetitorPageUrlsText: '',
   selectedCompetitorPages: [] as FbCollectUser[],
-  recentDays: 3,
+  recentDays: 1,
   latestPosts: true
 })
+
+watch(
+  () => wizardState.accountSelectionMode,
+  () => {
+    wizardFormRef.value?.clearValidate?.('accountIds')
+  }
+)
+
+const intervalDayOptions = [1, 2, 3, 4, 5, 6, 7]
+
+const collectionCycleDays = computed(() => Number(wizardForm.executeFrequency) || 1)
 
 const wizardRules = {
   agentName: [{ required: true, message: '请输入Agent名称', trigger: 'blur' }],
@@ -771,7 +802,7 @@ const isHideKeywordColumn = (type?: string) => ['competitor_buyer', 'group_comme
 
 const getAgentTypeLabel = (type?: string) => {
   const map: Record<string, string> = {
-    page_lead: 'AI主页获客',
+    page_lead: 'AI公共主页获客',
     post_lead: 'AI帖子获客',
     group_post: 'AI群帖获客',
     group_comment: 'AI群帖评论截流',
@@ -995,6 +1026,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     agentName: '',
     agentType: 'page_lead',
     searchMode: 'keyword',
+    searchUrlTemplate: '',
     exportProduct: '',
     accountIds: '',
     seedKeywords: '[]',
@@ -1004,7 +1036,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     aiKeywordExpandEnabled: true,
     aiKeywordExpandCount: 30,
     targetCustomerCount: 1000,
-    executeFrequency: 'daily',
+    executeFrequency: '1',
     executeTime: '09:00',
     targetCountries: '[]',
     autoCommentEnabled: true,
@@ -1018,6 +1050,9 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     status: 0,
     ...config
   })
+  if (wizardForm.executeFrequency === 'daily') {
+    wizardForm.executeFrequency = '1'
+  }
   if (wizardForm.agentType === 'group_comment' || wizardForm.agentType === 'competitor_buyer') {
     wizardForm.autoCommentEnabled = false
     wizardForm.autoDmEnabled = true
@@ -1027,6 +1062,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+  wizardState.accountSelectionMode = wizardForm.accountSelectionMode || 'MANUAL'
   wizardState.targetCountryList = parseJsonArray<string>(wizardForm.targetCountries)
   wizardState.keywordPoolList = parseJsonArray<string>(wizardForm.keywordPool)
   wizardState.seedKeywordsText = parseJsonArray<string>(wizardForm.seedKeywords).join('\n')
@@ -1048,7 +1084,8 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     : (wizardForm.monitorGroupIds || '').split(',').map((item) => item.trim()).filter(Boolean)
   wizardState.manualCompetitorPageUrlsText = competitorUrls.join('\n')
   wizardState.selectedCompetitorPages = []
-  wizardState.recentDays = Number((isCompetitorAgent(wizardForm.agentType) ? competitorConfig.recentDays : groupConfig.recentDays) || 3)
+  let configuredRecentDays = Number((isCompetitorAgent(wizardForm.agentType) ? competitorConfig.recentDays : groupConfig.recentDays) || 0)
+  wizardState.recentDays = configuredRecentDays || Number(wizardForm.executeFrequency) || 1
   const postLeadConfig = getPostLeadConfig(wizardForm)
   wizardState.latestPosts = Object.prototype.hasOwnProperty.call(postLeadConfig, 'latestPosts')
     ? Boolean(postLeadConfig.latestPosts)
@@ -1085,6 +1122,7 @@ const buildSubmitData = (): FbAiAgentConfig => {
     agentType: wizardForm.agentType || 'page_lead',
     searchMode: isSourceUrlAgent(wizardForm.agentType) ? 'link' : wizardForm.searchMode,
     accountIds: wizardState.accountIdList.join(','),
+    accountSelectionMode: wizardState.accountSelectionMode,
     targetCountries: JSON.stringify(wizardState.targetCountryList),
     seedKeywords: JSON.stringify(seedKeywords),
     keywordPool: JSON.stringify(wizardState.keywordPoolList),
@@ -1097,13 +1135,30 @@ const buildSubmitData = (): FbAiAgentConfig => {
 
 const validateWizard = () => {
   const seedKeywords = parseLines(wizardState.seedKeywordsText)
-  if (!wizardState.accountIdList.length) {
+  if (wizardState.accountSelectionMode === 'MANUAL' && !wizardState.accountIdList.length) {
     message.warning('请选择账号池')
     return false
   }
   if (!wizardForm.exportProduct?.trim()) {
     message.warning('请输入主营/出口产品')
     return false
+  }
+  if (!isSourceUrlAgent(wizardForm.agentType) && wizardForm.searchMode === 'link') {
+    const searchUrl = wizardForm.searchUrlTemplate?.trim() || ''
+    try {
+      const parsed = new URL(searchUrl)
+      const hostname = parsed.hostname.toLowerCase()
+      if (
+        !/^https?:$/.test(parsed.protocol) ||
+        !(hostname === 'facebook.com' || hostname.endsWith('.facebook.com')) ||
+        !parsed.searchParams.has('q')
+      ) {
+        throw new Error('invalid')
+      }
+    } catch {
+      message.warning('请填写包含 q 参数的 Facebook 搜索结果链接')
+      return false
+    }
   }
   if (isSourceUrlAgent(wizardForm.agentType)) {
     const monitorUrls = isCompetitorAgent(wizardForm.agentType) ? getWizardCompetitorPageUrls() : getWizardGroupPostUrls()
@@ -1114,6 +1169,9 @@ const validateWizard = () => {
     if (!wizardForm.executeTime) {
       message.warning('请选择每天执行时间')
       return false
+    }
+    if (wizardState.recentDays > collectionCycleDays.value) {
+      message.warning(`当前执行周期为${collectionCycleDays.value}天，采集最近${wizardState.recentDays}天可能包含重复内容`)
     }
     if (wizardState.replyDelayMax < wizardState.replyDelayMin) {
       message.warning('随机间隔结束值不能小于开始值')
@@ -1161,7 +1219,7 @@ const validateGroupPostSourceStep = () => {
     message.warning('请输入主营/出口产品')
     return false
   }
-  if (!wizardState.accountIdList.length) {
+  if (wizardState.accountSelectionMode === 'MANUAL' && !wizardState.accountIdList.length) {
     message.warning('请选择账号池')
     return false
   }
@@ -1555,6 +1613,13 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
+  }
+
+  .form-tip {
+    margin-top: 4px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
   }
 
   .form-label-tip,

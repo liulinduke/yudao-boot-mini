@@ -34,6 +34,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.service.operation.FbOperationTaskService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountTaskAllocationService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.AllArgsConstructor;
@@ -43,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.net.URLEncoder;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -129,6 +131,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private AiWorkflowMapper aiWorkflowMapper;
     @Resource
     private FbAiAgentCollectQueueService collectQueueService;
+    @Resource
+    private FbAccountTaskAllocationService accountAllocationService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -392,7 +396,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 continue;
             }
 
-            List<String> accountIds = parseCsvStringList(config.getAccountIds());
+            List<String> accountIds = resolveAgentAccountIds(config, resolveTargetCustomerCount(config));
             if (CollUtil.isEmpty(accountIds)) {
                 skippedReasons.add(config.getAgentName() + "：账号池为空");
                 continue;
@@ -484,7 +488,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (config == null || !Objects.equals(config.getStatus(), 1)) {
             return;
         }
-        List<String> accountIds = parseCsvStringList(config.getAccountIds());
+        List<String> accountIds = resolveAgentAccountIds(config, resolveTargetCustomerCount(config));
         List<String> targetCountries = parseJsonStringList(config.getTargetCountries());
         List<String> targetLanguages = parseJsonStringList(config.getTargetLanguages());
         List<String> keywords = parseJsonStringList(config.getKeywordPool());
@@ -654,7 +658,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 continue;
             }
             stats.executedAgents++;
-            List<String> accountIds = parseCsvStringList(config.getAccountIds());
+            List<String> accountIds = resolveAgentAccountIds(config, resolveTargetCustomerCount(config));
             if (AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType())) {
                 List<String> pageUrls = resolveCompetitorPageUrls(config);
                 if (CollUtil.isEmpty(pageUrls)) {
@@ -810,14 +814,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private AgentDueResult checkAgentDue(FbAiAgentConfigDO config) {
-        if (!"daily".equals(StrUtil.blankToDefault(config.getExecuteFrequency(), "daily"))) {
-            return new AgentDueResult(false, "暂仅支持daily执行频率");
+        String frequency = StrUtil.blankToDefault(config.getExecuteFrequency(), "1");
+        if (!"daily".equals(frequency) && parseIntervalDays(frequency) < 1) {
+            return new AgentDueResult(false, "不支持的执行频率：" + frequency);
         }
         LocalDateTime now = LocalDateTime.now();
         LocalTime executeTime = parseExecuteTime(config.getExecuteTime());
-
-        if (config.getLastExecuteTime() != null && config.getLastExecuteTime().toLocalDate().isEqual(now.toLocalDate())) {
-            return new AgentDueResult(false, "今日已启动过新一轮主页发现");
+        int intervalDays = resolveExecuteIntervalDays(config);
+        if (config.getLastExecuteTime() != null
+                && now.toLocalDate().isBefore(config.getLastExecuteTime().toLocalDate().plusDays(intervalDays))) {
+            return new AgentDueResult(false, "未到下次执行间隔");
         }
 
         // 服务当天晚于计划时间启动，说明本次计划已经错过，今天不再补执行。
@@ -830,9 +836,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         }
 
         if (now.toLocalTime().isBefore(executeTime)) {
-            return new AgentDueResult(false, "未到每日执行时间");
+            return new AgentDueResult(false, "未到计划执行时间");
         }
-        return new AgentDueResult(true, "已到每日执行时间");
+        return new AgentDueResult(true, "已到计划执行时间");
+    }
+
+    private int resolveExecuteIntervalDays(FbAiAgentConfigDO config) {
+        return parseIntervalDays(config.getExecuteFrequency());
+    }
+
+    private int parseIntervalDays(String executeFrequency) {
+        if ("daily".equals(executeFrequency)) {
+            return 1;
+        }
+        try {
+            int intervalDays = Integer.parseInt(StrUtil.blankToDefault(executeFrequency, "1"));
+            return intervalDays >= 1 && intervalDays <= 7 ? intervalDays : -1;
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
     }
 
     private LocalTime parseExecuteTime(String executeTime) {
@@ -965,7 +987,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             }
             int expectedCount = distributeExpectedCount(targetTotal, keywords.size(), i);
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
-            String searchUrl = buildSearchPagesUrl(keyword);
+            String searchUrl = buildKeywordSearchUrl(config, keyword, true, false);
             if (!collectQueueService.tryMarkCreated(config.getId(), "page", searchUrl)) {
                 continue;
             }
@@ -1061,7 +1083,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (StrUtil.isBlank(keyword)) {
                 continue;
             }
-            String searchUrl = buildSearchTopUrl(keyword, isPostLeadLatestPosts(config));
+            String searchUrl = buildKeywordSearchUrl(config, keyword, false, isPostLeadLatestPosts(config));
             if (!collectQueueService.tryMarkCreated(config.getId(), "post_lead", searchUrl)) {
                 continue;
             }
@@ -1368,6 +1390,17 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private int resolveTargetCustomerCount(FbAiAgentConfigDO config) {
         Integer value = config == null ? null : config.getTargetCustomerCount();
         return value != null && value > 0 ? value : DEFAULT_COLLECT_EXPECTED_COUNT;
+    }
+
+    /** Agent每轮执行前统一解析账号池，AUTO忽略旧的账号列表，MANUAL保留用户选择。 */
+    private List<String> resolveAgentAccountIds(FbAiAgentConfigDO config, int targetCount) {
+        List<String> requested = parseCsvStringList(config.getAccountIds());
+        List<Long> requestedIds = requested.stream().map(Long::valueOf).collect(Collectors.toList());
+        String mode = StrUtil.isBlank(config.getAccountSelectionMode())
+                ? (CollUtil.isEmpty(requested) ? "AUTO" : "MANUAL") : config.getAccountSelectionMode();
+        List<Long> selected = accountAllocationService.selectAccounts(
+                mode, requestedIds, Math.max(1, targetCount), "agent", Collections.singletonList("collect"));
+        return selected.stream().map(String::valueOf).collect(Collectors.toList());
     }
 
     private int distributeExpectedCount(int total, int buckets, int index) {
@@ -2262,6 +2295,46 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private String buildSearchPagesUrl(String keyword) {
         return "https://www.facebook.com/search/pages?q=" + URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 构造 AI 主页/帖子获客的搜索地址。用户提供链接时只替换 q 参数，避免破坏
+     * Facebook 搜索链接中的 filters、location 等筛选条件。
+     */
+    private String buildKeywordSearchUrl(FbAiAgentConfigDO config, String keyword,
+                                         boolean pages, boolean latestPosts) {
+        if (config != null && "link".equalsIgnoreCase(StrUtil.trim(config.getSearchMode()))
+                && StrUtil.isNotBlank(config.getSearchUrlTemplate())) {
+            return replaceSearchQueryParameter(config.getSearchUrlTemplate().trim(), "q", keyword);
+        }
+        return pages ? buildSearchPagesUrl(keyword) : buildSearchTopUrl(keyword, latestPosts);
+    }
+
+    private String replaceSearchQueryParameter(String template, String parameter, String value) {
+        int queryStart = template.indexOf('?');
+        if (queryStart < 0) {
+            return template;
+        }
+        int fragmentStart = template.indexOf('#', queryStart);
+        int queryEnd = fragmentStart >= 0 ? fragmentStart : template.length();
+        String query = template.substring(queryStart + 1, queryEnd);
+        String encodedValue = URLEncoder.encode(value, StandardCharsets.UTF_8);
+        String[] parts = query.split("&", -1);
+        boolean replaced = false;
+        for (int i = 0; i < parts.length; i++) {
+            int equals = parts[i].indexOf('=');
+            String name = equals >= 0 ? parts[i].substring(0, equals) : parts[i];
+            if (parameter.equalsIgnoreCase(name)) {
+                parts[i] = name + "=" + encodedValue;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            return template;
+        }
+        return template.substring(0, queryStart + 1) + String.join("&", parts)
+                + template.substring(queryEnd);
     }
 
     private String normalizeGroupMonitorUrl(String groupIdOrUrl) {
@@ -3298,7 +3371,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private int resolveCompetitorRecentDays(FbAiAgentConfigDO config) {
         JSONObject competitorConfig = getCompetitorConfig(config);
         Integer recentDays = competitorConfig == null ? null : competitorConfig.getInt("recentDays");
-        return recentDays != null && recentDays > 0 ? recentDays : 3;
+        return recentDays != null && recentDays > 0 ? recentDays : defaultRecentDays(config);
     }
 
     private JSONObject getCompetitorConfig(FbAiAgentConfigDO config) {
@@ -3346,7 +3419,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private int resolveGroupPostRecentDays(FbAiAgentConfigDO config) {
         JSONObject groupConfig = getGroupPostConfig(config);
         Integer recentDays = groupConfig == null ? null : groupConfig.getInt("recentDays");
-        return recentDays != null && recentDays > 0 ? recentDays : 3;
+        return recentDays != null && recentDays > 0 ? recentDays : defaultRecentDays(config);
+    }
+
+    private int defaultRecentDays(FbAiAgentConfigDO config) {
+        return config == null ? 1 : Math.max(parseIntervalDays(config.getExecuteFrequency()), 1);
     }
 
     private boolean isPostLeadLatestPosts(FbAiAgentConfigDO config) {
@@ -3424,7 +3501,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             reqVO.setTargetCustomerCount(1000);
         }
         if (StrUtil.isBlank(reqVO.getExecuteFrequency())) {
-            reqVO.setExecuteFrequency("daily");
+            reqVO.setExecuteFrequency("1");
         }
         if (StrUtil.isBlank(reqVO.getExecuteTime())) {
             reqVO.setExecuteTime("09:00");
@@ -3468,6 +3545,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (!isSupportedAgentType(reqVO.getAgentType())) {
             throw exception0(2_011_000_001, "当前版本仅支持AI主页获客、AI帖子获客、AI群帖获客、AI群帖评论截流和AI竞品监控");
         }
+        if (parseIntervalDays(reqVO.getExecuteFrequency()) < 1) {
+            throw exception0(2_011_000_009, "执行间隔只能配置为1到7天");
+        }
         if (AGENT_TYPE_COMPETITOR_BUYER.equals(reqVO.getAgentType())) {
             if (CollUtil.isEmpty(resolveCompetitorPageUrls(BeanUtils.toBean(reqVO, FbAiAgentConfigDO.class)))) {
                 throw exception0(2_011_000_008, "启用AI竞品监控前请配置竞品主页");
@@ -3501,6 +3581,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (StrUtil.isBlank(reqVO.getSeedKeywords()) && StrUtil.isBlank(reqVO.getKeywordPool())) {
             throw exception0(2_011_000_002, "启用Agent前请配置关键词");
         }
+        if ("link".equalsIgnoreCase(reqVO.getSearchMode())
+                && !isGroupMonitorAgent(reqVO.getAgentType())
+                && !hasSearchKeywordParameter(reqVO.getSearchUrlTemplate())) {
+            throw exception0(2_011_000_011, "链接搜索模式下请填写包含 q 参数的 Facebook 搜索结果链接");
+        }
         if (StrUtil.isBlank(reqVO.getAccountIds())) {
             throw exception0(2_011_000_003, "启用Agent前请选择执行账号池");
         }
@@ -3523,6 +3608,29 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         try {
             LocalTime.parse(executeTime);
             return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean hasSearchKeywordParameter(String searchUrl) {
+        if (StrUtil.isBlank(searchUrl)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(searchUrl.trim());
+            String host = uri.getHost();
+            if (host == null || !("facebook.com".equalsIgnoreCase(host)
+                    || host.toLowerCase(Locale.ROOT).endsWith(".facebook.com"))) {
+                return false;
+            }
+            String rawQuery = uri.getRawQuery();
+            if (rawQuery == null) {
+                return false;
+            }
+            return Arrays.stream(rawQuery.split("&"))
+                    .map(item -> item.split("=", 2)[0])
+                    .anyMatch("q"::equalsIgnoreCase);
         } catch (Exception ex) {
             return false;
         }

@@ -54,6 +54,9 @@ public class FbCollectSaveReqVO {
     @Schema(description = "账号ID列表(批量创建时使用)", example = "[1, 2, 3]")
     private List<Long> accountIds;
 
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode = "AUTO";
+
     @Schema(description = "深度采集来源资源库用户ID列表，顺序与 searchUrl 行顺序一致", example = "[1, 2, 3]")
     private List<Long> sourceUserIds;
 

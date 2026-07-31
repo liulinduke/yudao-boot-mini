@@ -1,41 +1,67 @@
 <template>
-  <el-popover
-    v-model:visible="visible"
-    placement="bottom-start"
-    :width="360"
-    trigger="click"
-    popper-class="fb-account-selector-popper"
-  >
-    <template #reference>
-      <div class="account-selector-trigger" :class="{ 'is-focus': visible }">
-        <div v-if="selectedAccounts.length" class="account-selector-tags">
-          <el-tag
-            v-for="account in selectedAccounts.slice(0, 2)"
-            :key="String(account.id)"
-            size="small"
-            closable
-            @close.stop="toggleAccount(account.id, false)"
-          >
-            {{ account.fbAccount || account.id }}
-          </el-tag>
-          <span v-if="selectedAccounts.length > 2" class="account-selector-more">
-            +{{ selectedAccounts.length - 2 }} 个
-          </span>
-        </div>
-        <span v-else class="account-selector-placeholder">{{ placeholder }}</span>
-        <Icon icon="ep:arrow-down" :size="14" class="account-selector-arrow" />
+  <div>
+    <div class="account-selector-action">
+      <el-switch
+        v-model="selectionMode"
+        inline-prompt
+        active-text="自动"
+        inactive-text="手动"
+        active-value="AUTO"
+        inactive-value="MANUAL"
+      />
+      <span class="account-selector-mode-label">
+        {{ selectionMode === 'AUTO' ? '程序自动分配' : '手动选择' }}
+      </span>
+      <span v-if="selectionMode === 'AUTO'" class="account-selector-mode-description">
+        系统按使用情况平均分配
+      </span>
+      <el-button
+        v-if="selectionMode === 'MANUAL'"
+        type="primary"
+        class="account-selector-open-button"
+        @click="visible = true"
+      >
+        <Icon icon="ep:plus" :size="16" />
+        <span>选择账号</span>
+      </el-button>
+      <span v-if="selectionMode === 'MANUAL'" class="account-selector-mode-label">
+        已选择 {{ selectedAccounts.length }} 个
+      </span>
+    </div>
+
+    <el-dialog
+      v-model="visible"
+      title="选择执行账号"
+      width="680px"
+      append-to-body
+      :destroy-on-close="false"
+      class="fb-account-selector-dialog"
+    >
+      <div class="account-selector-panel">
+      <div class="account-selector-tip">
+        系统会优先使用执行较少、较久未使用的账号，并尽量平均分摊任务。
       </div>
-    </template>
+      <div v-if="selectionMode === 'AUTO'" class="account-selector-auto-summary">
+        <div class="account-selector-auto-title">系统自动分配账号</div>
+        <div>当前有 {{ accounts.length }} 个可用账号，系统会按照使用次数和最近执行时间自动平均分配。</div>
+      </div>
 
-    <div class="account-selector-panel">
-      <el-input v-model="keyword" clearable placeholder="搜索账号或分组" class="mb-10px">
-        <template #prefix><Icon icon="ep:search" /></template>
-      </el-input>
+      <template v-else>
+        <el-input v-model="keyword" clearable placeholder="搜索账号或分组" class="mb-10px">
+          <template #prefix><Icon icon="ep:search" /></template>
+        </el-input>
+      </template>
 
-      <div v-loading="loading" class="account-selector-list">
+      <div
+        v-if="selectionMode === 'MANUAL'"
+        v-loading="loading"
+        class="account-selector-list"
+        @scroll.passive="handleListScroll"
+      >
         <div v-for="group in filteredGroups" :key="`group-${group.id}`" class="account-group">
           <div class="account-group-header">
             <el-checkbox
+              v-if="selectionMode === 'MANUAL'"
               :model-value="isGroupChecked(group.id)"
               :indeterminate="isGroupIndeterminate(group.id)"
               @change="handleGroupChange(group.id, $event)"
@@ -43,16 +69,30 @@
               <span class="account-group-name">{{ group.groupName }}</span>
               <span class="account-group-count">{{ group.accounts.length }}</span>
             </el-checkbox>
+            <div v-else class="account-group-auto-header">
+              <span class="account-group-name">{{ group.groupName }}</span>
+              <span class="account-group-count">{{ group.accounts.length }}</span>
+            </div>
           </div>
           <div class="account-group-accounts">
-            <el-checkbox
-              v-for="account in group.accounts"
-              :key="String(account.id)"
-              :model-value="isSelected(account.id)"
-              @change="handleAccountChange(account.id, $event)"
-            >
-              {{ account.fbAccount || account.id }}
-            </el-checkbox>
+            <template v-if="selectionMode === 'MANUAL'">
+              <el-checkbox
+                v-for="account in group.accounts"
+                :key="String(account.id)"
+                :model-value="isSelected(account.id)"
+                :disabled="account.eligible === false"
+                @change="handleAccountChange(account.id, $event)"
+              >
+                <span>{{ account.fbAccount || account.id }}</span>
+                <span class="account-meta">{{ accountSummary(account) }}</span>
+              </el-checkbox>
+            </template>
+            <template v-else>
+              <div v-for="account in group.accounts" :key="`auto-${String(account.id)}`" class="account-auto-row">
+              <span>{{ account.fbAccount || account.id }}</span>
+              <span class="account-meta">{{ accountSummary(account) }}</span>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -62,75 +102,132 @@
             <span class="account-group-count">{{ filteredUngroupedAccounts.length }}</span>
           </div>
           <div class="account-group-accounts">
-            <el-checkbox
-              v-for="account in filteredUngroupedAccounts"
-              :key="String(account.id)"
-              :model-value="isSelected(account.id)"
-              @change="handleAccountChange(account.id, $event)"
-            >
-              {{ account.fbAccount || account.id }}
-            </el-checkbox>
+            <template v-if="selectionMode === 'MANUAL'">
+              <el-checkbox
+                v-for="account in filteredUngroupedAccounts"
+                :key="String(account.id)"
+                :model-value="isSelected(account.id)"
+                :disabled="account.eligible === false"
+                @change="handleAccountChange(account.id, $event)"
+              >
+                <span>{{ account.fbAccount || account.id }}</span>
+                <span class="account-meta">{{ accountSummary(account) }}</span>
+              </el-checkbox>
+            </template>
+            <template v-else>
+              <div v-for="account in filteredUngroupedAccounts" :key="`auto-ungrouped-${String(account.id)}`" class="account-auto-row">
+              <span>{{ account.fbAccount || account.id }}</span>
+              <span class="account-meta">{{ accountSummary(account) }}</span>
+              </div>
+            </template>
           </div>
         </div>
 
         <el-empty v-if="!loading && !filteredGroups.length && !filteredUngroupedAccounts.length" :image-size="56" description="暂无可用账号" />
+        <div v-if="hasMoreAccounts" class="account-selector-loading-more">继续滚动加载更多</div>
       </div>
 
-      <div class="account-selector-footer">
-        <span>已选择 {{ selectedIds.length }} 个账号</span>
-        <el-button link type="primary" @click="clearSelection">清空</el-button>
+        <div class="account-selector-footer">
+          <span v-if="selectionMode === 'MANUAL'">已选择 {{ selectedIds.length }} 个账号</span>
+          <span v-else>可用账号 {{ accounts.length }} 个</span>
+          <el-button
+            v-if="selectionMode === 'MANUAL'"
+            link
+            type="primary"
+            @click="clearSelection"
+          >
+            清空
+          </el-button>
+        </div>
       </div>
-    </div>
-  </el-popover>
+      <template #footer>
+        <el-button @click="visible = false">取消</el-button>
+        <el-button type="primary" @click="visible = false">确定</el-button>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
-import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
+import { FbAccountApi, type FbAccountSelectorOption } from '@/api/facebook/account'
 
 defineOptions({ name: 'FbAccountSelector' })
 
-const props = withDefaults(
-  defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: Array<string | number>
     placeholder?: string
-  }>(),
-  { placeholder: '请选择执行账号' }
-)
+    scene?: string
+    actionTypes?: string[]
+    targetCount?: number
+    selectionMode?: 'AUTO' | 'MANUAL'
+  }>(), {
+    placeholder: '请选择执行账号',
+    scene: 'collect',
+    actionTypes: () => [],
+    targetCount: 1,
+    selectionMode: 'AUTO'
+  })
 
 const emit = defineEmits<{
   (event: 'update:modelValue', value: Array<string | number>): void
+  (event: 'update:selectionMode', value: 'AUTO' | 'MANUAL'): void
 }>()
 
 type AccountGroup = {
   id: string | number
   groupName: string
-  accounts: FbAccount[]
+  accounts: FbAccountSelectorOption[]
 }
 
 const visible = ref(false)
 const loading = ref(false)
 const keyword = ref('')
-const accounts = ref<FbAccount[]>([])
+const accounts = ref<FbAccountSelectorOption[]>([])
 const groups = ref<Array<{ id: string | number; groupName: string }>>([])
+const selectionMode = ref<'AUTO' | 'MANUAL'>(props.selectionMode)
+const visibleAccountCount = ref(50)
+const ACCOUNT_PAGE_SIZE = 50
 
 const selectedIds = computed(() => props.modelValue.map((id) => String(id)))
 const selectedAccounts = computed(() =>
   accounts.value.filter((account) => selectedIds.value.includes(String(account.id)))
 )
 
+const matchesKeyword = (value: unknown) =>
+  !keyword.value || String(value || '').toLowerCase().includes(keyword.value.trim().toLowerCase())
+
+const filteredAccountPool = computed(() =>
+  accounts.value.filter(
+    (account) =>
+      matchesKeyword(account.fbAccount) ||
+      (account.groupId != null &&
+        groups.value.some(
+          (group) =>
+            String(group.id) === String(account.groupId) && matchesKeyword(group.groupName)
+        ))
+  )
+)
+
+const visibleAccounts = computed(() =>
+  filteredAccountPool.value.slice(0, visibleAccountCount.value)
+)
+
+const hasMoreAccounts = computed(
+  () => visibleAccountCount.value < filteredAccountPool.value.length
+)
+
 const groupData = computed<AccountGroup[]>(() =>
   groups.value
     .map((group) => ({
       ...group,
-      accounts: accounts.value.filter((account) => String(account.groupId) === String(group.id))
+      accounts: visibleAccounts.value.filter(
+        (account) => String(account.groupId) === String(group.id)
+      )
     }))
     .filter((group) => group.accounts.length)
 )
-
-const matchesKeyword = (value: unknown) =>
-  !keyword.value || String(value || '').toLowerCase().includes(keyword.value.trim().toLowerCase())
 
 const filteredGroups = computed(() =>
   groupData.value
@@ -144,7 +241,7 @@ const filteredGroups = computed(() =>
 )
 
 const filteredUngroupedAccounts = computed(() =>
-  accounts.value.filter(
+  visibleAccounts.value.filter(
     (account) =>
       (!account.groupId ||
         !groups.value.some((group) => String(group.id) === String(account.groupId))) &&
@@ -156,7 +253,10 @@ const isSelected = (id: string | number) => selectedIds.value.includes(String(id
 
 const getGroupAccountIds = (groupId: string | number) =>
   accounts.value
-    .filter((account) => String(account.groupId) === String(groupId))
+    .filter(
+      (account) =>
+        String(account.groupId) === String(groupId) && account.eligible !== false
+    )
     .map((account) => String(account.id))
 
 const isGroupChecked = (groupId: string | number) => {
@@ -204,51 +304,98 @@ const handleAccountChange = (accountId: string | number, value: unknown) => {
 
 const clearSelection = () => updateSelection([])
 
+const handleListScroll = (event: Event) => {
+  const target = event.currentTarget as HTMLElement
+  if (
+    target.scrollTop + target.clientHeight >= target.scrollHeight - 24 &&
+    hasMoreAccounts.value
+  ) {
+    visibleAccountCount.value += ACCOUNT_PAGE_SIZE
+  }
+}
+
 const loadOptions = async () => {
   loading.value = true
   try {
     const [groupDataResponse, accountDataResponse] = await Promise.all([
       AccountGroupApi.getAllEnabledGroups(),
-      FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 2000 })
+      FbAccountApi.getSelectorOptions({
+        scene: props.scene,
+        actionTypes: props.actionTypes,
+        targetCount: props.targetCount
+      })
     ])
     groups.value = groupDataResponse || []
-    accounts.value = filterSelectableFbAccounts(accountDataResponse?.list || [])
+    accounts.value = accountDataResponse || []
+    visibleAccountCount.value = ACCOUNT_PAGE_SIZE
+    if (selectionMode.value === 'AUTO') {
+      updateSelection(
+        accounts.value
+          .filter((account) => account.eligible !== false)
+          .map((account) => String(account.id))
+      )
+    } else {
+      updateSelection(selectedIds.value)
+    }
   } finally {
     loading.value = false
   }
 }
 
+const accountSummary = (account: FbAccountSelectorOption) => {
+  const today = account.today || {}
+  const limits = account.limits || {}
+  const total = account.total || {}
+  return [
+    `今日：私信 ${today.dm || 0}/${limits.dm || 0} · 转帖 ${today.repost || 0}/${limits.repost || 0} · 加组 ${today.join_group || 0}/${limits.join_group || 0} · 评论 ${today.comment || 0}/${limits.comment || 0} · 关注 ${today.follow || 0}/${limits.follow || 0}`,
+    `累计：任务 ${total.taskCount || 0} · 私信 ${total.dm || 0} · 转帖 ${total.repost || 0} · 加组 ${total.join_group || 0} · 评论 ${total.comment || 0} · 关注 ${total.follow || 0} · 采集 ${total.collect || 0} 条`
+  ].join('\n')
+}
+
+watch(selectionMode, (value) => {
+  emit('update:selectionMode', value)
+  if (value === 'AUTO') {
+    updateSelection(accounts.value.filter((account) => account.eligible !== false).map((account) => String(account.id)))
+  } else {
+    updateSelection([])
+  }
+})
+
+watch(keyword, () => {
+  visibleAccountCount.value = ACCOUNT_PAGE_SIZE
+})
+
+watch(() => props.selectionMode, (value) => {
+  if (value && value !== selectionMode.value) selectionMode.value = value
+})
+
 onMounted(loadOptions)
 </script>
 
 <style scoped>
-.account-selector-trigger {
+.account-selector-action {
   display: flex;
   align-items: center;
-  width: 280px;
-  max-width: 100%;
+  gap: 10px;
+}
+
+.account-selector-open-button {
+  width: 120px;
   height: 32px;
   min-height: 32px;
-  box-sizing: border-box;
-  padding: 0 10px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  background: var(--el-fill-color-blank);
-  cursor: pointer;
+  gap: 6px;
 }
 
-.account-selector-trigger.is-focus,
-.account-selector-trigger:hover {
-  border-color: var(--el-color-primary);
+.account-selector-mode-label {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.account-selector-tags {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  min-width: 0;
-  gap: 4px;
-  overflow: hidden;
+.account-selector-mode-description {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .account-selector-more,
@@ -257,19 +404,68 @@ onMounted(loadOptions)
   font-size: 13px;
 }
 
-.account-selector-arrow {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--el-text-color-placeholder);
+.account-selector-panel {
+  width: 640px;
+  max-width: calc(100vw - 32px);
 }
 
-.account-selector-panel {
-  width: 100%;
+.account-selector-tip {
+  margin-bottom: 10px;
+  padding: 7px 9px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.account-group-auto-header {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.account-auto-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.account-meta {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
 }
 
 .account-selector-list {
-  max-height: 330px;
+  height: 420px;
   overflow-y: auto;
+}
+
+.account-selector-auto-summary {
+  padding: 16px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.account-selector-auto-title {
+  margin-bottom: 4px;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.account-selector-loading-more {
+  padding: 10px 0;
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  text-align: center;
 }
 
 .account-group {
@@ -296,8 +492,21 @@ onMounted(loadOptions)
 
 .account-group-accounts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   padding: 4px 8px 0 24px;
+}
+
+.account-group-accounts :deep(.el-checkbox) {
+  width: 100%;
+  min-height: 48px;
+  margin-right: 0;
+  align-items: flex-start;
+}
+
+.account-group-accounts :deep(.el-checkbox__label) {
+  min-width: 0;
+  overflow: hidden;
+  white-space: normal;
 }
 
 .account-selector-footer {

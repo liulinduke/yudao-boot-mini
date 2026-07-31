@@ -22,6 +22,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountTaskAllocationService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +68,9 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
     @Resource
     private FbAiAgentCollectQueueService accountTaskQueueService;
 
+    @Resource
+    private FbAccountTaskAllocationService accountAllocationService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createDmTask(FbDmTaskSaveReqVO saveReqVO) {
@@ -74,7 +78,16 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         FbDmTaskDO task = BeanUtils.toBean(saveReqVO, FbDmTaskDO.class);
         task.setTargetUserIds(JSONUtil.toJsonStr(saveReqVO.getTargetUserIds()));
         task.setScripts(JSONUtil.toJsonStr(saveReqVO.getScripts()));
-        task.setAccountIds(JSONUtil.toJsonStr(saveReqVO.getAccountIds()));
+        List<String> requestedAccountIds = saveReqVO.getAccountIds() == null ? Collections.emptyList() : saveReqVO.getAccountIds();
+        List<Long> selectedIds = accountAllocationService.selectAccounts(
+                saveReqVO.getAccountSelectionMode(), requestedAccountIds.stream().map(Long::valueOf).collect(Collectors.toList()),
+                saveReqVO.getTargetUserIds().size(), "operation", Collections.singletonList("dm"));
+        List<String> selectedAccountIds = selectedIds.stream().map(String::valueOf).collect(Collectors.toList());
+        if (selectedAccountIds.isEmpty()) {
+            throw new IllegalArgumentException("没有可用的Facebook账号，请检查账号状态或每日私信额度");
+        }
+        task.setAccountIds(JSONUtil.toJsonStr(selectedAccountIds));
+        task.setAccountSelectionMode(saveReqVO.getAccountSelectionMode());
         task.setStatus(0); // 待执行
         task.setTotalCount(saveReqVO.getTargetUserIds().size());
         task.setCompletedCount(0);
@@ -83,7 +96,7 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
         // 2. 使用分配器分配任务
         Map<String, List<String>> allocation = taskAllocator.allocate(
-                saveReqVO.getAccountIds(),
+                selectedAccountIds,
                 saveReqVO.getTargetUserIds()
         );
 
@@ -268,7 +281,7 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
         detail.setStatus(status);
         detail.setErrorMsg(errorMsg);
-        if (status == 1 || status == 2) { // 成功或失败
+        if (status == 1) { // 只统计实际发送成功
             detail.setSendTime(LocalDateTime.now());
             // 消耗一次次数
             dailyLimitService.useOnce(detail.getAccountId(), OperationTypeEnum.DM);

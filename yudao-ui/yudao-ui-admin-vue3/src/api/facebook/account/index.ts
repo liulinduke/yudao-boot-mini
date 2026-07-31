@@ -45,11 +45,29 @@ export interface FbAccount {
           creationDate: string | Dayjs; // 注册日期
   }
 
+export interface FbAccountSelectorOption {
+  id: string | number
+  fbAccount?: string
+  groupId?: string | number | null
+  status?: boolean
+  loginStatus?: string
+  eligible?: boolean
+  disabledReason?: string
+  today?: Record<string, number>
+  limits?: Record<string, number>
+  total?: Record<string, number>
+  lastExecuteTime?: string
+}
+
 // FB账号 API
 export const FbAccountApi = {
   // 查询FB账号分页
   getFbAccountPage: async (params: any) => {
     return await request.get({ url: `/facebook/fb-account/page`, params })
+  },
+
+  getSelectorOptions: async (params: any) => {
+    return await request.get({ url: `/facebook/fb-account/selector-options`, params })
   },
 
   // 查询FB账号详情

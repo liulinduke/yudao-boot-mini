@@ -59,6 +59,9 @@ public interface FbAccountService {
      */
     PageResult<FbAccountDO> getFbAccountPage(FbAccountPageReqVO pageReqVO);
 
+    /** 获取任务账号选择器所需的状态、额度和长期统计。 */
+    List<FbAccountSelectorOptionRespVO> getSelectorOptions(FbAccountSelectorOptionReqVO reqVO);
+
     /**
      * 更新FB账号语言设置
      *

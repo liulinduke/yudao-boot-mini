@@ -17,12 +17,15 @@ import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatService;
 import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 
@@ -46,6 +49,12 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
 
     @Resource
     private FbCollectDetailMapper fbCollectDetailMapper;
+
+    @Resource
+    private FbAccountMapper fbAccountMapper;
+
+    @Resource
+    private FbAccountActionStatService actionStatService;
 
     @Resource
     private FbCollectCountService countService;
@@ -216,6 +225,9 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         // 采集脚本一旦返回结果（即使数量不足或为 0），本轮明细也视为结束
         detail.setStatus(2); // 已完成
         detail.setEndTime(java.time.LocalDateTime.now()); // 设置结束时间
+        FbAccountDO account = fbAccountMapper.selectOne(new LambdaQueryWrapper<FbAccountDO>()
+                .eq(FbAccountDO::getFbAccount, detail.getFbAccount()).last("LIMIT 1"));
+        if (account != null) actionStatService.recordSuccess(account.getId(), "collect", redisCount, redisCount);
         
         fbCollectDetailMapper.updateById(detail);
         accountTaskQueueService.releaseRunning(detail.getFbAccount());

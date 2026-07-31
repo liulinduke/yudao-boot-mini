@@ -7,8 +7,12 @@
       label-width="120px"
       v-loading="formLoading"
     >
-      <el-form-item label="执行账号" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="执行账号"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" class="w-full" />
       </el-form-item>
       
       <el-form-item label="帖子内容" prop="postContent">
@@ -92,6 +96,7 @@ const accountGroups = ref<any[]>([])
 const accounts = ref<any[]>([])
 const formData = ref({
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   postContent: '',
   mediaUrls: [] as string[],  // 存储本地文件路径
   privacySetting: 1,
@@ -185,6 +190,7 @@ const clearFiles = () => {
 const resetForm = () => {
   formData.value = {
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     postContent: '',
     mediaUrls: [],
     privacySetting: 1,
@@ -210,6 +216,7 @@ const submitForm = async () => {
       taskType: 12, // 发个人帖
       taskName: `发个人帖-${new Date().getTime()}`, // 自动生成任务名称
       accountIds: formData.value.accountIds,
+      accountSelectionMode: formData.value.accountSelectionMode,
       expectedCount: formData.value.accountIds.length,
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,

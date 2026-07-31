@@ -6,6 +6,7 @@ export interface FbAiAgentConfig {
   agentName: string
   agentType?: string
   searchMode?: string
+  searchUrlTemplate?: string
   exportProduct?: string
   knowledgeIds?: string
   seedKeywords?: string
@@ -21,6 +22,7 @@ export interface FbAiAgentConfig {
   targetCountries?: string
   targetLanguages?: string
   accountIds?: string
+  accountSelectionMode?: 'AUTO' | 'MANUAL'
   monitorGroupIds?: string
   touchScoreThreshold?: number
   autoCommentEnabled?: boolean

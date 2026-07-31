@@ -20,6 +20,9 @@ import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountActionStatDO;
+import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
+import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -37,6 +40,12 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Resource
     private FbAccountMapper fbAccountMapper;
+
+    @Resource
+    private FbAccountActionStatService actionStatService;
+
+    @Resource
+    private FacebookDailyLimitService dailyLimitService;
 
     @Override
     public Long createFbAccount(FbAccountSaveReqVO createReqVO) {
@@ -96,6 +105,85 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Override
     public PageResult<FbAccountDO> getFbAccountPage(FbAccountPageReqVO pageReqVO) {
         return fbAccountMapper.selectPage(pageReqVO);
+    }
+
+    @Override
+    public List<FbAccountSelectorOptionRespVO> getSelectorOptions(FbAccountSelectorOptionReqVO reqVO) {
+        FbAccountPageReqVO pageReqVO = new FbAccountPageReqVO();
+        pageReqVO.setPageSize(PageParam.PAGE_SIZE_NONE);
+        pageReqVO.setStatus(true);
+        // 账号候选接口只返回启用账号。分页条件用于数据库过滤，服务层再兜底一次，
+        // 避免不同数据库或历史查询逻辑导致停用账号进入任务选择器。
+        List<FbAccountDO> accounts = fbAccountMapper.selectPage(pageReqVO).getList().stream()
+                .filter(account -> Boolean.TRUE.equals(account.getStatus()))
+                .collect(Collectors.toList());
+        List<Long> accountIds = accounts.stream().map(FbAccountDO::getId).toList();
+        Map<Long, List<FbAccountActionStatDO>> statMap = actionStatService.getByAccountIds(accountIds).stream()
+                .collect(Collectors.groupingBy(FbAccountActionStatDO::getAccountId));
+
+        List<String> actionTypes = reqVO == null || CollUtil.isEmpty(reqVO.getActionTypes())
+                ? Collections.emptyList() : reqVO.getActionTypes().stream()
+                .flatMap(value -> Arrays.stream(value.split(",")))
+                .map(String::trim).filter(StrUtil::isNotBlank).distinct().collect(Collectors.toList());
+        List<FbAccountSelectorOptionRespVO> result = new ArrayList<>();
+        for (FbAccountDO account : accounts) {
+            FbAccountSelectorOptionRespVO option = new FbAccountSelectorOptionRespVO();
+            option.setId(account.getId());
+            option.setFbAccount(account.getFbAccount());
+            option.setGroupId(account.getGroupId());
+            option.setStatus(account.getStatus());
+            option.setLoginStatus(account.getLoginStatus());
+            option.setEligible(isSelectableStatus(account.getLoginStatus()));
+            option.setDisabledReason(option.getEligible() ? "" : loginStatusReason(account.getLoginStatus()));
+
+            for (OperationTypeEnum type : OperationTypeEnum.values()) {
+                int limit = dailyLimitService.getConfiguredLimit(type);
+                int remaining = dailyLimitService.getRemainingCount(String.valueOf(account.getId()), type);
+                option.getLimits().put(type.getCode(), limit);
+                option.getToday().put(type.getCode(), Math.max(0, limit - remaining));
+                if (actionTypes.contains(type.getCode()) && remaining <= 0) {
+                    option.setEligible(false);
+                    option.setDisabledReason("今日" + type.getName() + "已达上限");
+                }
+            }
+
+            Map<String, Long> totals = option.getTotal();
+            totals.put("taskCount", 0L);
+            totals.put("dm", 0L);
+            totals.put("repost", 0L);
+            totals.put("join_group", 0L);
+            totals.put("comment", 0L);
+            totals.put("follow", 0L);
+            totals.put("collect", 0L);
+            for (FbAccountActionStatDO stat : statMap.getOrDefault(account.getId(), Collections.emptyList())) {
+                totals.put("taskCount", totals.get("taskCount") + value(stat.getTotalTaskCount()));
+                totals.put(stat.getActionType(), value(stat.getTotalActionCount()));
+                if ("collect".equals(stat.getActionType())) {
+                    totals.put("collect", value(stat.getTotalCollectCount()));
+                }
+                if (option.getLastExecuteTime() == null ||
+                        (stat.getLastExecuteTime() != null && stat.getLastExecuteTime().isAfter(option.getLastExecuteTime()))) {
+                    option.setLastExecuteTime(stat.getLastExecuteTime());
+                }
+            }
+            result.add(option);
+        }
+        return result;
+    }
+
+    private boolean isSelectableStatus(String status) {
+        return StrUtil.isBlank(status) || "SUCCESS".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status);
+    }
+
+    private String loginStatusReason(String status) {
+        if ("COOKIE_INVALID".equalsIgnoreCase(status) || "COOKIE_EXPIRED".equalsIgnoreCase(status)) return "Cookie失效";
+        if ("ABNORMAL".equalsIgnoreCase(status) || "INVALID".equalsIgnoreCase(status)) return "账号异常";
+        if ("FAILED".equalsIgnoreCase(status)) return "账号需要重新检测";
+        return "账号状态不可用";
+    }
+
+    private long value(Long value) {
+        return value == null ? 0L : value;
     }
 
 

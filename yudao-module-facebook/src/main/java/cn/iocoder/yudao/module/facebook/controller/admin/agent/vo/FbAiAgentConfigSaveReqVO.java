@@ -23,6 +23,9 @@ public class FbAiAgentConfigSaveReqVO {
     @Schema(description = "搜索方式：keyword/link")
     private String searchMode;
 
+    @Schema(description = "关键词搜索链接模板，链接模式下仅替换 q 参数")
+    private String searchUrlTemplate;
+
     @Schema(description = "用户主营/出口产品")
     private String exportProduct;
 
@@ -54,10 +57,10 @@ public class FbAiAgentConfigSaveReqVO {
     @Min(value = 1, message = "目标客户数量不能小于1")
     private Integer targetCustomerCount;
 
-    @Schema(description = "执行频率：daily")
+    @Schema(description = "执行频率：1-7天，1表示每天")
     private String executeFrequency;
 
-    @Schema(description = "每日执行时间，格式 HH:mm")
+    @Schema(description = "执行时间，格式 HH:mm")
     private String executeTime;
 
     @Schema(description = "目标国家，JSON数组")
@@ -68,6 +71,9 @@ public class FbAiAgentConfigSaveReqVO {
 
     @Schema(description = "账号ID列表，逗号分隔")
     private String accountIds;
+
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode = "AUTO";
 
     @Schema(description = "监控群组ID列表，逗号分隔")
     private String monitorGroupIds;

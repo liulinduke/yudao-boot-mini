@@ -59,6 +59,9 @@ public class FbDmTaskDO extends TenantBaseDO {
      */
     private String accountIds;
 
+    /** 账号分配模式：AUTO/MANUAL。 */
+    private String accountSelectionMode;
+
     /**
      * 最小间隔(秒)
      */

@@ -15,6 +15,7 @@ import cn.iocoder.yudao.module.facebook.controller.admin.collectuser.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUserDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collect.FbCollectDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectdetail.FbCollectDetailDO;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
@@ -22,9 +23,11 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collect.FbCollectMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.collectdetail.FbCollectDetailMapper;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentService;
 import cn.iocoder.yudao.module.facebook.service.collectdetail.FbCollectCountService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatService;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -51,6 +54,10 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
     
     @Resource
     private FbCollectMapper fbCollectMapper;
+    @Resource
+    private FbAccountMapper fbAccountMapper;
+    @Resource
+    private FbAccountActionStatService actionStatService;
     
     @Resource
     private FbCollectCountService countService;
@@ -308,6 +315,7 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         // 采集脚本一旦返回结果（即使数量不足或为 0），本轮明细也视为结束
         detail.setStatus(2); // 已完成
         detail.setEndTime(LocalDateTime.now());
+        recordCollectStat(detail, redisCount == null ? 0 : redisCount);
         
         fbCollectDetailMapper.updateById(detail);
         aiAgentCollectQueueService.releaseRunning(detail.getFbAccount());
@@ -358,6 +366,12 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         
         log.info("更新主表 {} 完成, 总进度: {}/{}", taskId, totalCollected, totalExpected);
         return unfinishedCount == 0;
+    }
+
+    private void recordCollectStat(FbCollectDetailDO detail, long count) {
+        FbAccountDO account = fbAccountMapper.selectOne(new LambdaQueryWrapperX<FbAccountDO>()
+                .eq(FbAccountDO::getFbAccount, detail.getFbAccount()).last("LIMIT 1"));
+        if (account != null) actionStatService.recordSuccess(account.getId(), "collect", count, count);
     }
 
 }

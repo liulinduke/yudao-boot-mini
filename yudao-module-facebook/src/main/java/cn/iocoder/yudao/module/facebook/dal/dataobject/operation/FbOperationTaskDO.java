@@ -30,6 +30,9 @@ public class FbOperationTaskDO extends TenantBaseDO {
      * 任务类型（9-链接加组 10-转贴 11-群发私信 12-发个人帖 13-发群帖）
      */
     private Integer taskType;
+
+    /** 账号分配模式：AUTO/MANUAL。 */
+    private String accountSelectionMode;
     /**
      * 任务名称
      */

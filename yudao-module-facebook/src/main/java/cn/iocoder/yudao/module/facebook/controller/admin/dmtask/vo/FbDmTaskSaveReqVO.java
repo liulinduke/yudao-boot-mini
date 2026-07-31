@@ -30,8 +30,10 @@ public class FbDmTaskSaveReqVO {
     private Boolean appendRandomEmoji;
 
     @Schema(description = "执行账号ID列表", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotEmpty(message = "执行账号不能为空")
     private List<String> accountIds;
+
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode = "AUTO";
 
     @Schema(description = "最小间隔(秒)", example = "4")
     private Integer minIntervalSeconds;

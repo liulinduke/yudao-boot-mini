@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.facebook.service.dailylimit;
 
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
 import cn.iocoder.yudao.module.facebook.service.globalconfig.FbGlobalConfigService;
+import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,6 +31,9 @@ public class FacebookDailyLimitService {
 
     @Resource
     private FbGlobalConfigService globalConfigService;
+
+    @Resource
+    private FbAccountActionStatService actionStatService;
 
     /**
      * 获取今日剩余次数
@@ -74,6 +78,8 @@ public class FacebookDailyLimitService {
             return false;
         }
 
+        actionStatService.recordSuccess(Long.valueOf(accountId), type.getCode(), 1, 0);
+
         log.debug("账号 {} 使用一次 {} 操作，已用: {}/{}", accountId, type.getName(), count, limit);
         return true;
     }
@@ -95,6 +101,10 @@ public class FacebookDailyLimitService {
             log.warn("操作 {} 的每日限制配置无效: {}, 使用默认值 {}", type.getCode(), configValue, type.getDefaultLimit());
             return type.getDefaultLimit();
         }
+    }
+
+    public int getUsedCount(String accountId, OperationTypeEnum type) {
+        return Math.max(0, getConfiguredLimit(type) - getRemainingCount(accountId, type));
     }
 
     /**

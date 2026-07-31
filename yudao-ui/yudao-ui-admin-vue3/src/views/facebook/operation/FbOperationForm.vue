@@ -226,8 +226,12 @@
           />
         </div>
 
-        <el-form-item label="执行账号" prop="accountIds">
-          <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+        <el-form-item
+          label="执行账号"
+          prop="accountIds"
+          :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+        >
+          <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" class="w-full" />
         </el-form-item>
 
         <!-- 链接加组特殊UI -->
@@ -587,6 +591,7 @@ const formData = ref({
   taskType: 1, // 默认链接加组
   taskName: '',
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   targetUrls: '',
   targetGroupIds: '',
   expectedCount: 100,
@@ -686,15 +691,10 @@ const submitForm = async () => {
       })
       .replace(/[\/\s:]/g, '')
 
-    const accountsToUse =
-      formData.value.taskType === 9
-        ? Math.min(formData.value.accountIds.length, selectedGroups.value.length)
-        : formData.value.accountIds.length
-    const usedAccountIds = formData.value.accountIds.slice(0, accountsToUse)
-
     const data = {
       ...formData.value,
-      accountIds: usedAccountIds.map((id) => String(id)),
+      // 账号最终由后端按目标明细和公平排序分配，前端不要提前截断账号池。
+      accountIds: formData.value.accountIds.map((id) => String(id)),
       taskName: `${taskNamePrefix}_${timestamp}`,
       actionConfig:
         formData.value.taskType === 9
@@ -726,6 +726,7 @@ const resetForm = () => {
     taskType: 1,
     taskName: '',
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     targetUrls: '',
     targetGroupIds: '',
     expectedCount: 100,

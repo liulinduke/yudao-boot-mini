@@ -7,8 +7,12 @@
       label-width="120px"
       v-loading="formLoading"
     >
-      <el-form-item label="执行账号" prop="accountIds">
-        <FbAccountSelector v-model="formData.accountIds" class="w-full" />
+      <el-form-item
+        label="执行账号"
+        prop="accountIds"
+        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+      >
+        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" class="w-full" />
       </el-form-item>
 
       <el-form-item label="帖子内容" prop="postContent">
@@ -196,6 +200,7 @@ const selectedGroupIds = computed(() => {
 
 const formData = ref({
   accountIds: [] as string[],
+  accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   postContent: '',
   mediaUrls: [] as string[], // 存储本地文件路径
   anonymouslyPost: false,
@@ -303,7 +308,10 @@ const handleGroupTypeChange = () => {
 
 /** 打开群组选择器（已加入） */
 const openGroupSelector = () => {
-  if (formData.value.accountIds.length === 0) {
+  if (
+    formData.value.accountSelectionMode === 'MANUAL' &&
+    formData.value.accountIds.length === 0
+  ) {
     message.warning('请先选择执行账号')
     return
   }
@@ -341,6 +349,7 @@ const removeUnjoinedGroup = (groupId: string) => {
 const resetForm = () => {
   formData.value = {
     accountIds: [],
+    accountSelectionMode: 'AUTO',
     postContent: '',
     mediaUrls: [],
     anonymouslyPost: false,
@@ -381,6 +390,7 @@ const submitForm = async () => {
       taskType: 13, // 发群帖
       taskName: `发群帖-${new Date().getTime()}`, // 自动生成任务名称
       accountIds: formData.value.accountIds,
+      accountSelectionMode: formData.value.accountSelectionMode,
       expectedCount: expectedCount,
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,
