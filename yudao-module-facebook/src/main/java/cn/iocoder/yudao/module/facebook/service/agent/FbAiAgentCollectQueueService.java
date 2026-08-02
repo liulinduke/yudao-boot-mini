@@ -1,7 +1,9 @@
 package cn.iocoder.yudao.module.facebook.service.agent;
 
 import cn.hutool.crypto.SecureUtil;
+import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
 import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
+import cn.iocoder.yudao.module.infra.api.websocket.WebSocketSenderApi;
 import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,9 @@ public class FbAiAgentCollectQueueService {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private WebSocketSenderApi webSocketSenderApi;
+
     public void push(Long detailId, String fbAccount) {
         push("collect", detailId, fbAccount);
     }
@@ -55,6 +60,21 @@ public class FbAiAgentCollectQueueService {
         stringRedisTemplate.expire(key, QUEUE_EXPIRE_DAYS, TimeUnit.DAYS);
         stringRedisTemplate.opsForSet().add(buildAccountSetKey(), account);
         stringRedisTemplate.expire(buildAccountSetKey(), QUEUE_EXPIRE_DAYS, TimeUnit.DAYS);
+        // 采集、运营、AI 获客 Agent 共用同一领取入口，由 WPF 根据 claim-pending 返回的
+        // sourceType/taskType/actionConfig 分发执行。
+        notifyTaskReady();
+    }
+
+    /**
+     * 只发送“有任务可领取”通知，不携带账号、Cookie 或任务明细；真正领取仍由 WPF 调用
+     * claim-pending 完成，从而保留后端的并发锁和幂等保护。
+     */
+    private void notifyTaskReady() {
+        try {
+            webSocketSenderApi.send(UserTypeEnum.ADMIN.getValue(), "fb-ai-agent-task-ready", "{}");
+        } catch (Exception ignored) {
+            // WebSocket 未启用或暂时不可用时，不影响任务入队；客户端仍可通过手动触发领取。
+        }
     }
 
     public List<Long> pop(Integer limit, List<String> excludedAccounts) {

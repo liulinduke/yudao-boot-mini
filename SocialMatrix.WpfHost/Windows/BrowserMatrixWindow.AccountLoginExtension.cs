@@ -37,6 +37,16 @@ namespace SocialMatrix.WpfHost.Windows
         public event Action<string>? OnAccountLoginProgress;
         public event Action<string>? OnAccountLoginBatchComplete;
 
+        /// <summary>
+        /// 在指定浏览器中复用账号管理的完整登录流程，并持久化登录结果。
+        /// </summary>
+        public async Task<AccountLoginResult> LoginAccountInBrowserAsync(ChromiumWebBrowser browser, AccountLoginRequest account)
+        {
+            var result = await LoginAccountWithBrowserAsync(browser, account);
+            await PersistAccountLoginResultAsync(result, result.CookieJson);
+            return result;
+        }
+
         public void StartAccountLoginBatch(List<AccountLoginRequest> accounts, bool? closeAfterEachAccountOverride = null)
         {
             lock (_accountLoginLock)

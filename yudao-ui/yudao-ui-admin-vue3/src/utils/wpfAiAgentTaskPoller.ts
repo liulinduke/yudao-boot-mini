@@ -4,7 +4,6 @@ import { DmTaskApi } from '@/api/facebook/dmtask'
 import { markOperationDetailFailed } from '@/api/facebook/operation'
 import { startBrowserCollect } from '@/utils/wpfBridge'
 
-let timer: number | undefined
 let polling = false
 const claimedDetailIds = new Set<string>()
 const runningAccounts = new Set<string>()
@@ -329,7 +328,6 @@ export const claimNextAiAgentDetail = async () => {
 }
 
 export const setupWpfAiAgentTaskPoller = () => {
-  if (timer) return
-  void claimAndStartPendingAiAgentDetails()
-  timer = window.setInterval(claimAndStartPendingAiAgentDetails, 10000)
+  // AI 获客任务改由主界面 WebSocket 通知触发：Vue -> WPF Bridge -> claim-pending。
+  // 保留导出函数，兼容 main.ts 现有初始化入口，但不再启动主动轮询。
 }

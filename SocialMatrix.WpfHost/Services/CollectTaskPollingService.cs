@@ -20,13 +20,17 @@ namespace SocialMatrix.WpfHost.Services
         private readonly MainWindow _mainWindow;
         private readonly HttpClient _httpClient = new();
         private readonly HashSet<string> _launchingDetails = new();
-        private readonly Timer _timer;
         private bool _polling;
 
         public CollectTaskPollingService(MainWindow mainWindow)
         {
             _mainWindow = mainWindow;
-            _timer = new Timer(async _ => await PollAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10));
+            // 任务由后台 WebSocket 通知触发，避免多个客户端通过定时轮询竞争 claim-pending。
+        }
+
+        public void TriggerNow()
+        {
+            _ = PollAsync();
         }
 
         private async Task PollAsync()
@@ -71,14 +75,8 @@ namespace SocialMatrix.WpfHost.Services
                     {
                         try
                         {
-                            _mainWindow.CreateBrowserForAccount(
-                                detail.DetailId,
-                                detail.FbAccount ?? string.Empty,
-                                string.IsNullOrWhiteSpace(detail.Cookie) ? null : detail.Cookie,
-                                detail.SearchUrl,
-                                detail.ExpectedCount,
-                                detail.TaskType);
-                            System.Diagnostics.Debug.WriteLine($"✅ WPF轮询启动采集: detailId={detail.DetailId}, account={detail.FbAccount}, taskType={detail.TaskType}");
+                            DispatchTask(detail);
+                            System.Diagnostics.Debug.WriteLine($"✅ WPF启动任务: detailId={detail.DetailId}, sourceType={detail.SourceType}, taskType={detail.TaskType}");
                         }
                         catch (Exception ex)
                         {
@@ -96,6 +94,45 @@ namespace SocialMatrix.WpfHost.Services
             {
                 _polling = false;
             }
+        }
+
+        private void DispatchTask(PendingCollectDetail detail)
+        {
+            var sourceType = detail.SourceType?.Trim().ToLowerInvariant() ?? "collect";
+            var accountId = string.IsNullOrWhiteSpace(detail.AccountId) ? detail.FbAccount : detail.AccountId;
+            var cookie = string.IsNullOrWhiteSpace(detail.Cookie) ? null : detail.Cookie;
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                throw new InvalidOperationException($"任务 {detail.DetailId} 缺少执行账号");
+            }
+
+            if (sourceType == "dm")
+            {
+                if (string.IsNullOrWhiteSpace(detail.TargetUserId) || string.IsNullOrWhiteSpace(detail.ScriptContent))
+                {
+                    throw new InvalidOperationException($"私信任务 {detail.DetailId} 缺少目标用户或话术");
+                }
+                _mainWindow.StartDmTaskFromQueue(detail.TaskId ?? string.Empty, detail.DetailId!, accountId,
+                    cookie ?? string.Empty, detail.TargetUserId, detail.ScriptContent);
+                return;
+            }
+
+            if (sourceType == "operation" && detail.TaskType == 13)
+            {
+                _mainWindow.StartGroupPublishTaskFromQueue(detail.TaskId ?? string.Empty, accountId,
+                    cookie ?? string.Empty, detail.ActionConfig ?? "{}", detail.DetailId!);
+                return;
+            }
+
+            _mainWindow.CreateBrowserForAccount(
+                detail.DetailId!,
+                accountId,
+                cookie,
+                detail.SearchUrl,
+                detail.ExpectedCount,
+                detail.TaskType,
+                detail.ActionConfig,
+                isOperation: sourceType == "operation");
         }
 
         public void MarkDetailFinished(string detailId)
@@ -132,17 +169,22 @@ namespace SocialMatrix.WpfHost.Services
 
         public void Dispose()
         {
-            _timer.Dispose();
             _httpClient.Dispose();
         }
 
         private sealed class PendingCollectDetail
         {
+            [JsonProperty("taskId")]
+            public string? TaskId { get; set; }
+
             [JsonProperty("detailId")]
             public string? DetailId { get; set; }
 
             [JsonProperty("fbAccount")]
             public string? FbAccount { get; set; }
+
+            [JsonProperty("accountId")]
+            public string? AccountId { get; set; }
 
             [JsonProperty("cookie")]
             public string? Cookie { get; set; }
@@ -155,6 +197,18 @@ namespace SocialMatrix.WpfHost.Services
 
             [JsonProperty("taskType")]
             public int TaskType { get; set; } = 1;
+
+            [JsonProperty("sourceType")]
+            public string? SourceType { get; set; }
+
+            [JsonProperty("targetUserId")]
+            public string? TargetUserId { get; set; }
+
+            [JsonProperty("scriptContent")]
+            public string? ScriptContent { get; set; }
+
+            [JsonProperty("actionConfig")]
+            public string? ActionConfig { get; set; }
         }
     }
 }

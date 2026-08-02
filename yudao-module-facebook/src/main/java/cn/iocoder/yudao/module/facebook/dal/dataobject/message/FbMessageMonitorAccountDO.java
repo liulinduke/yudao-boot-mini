@@ -26,6 +26,8 @@ public class FbMessageMonitorAccountDO extends TenantBaseDO {
     private Integer onlineStatus;
     private String mode;
     private Integer checkIntervalMinutes;
+    /** 每日定时接收时间，格式：06:00,08:00,12:00。 */
+    private String scheduleTimes;
     private LocalDateTime nextCheckTime;
     private LocalDateTime lastCheckTime;
     private LocalDateTime lastSuccessTime;

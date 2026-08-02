@@ -7,6 +7,7 @@ export interface FbMessageMonitorAccount {
   onlineStatus?: number
   mode: 'realtime' | 'scheduled' | 'disabled'
   checkIntervalMinutes?: number
+  scheduleTimes?: string
   nextCheckTime?: string
   lastCheckTime?: string
   lastSuccessTime?: string
@@ -22,6 +23,7 @@ export interface FbMessageMonitorClaim {
   deviceId?: number | null
   mode: 'realtime' | 'scheduled' | 'disabled'
   checkIntervalMinutes?: number
+  scheduleTimes?: string
   url: string
 }
 

@@ -1248,6 +1248,15 @@ namespace SocialMatrix.WpfHost.Windows
                         OnCollectionComplete?.Invoke(profileDetailId, accountId, profileJson, 18);
                         break;
 
+                    case 19:
+                        System.Diagnostics.Debug.WriteLine($"📨 执行消息监控任务...");
+                        await WaitForPageReady(browser, timeoutMs: 30000);
+                        var monitorResult = await ExecuteMessageMonitorTaskAsync(browser);
+                        var monitorDetailId = detailId
+                            ?? (_accountDetailIds.TryGetValue(accountId, out var mappedMonitorDetailId) ? mappedMonitorDetailId : "");
+                        OnCollectionComplete?.Invoke(monitorDetailId, accountId, monitorResult, 19);
+                        break;
+
                     default:
                         System.Diagnostics.Debug.WriteLine($"⚠️ 未知运营任务类型: taskType={taskType}");
                         OnCollectionError?.Invoke(accountId, $"不支持的任务类型: {taskType}");
@@ -1893,6 +1902,21 @@ namespace SocialMatrix.WpfHost.Windows
                     $"🏁 采集任务结束: account={accountId}, detailId={detailId}, " +
                     $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}");
             }
+        }
+
+        private async Task<string> ExecuteMessageMonitorTaskAsync(ChromiumWebBrowser browser)
+        {
+            const string script = @"(function(){
+const login=!!document.querySelector('input[name=""email""],input[name=""pass""]')||/\/login\.php/i.test(location.pathname);
+if(login)return JSON.stringify({success:false,errorMessage:'Cookie已失效',messengerUnreadCount:0,notificationUnreadCount:0});
+const labels=[...document.querySelectorAll('[aria-label]')].map(e=>e.getAttribute('aria-label')||'');
+const count=(names)=>{const value=labels.find(label=>names.some(name=>new RegExp('^'+name+'[,，].*(\\d+)\\s*(?:unread|未读)','i').test(label)));const match=value?.match(/(\\d+)\\s*(?:unread|未读)/i);return match?Number(match[1]):0;};
+const titleMatch=document.title.match(/^\\((\\d+)\\)\\s*Messenger/i);
+return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Messages','消息'])||(titleMatch?Number(titleMatch[1]):0),notificationUnreadCount:count(['Notifications','通知']),page:location.href});
+})();";
+            var result = await browser.EvaluateScriptAsync(script);
+            if (!result.Success || result.Result == null) throw new InvalidOperationException(result.Message ?? "消息监控脚本执行失败");
+            return result.Result.ToString() ?? "{}";
         }
 
         private bool TryGetRelationUrls(string? config, out List<string> relationUrls)

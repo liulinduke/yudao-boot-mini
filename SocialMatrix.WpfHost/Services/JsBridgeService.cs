@@ -139,6 +139,22 @@ namespace SocialMatrix.WpfHost.Services
         }
 
         /// <summary>
+        /// Vue 收到后台 AI 获客任务通知后调用，由 WPF 执行 claim-pending 并启动浏览器。
+        /// </summary>
+        public void NotifyAiAgentTaskReady()
+        {
+            _mainWindow.TriggerCollectTaskClaim();
+        }
+
+        /// <summary>
+        /// Vue 主界面收到消息监控定时任务通知后，唤醒 WPF 领取到期账号任务。
+        /// </summary>
+        public void NotifyMessageMonitorTaskReady()
+        {
+            _mainWindow.TriggerMessageMonitorTaskClaim();
+        }
+
+        /// <summary>
         /// 显示消息提示
         /// </summary>
         public void ShowMessage(string message)

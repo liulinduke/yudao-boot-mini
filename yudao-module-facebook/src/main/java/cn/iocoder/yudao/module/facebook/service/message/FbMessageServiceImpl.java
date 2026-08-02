@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +43,7 @@ public class FbMessageServiceImpl implements FbMessageService {
     @Resource private AiWorkflowService aiWorkflowService;
     @Resource private FbAiAgentCollectQueueService accountQueueService;
     @Resource private FbDmTaskDetailMapper dmTaskDetailMapper;
+    @Resource private FbMessageMonitorQuartzScheduleService monitorQuartzScheduleService;
 
     @Override
     public List<FbMessageMonitorAccountDO> getMonitorAccounts() {
@@ -65,6 +67,8 @@ public class FbMessageServiceImpl implements FbMessageService {
                     Map<String, String> item = new LinkedHashMap<>();
                     item.put("id", String.valueOf(account.getId()));
                     item.put("fbAccount", blankDefault(account.getFbAccount(), ""));
+                    item.put("password", blankDefault(account.getPassword(), ""));
+                    item.put("tfa", blankDefault(account.getTfa(), ""));
                     item.put("cookie", blankDefault(account.getCookie(), ""));
                     item.put("deviceId", account.getDeviceId() == null ? "" : String.valueOf(account.getDeviceId()));
                     item.put("avatarUrl", blankDefault(account.getAvatarUrl(), ""));
@@ -81,6 +85,7 @@ public class FbMessageServiceImpl implements FbMessageService {
             obj = new FbMessageMonitorAccountDO();
         }
         String previousMode = obj.getMode();
+        String previousScheduleTimes = obj.getScheduleTimes();
         String requestedMode = normalizeMode(reqVO.getMode());
         int receiveEnabled = reqVO.getReceiveEnabled() == null
                 ? ("disabled".equals(requestedMode) ? 0 : 1) : reqVO.getReceiveEnabled();
@@ -91,15 +96,19 @@ public class FbMessageServiceImpl implements FbMessageService {
         obj.setOnlineStatus(receiveEnabled == 1 ? onlineStatus : 0);
         obj.setMode(requestedMode);
         obj.setCheckIntervalMinutes(Math.max(1, reqVO.getCheckIntervalMinutes() == null ? 30 : reqVO.getCheckIntervalMinutes()));
+        if (reqVO.getScheduleTimes() != null) obj.setScheduleTimes(normalizeScheduleTimes(reqVO.getScheduleTimes()));
         obj.setStatus(reqVO.getStatus() == null ? 1 : reqVO.getStatus());
-        if (obj.getNextCheckTime() == null || "disabled".equals(obj.getMode()) || !Objects.equals(previousMode, requestedMode)) {
-            obj.setNextCheckTime("disabled".equals(obj.getMode()) ? null : LocalDateTime.now().plusMinutes(obj.getCheckIntervalMinutes()));
+        if (obj.getNextCheckTime() == null || "disabled".equals(obj.getMode())
+                || !Objects.equals(previousMode, requestedMode)
+                || !Objects.equals(previousScheduleTimes, obj.getScheduleTimes())) {
+            obj.setNextCheckTime("disabled".equals(obj.getMode()) ? null : calculateNextCheckTime(obj, LocalDateTime.now()));
         }
         if (receiveEnabled == 0) {
             FbAccountDO account = accountMapper.selectById(obj.getAccountId());
             if (account != null) accountQueueService.releaseRunning(account.getFbAccount());
         }
         if (obj.getId() == null) monitorMapper.insert(obj); else monitorMapper.updateById(obj);
+        monitorQuartzScheduleService.refresh();
         return obj.getId();
     }
 
@@ -108,6 +117,7 @@ public class FbMessageServiceImpl implements FbMessageService {
     public void batchSaveMonitorAccounts(List<FbMessageMonitorAccountSaveReqVO> reqVOList) {
         if (reqVOList == null) return;
         for (FbMessageMonitorAccountSaveReqVO reqVO : reqVOList) saveMonitorAccount(reqVO);
+        monitorQuartzScheduleService.refresh();
     }
 
     @Override
@@ -140,6 +150,7 @@ public class FbMessageServiceImpl implements FbMessageService {
                 monitorMapper.updateById(row);
             }
         }
+        monitorQuartzScheduleService.refresh();
     }
 
     @Override
@@ -156,6 +167,7 @@ public class FbMessageServiceImpl implements FbMessageService {
             FbAccountDO account = accountMapper.selectById(accountId);
             if (account != null) accountQueueService.releaseRunning(account.getFbAccount());
         }
+        monitorQuartzScheduleService.refresh();
     }
 
     @Override
@@ -200,7 +212,7 @@ public class FbMessageServiceImpl implements FbMessageService {
             row.setOnlineStatus(0);
             row.setMode(enabled ? "scheduled" : "disabled");
             row.setStatus(enabled ? 1 : 0);
-            if (enabled && row.getNextCheckTime() == null) row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, Optional.ofNullable(row.getCheckIntervalMinutes()).orElse(30))));
+            if (enabled && row.getNextCheckTime() == null) row.setNextCheckTime(calculateNextCheckTime(row, LocalDateTime.now()));
             monitorMapper.updateById(row);
         }
     }
@@ -245,7 +257,7 @@ public class FbMessageServiceImpl implements FbMessageService {
             if (account == null || excluded.contains(String.valueOf(account.getFbAccount()))) continue;
             if (!accountQueueService.tryClaimAccount(account.getFbAccount(), "message:" + row.getId(), 3)) continue;
             row.setLastCheckTime(LocalDateTime.now());
-            if (!manual) row.setNextCheckTime(LocalDateTime.now().plusMinutes(Math.max(1, row.getCheckIntervalMinutes())));
+            if (!manual) row.setNextCheckTime(calculateNextCheckTime(row, LocalDateTime.now()));
             monitorMapper.updateById(row);
             FbMessageMonitorClaimRespVO item = new FbMessageMonitorClaimRespVO();
             item.setMonitorId(row.getId()); item.setAccountId(row.getAccountId());
@@ -487,6 +499,46 @@ public class FbMessageServiceImpl implements FbMessageService {
     }
 
     private String normalizeMode(String mode) { return "disabled".equals(mode) ? "disabled" : "scheduled"; }
+
+    private String normalizeScheduleTimes(String value) {
+        if (value == null || value.isBlank()) return null;
+        return Arrays.stream(value.split("[,，\\s]+"))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .map(item -> {
+                    try {
+                        return LocalTime.parse(item).toString().substring(0, 5);
+                    } catch (Exception ex) {
+                        throw new IllegalArgumentException("定时接收时间格式不正确，请使用 HH:mm，例如 06:00");
+                    }
+                })
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining(","));
+    }
+
+    private LocalDateTime calculateNextCheckTime(FbMessageMonitorAccountDO row, LocalDateTime now) {
+        List<LocalTime> times = parseScheduleTimes(row.getScheduleTimes());
+        if (times.isEmpty()) {
+            return now.plusMinutes(Math.max(1, Optional.ofNullable(row.getCheckIntervalMinutes()).orElse(30)));
+        }
+        for (LocalTime time : times) {
+            LocalDateTime candidate = LocalDateTime.of(now.toLocalDate(), time);
+            if (candidate.isAfter(now)) return candidate;
+        }
+        return LocalDateTime.of(now.toLocalDate().plusDays(1), times.get(0));
+    }
+
+    private List<LocalTime> parseScheduleTimes(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .map(LocalTime::parse)
+                .sorted()
+                .toList();
+    }
+
     private String blankDefault(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
     private LocalDateTime parseTime(String value) {
         if (value == null || value.isBlank()) return LocalDateTime.now();

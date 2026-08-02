@@ -34,21 +34,19 @@
               @click.stop
               @change="(mode) => saveMode(account, mode)"
             >
-              <el-option label="实时在线" value="realtime" />
               <el-option label="定时检查" value="scheduled" />
               <el-option label="不接收" value="disabled" />
             </el-select>
             <template v-if="getMonitor(account.id)?.mode === 'scheduled'">
-              <el-input-number
-                :model-value="getMonitor(account.id)?.checkIntervalMinutes || 30"
-                :min="1"
-                :max="10080"
+              <el-input
+                :model-value="getMonitor(account.id)?.scheduleTimes || '06:00'"
+                placeholder="06:00,08:00"
+                style="width: 145px"
                 size="small"
-                controls-position="right"
                 @click.stop
-                @change="(value) => saveInterval(account, Number(value || 30))"
+                @change="(value) => saveScheduleTimes(account, String(value || '06:00'))"
               />
-              <span>分</span>
+              <span class="schedule-hint">时间</span>
             </template>
             <el-badge :value="getUnreadCount(account.id)" :hidden="getUnreadCount(account.id) === 0" />
           </div>
@@ -263,7 +261,7 @@ const refreshAll = async () => {
 
 const saveMode = async (account: FbAccount, mode: string) => {
   const current = getMonitor(account.id)
-  await FbMessageApi.saveMonitorAccount({ id: current?.id, accountId: account.id, mode: mode as any, checkIntervalMinutes: current?.checkIntervalMinutes || 30, status: 1 })
+  await FbMessageApi.saveMonitorAccount({ id: current?.id, accountId: account.id, mode: mode as any, checkIntervalMinutes: current?.checkIntervalMinutes || 30, scheduleTimes: current?.scheduleTimes || '06:00', status: 1 })
   const key = String(account.id)
   enabledAccountIds.value = mode === 'disabled'
     ? enabledAccountIds.value.filter((id) => id !== key)
@@ -277,12 +275,12 @@ const toggleAccount = async (account: FbAccount, enabled: boolean) => {
   enabledAccountIds.value = enabled
     ? [...new Set([...enabledAccountIds.value, key])]
     : enabledAccountIds.value.filter((id) => id !== key)
-  await saveMode(account, enabled ? 'realtime' : 'disabled')
+  await saveMode(account, enabled ? 'scheduled' : 'disabled')
 }
 
-const saveInterval = async (account: FbAccount, minutes: number) => {
+const saveScheduleTimes = async (account: FbAccount, scheduleTimes: string) => {
   const current = getMonitor(account.id)
-  await FbMessageApi.saveMonitorAccount({ id: current?.id, accountId: account.id, mode: current?.mode || 'scheduled', checkIntervalMinutes: minutes, status: 1 })
+  await FbMessageApi.saveMonitorAccount({ id: current?.id, accountId: account.id, mode: current?.mode || 'scheduled', checkIntervalMinutes: current?.checkIntervalMinutes || 30, scheduleTimes: scheduleTimes.trim(), status: 1 })
   monitors.value = await FbMessageApi.getMonitorAccounts()
 }
 

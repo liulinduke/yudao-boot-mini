@@ -12,5 +12,6 @@ public class FbMessageMonitorAccountSaveReqVO {
     private Integer onlineStatus;
     private String mode;
     private Integer checkIntervalMinutes;
+    private String scheduleTimes;
     private Integer status;
 }
