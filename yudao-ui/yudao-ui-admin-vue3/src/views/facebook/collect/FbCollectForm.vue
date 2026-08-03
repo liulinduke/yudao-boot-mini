@@ -1152,6 +1152,18 @@ const submitForm = async () => {
       (data as any).accountIds?.includes(acc.id)
     )
 
+    const commentExpectedCount = commentLikeOptions.value.includes('comment')
+      ? Number(formData.value.commentExpectedCount || 0)
+      : 0
+    const likeExpectedCount = commentLikeOptions.value.includes('like')
+      ? Number(formData.value.likeExpectedCount || 0)
+      : 0
+    const taskExpectedCount = data.taskType === 11
+      ? commentExpectedCount + likeExpectedCount
+      : data.taskType === 12
+        ? 1
+        : data.expectedCount
+
     // 准备任务数据(包含所有账号和URL)
     const taskData: any = {
       accountIds: selectedAccounts.map((acc) => acc.id), // 传递账号ID列表
@@ -1160,23 +1172,14 @@ const submitForm = async () => {
       taskType: data.taskType, // 采集类型(1主页/2帖子/3用户等)
       searchType: data.searchType, // 搜索方式(0链接/1关键词)
       searchUrl: urls.join('\n'), // 将所有URL用换行符连接
-      expectedCount: data.taskType === 12 ? 1 : data.expectedCount,
+      expectedCount: taskExpectedCount,
+      collectComment: data.taskType === 11 && commentLikeOptions.value.includes('comment'),
+      collectLike: data.taskType === 11 && commentLikeOptions.value.includes('like'),
+      commentExpectedCount: data.taskType === 11 ? Number(formData.value.commentExpectedCount || 0) : undefined,
+      likeExpectedCount: data.taskType === 11 ? Number(formData.value.likeExpectedCount || 0) : undefined,
       intervalSeconds: data.intervalSeconds,
       status: 0, // 待执行
       remark: data.remark
-    }
-
-    // 如果是帖子评论点赞采集，将配置保存到remark字段（临时方案）
-    if (data.taskType === 11) {
-      const config = {
-        collectComment: commentLikeOptions.value.includes('comment'),
-        collectLike: commentLikeOptions.value.includes('like'),
-        commentExpectedCount: formData.value.commentExpectedCount || 100,
-        likeExpectedCount: formData.value.likeExpectedCount || 100
-      }
-      // 将配置JSON附加到remark后面
-      taskData.remark = `${data.remark || ''}
-__CONFIG__:${JSON.stringify(config)}`
     }
 
     if (data.taskType === 12 && deepInputMode.value === 'select') {

@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import cn.hutool.json.JSONUtil;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -38,6 +40,7 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
 public class FbCollectServiceImpl implements FbCollectService {
 
     private static final int DEEP_COLLECT_TASK_TYPE = 12;
+    private static final String COMMENT_LIKE_CONFIG_KEY_PREFIX = "facebook:collect:comment-like-config:";
 
     @Resource
     private FbCollectMapper fbCollectMapper;
@@ -52,6 +55,9 @@ public class FbCollectServiceImpl implements FbCollectService {
 
     @Resource
     private FbAccountTaskAllocationService accountAllocationService;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -106,6 +112,17 @@ public class FbCollectServiceImpl implements FbCollectService {
         task.setStatus(1); // 采集中 (改为1而不是0)
         task.setStartTime(LocalDateTime.now()); // 设置开始时间
         fbCollectMapper.insert(task);
+
+        if (Integer.valueOf(11).equals(createReqVO.getTaskType())) {
+            String config = JSONUtil.createObj()
+                    .set("collectComment", Boolean.TRUE.equals(createReqVO.getCollectComment()))
+                    .set("collectLike", Boolean.TRUE.equals(createReqVO.getCollectLike()))
+                    .set("commentExpectedCount", Optional.ofNullable(createReqVO.getCommentExpectedCount()).orElse(100))
+                    .set("likeExpectedCount", Optional.ofNullable(createReqVO.getLikeExpectedCount()).orElse(100))
+                    .toString();
+            stringRedisTemplate.opsForValue().set(
+                    COMMENT_LIKE_CONFIG_KEY_PREFIX + task.getId(), config, 30, java.util.concurrent.TimeUnit.DAYS);
+        }
             
         Map<Long, String> accountMap = resolveAccountMap(assignedAccountIds, createReqVO.getFbAccount());
 

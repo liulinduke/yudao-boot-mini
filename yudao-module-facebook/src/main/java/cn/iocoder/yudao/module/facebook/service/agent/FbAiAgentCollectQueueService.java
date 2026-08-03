@@ -7,6 +7,8 @@ import cn.iocoder.yudao.module.infra.api.websocket.WebSocketSenderApi;
 import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -62,7 +64,9 @@ public class FbAiAgentCollectQueueService {
         stringRedisTemplate.expire(buildAccountSetKey(), QUEUE_EXPIRE_DAYS, TimeUnit.DAYS);
         // 采集、运营、AI 获客 Agent 共用同一领取入口，由 WPF 根据 claim-pending 返回的
         // sourceType/taskType/actionConfig 分发执行。
-        notifyTaskReady();
+        // 任务明细通常还在同一个数据库事务中。必须等事务提交后再通知 WPF，
+        // 否则 WPF 可能先领取队列，再查询不到尚未提交的明细，导致通知被消费但任务不执行。
+        notifyTaskReadyAfterCommit();
     }
 
     /**
@@ -75,6 +79,19 @@ public class FbAiAgentCollectQueueService {
         } catch (Exception ignored) {
             // WebSocket 未启用或暂时不可用时，不影响任务入队；客户端仍可通过手动触发领取。
         }
+    }
+
+    private void notifyTaskReadyAfterCommit() {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            notifyTaskReady();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                notifyTaskReady();
+            }
+        });
     }
 
     public List<Long> pop(Integer limit, List<String> excludedAccounts) {

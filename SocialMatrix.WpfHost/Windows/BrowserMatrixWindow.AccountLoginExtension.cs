@@ -2,13 +2,9 @@
 using CefSharp.Wpf;
 using Newtonsoft.Json;
 using OtpNet;
-using SocialMatrix.WpfHost.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -38,13 +34,12 @@ namespace SocialMatrix.WpfHost.Windows
         public event Action<string>? OnAccountLoginBatchComplete;
 
         /// <summary>
-        /// 在指定浏览器中复用账号管理的完整登录流程，并持久化登录结果。
+        /// 在指定浏览器中复用账号管理的完整登录流程。结果只通过 WPF 事件返回，
+        /// 由 Vue 调用后台接口保存。
         /// </summary>
         public async Task<AccountLoginResult> LoginAccountInBrowserAsync(ChromiumWebBrowser browser, AccountLoginRequest account)
         {
-            var result = await LoginAccountWithBrowserAsync(browser, account);
-            await PersistAccountLoginResultAsync(result, result.CookieJson);
-            return result;
+            return await LoginAccountWithBrowserAsync(browser, account);
         }
 
         public void StartAccountLoginBatch(List<AccountLoginRequest> accounts, bool? closeAfterEachAccountOverride = null)
@@ -178,7 +173,6 @@ namespace SocialMatrix.WpfHost.Windows
             }
             result = result with { WindowClosed = windowClosed };
 
-            await PersistAccountLoginResultAsync(result, result.CookieJson);
             await EmitAccountLoginProgress(result);
 
             lock (_accountLoginLock)
@@ -824,41 +818,6 @@ namespace SocialMatrix.WpfHost.Windows
             if (manager != null)
             {
                 await manager.DeleteCookiesAsync("https://www.facebook.com", null);
-            }
-        }
-
-        private async Task PersistAccountLoginResultAsync(AccountLoginResult result, string? cookieJsonOverride = null)
-        {
-            // 网络异常只代表本次检测失败，不能覆盖账号原有登录状态。
-            if (string.Equals(result.Status, "network_error", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            try
-            {
-                using var client = new HttpClient();
-                client.Timeout = TimeSpan.FromSeconds(10);
-                var token = TokenManager.Get();
-                if (!string.IsNullOrWhiteSpace(token))
-                {
-                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                }
-
-                var payload = new
-                {
-                    id = result.AccountDbId,
-                    loginStatus = result.Status.ToUpperInvariant(),
-                    loginErrorReason = result.ErrorReason,
-                    cookie = cookieJsonOverride
-                };
-
-                var content = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
-                await client.PutAsync("http://localhost:48080/admin-api/facebook/fb-account/update-login-result", content);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to persist login result: {ex.Message}");
             }
         }
 

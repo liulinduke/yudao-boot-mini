@@ -6,6 +6,7 @@ import { useUserStoreWithOut } from '@/store/modules/user'
 import { propTypes } from '@/utils/propTypes'
 import { useWebSocket } from '@vueuse/core'
 import { getRefreshToken } from '@/utils/auth'
+import { claimAndStartPendingAiAgentDetails } from '@/utils/wpfAiAgentTaskPoller'
 
 defineOptions({ name: 'Message' })
 
@@ -24,6 +25,10 @@ const unreadCount = computed(
   () => systemUnread.value + facebookUnread.messenger + facebookUnread.notification
 )
 
+let claimingMessageMonitors = false
+const activeMessageMonitorTimers = new Map<string, number>()
+const finishedMessageMonitors = new Set<string>()
+
 // 主界面常驻 WebSocket：后台只通知“有 AI 获客任务”，不在消息中携带任务明细。
 const websocketServer = (import.meta.env.VITE_BASE_URL + '/infra/ws').replace('http', 'ws') +
   '?token=' + getRefreshToken()
@@ -36,17 +41,94 @@ watch(websocketData, (raw) => {
   if (!raw || raw === 'pong') return
   try {
     const message = JSON.parse(raw)
-    const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
-    if (message.type === 'fb-ai-agent-task-ready' && bridge?.NotifyAiAgentTaskReady) {
-      bridge.NotifyAiAgentTaskReady()
+    if (message.type === 'fb-ai-agent-task-ready') {
+      void claimAndStartPendingAiAgentDetails()
     }
-    if (message.type === 'fb-message-monitor-task-ready' && bridge?.NotifyMessageMonitorTaskReady) {
-      bridge.NotifyMessageMonitorTaskReady()
+    if (message.type === 'fb-message-monitor-task-ready') {
+      void claimAndStartMessageMonitors()
     }
   } catch (error) {
     console.warn('处理 AI 获客任务 WebSocket 通知失败', error)
   }
 })
+
+const claimAndStartMessageMonitors = async () => {
+  const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
+  if (claimingMessageMonitors || !bridge?.StartMessageMonitor) return
+
+  const availableSlots = Math.max(Number(bridge.GetAvailableBrowserSlots?.() || 0), 0)
+  if (availableSlots <= 0) return
+
+  claimingMessageMonitors = true
+  try {
+    const monitors = await FbMessageApi.claimMonitor(Math.min(availableSlots, 10))
+    for (const item of monitors || []) {
+      const monitorId = String(item.monitorId)
+      const accountId = String(item.accountId)
+      finishedMessageMonitors.delete(monitorId)
+      bridge.StartMessageMonitor(
+        monitorId,
+        accountId,
+        item.cookie || '',
+        String(item.deviceId || ''),
+        item.url || 'https://www.facebook.com/',
+        item.mode || 'scheduled'
+      )
+
+      const timeout = window.setTimeout(() => {
+        if (finishedMessageMonitors.has(monitorId)) return
+        finishedMessageMonitors.add(monitorId)
+        void FbMessageApi.reportMonitor(item.monitorId, false, '消息检查超过3分钟未回传')
+        bridge.CloseMessageBrowserAccount?.(accountId)
+        activeMessageMonitorTimers.delete(monitorId)
+      }, 180000)
+      activeMessageMonitorTimers.set(monitorId, timeout)
+    }
+  } catch (error) {
+    console.warn('领取消息监控任务失败', error)
+  } finally {
+    claimingMessageMonitors = false
+  }
+}
+
+const handleMessageMonitorComplete = async (event: Event) => {
+  const detail = (event as CustomEvent).detail || {}
+  if (!detail.monitorId) return
+  const monitorId = String(detail.monitorId)
+  if (finishedMessageMonitors.has(monitorId)) return
+  finishedMessageMonitors.add(monitorId)
+  detail.__reportedByMessage = true
+
+  const timeout = activeMessageMonitorTimers.get(monitorId)
+  if (timeout) window.clearTimeout(timeout)
+  activeMessageMonitorTimers.delete(monitorId)
+
+  let result: any = {}
+  try {
+    result = typeof detail.data === 'string' ? JSON.parse(detail.data || '{}') : (detail.data || {})
+  } catch {
+    result = { success: false, errorMessage: '消息监控结果格式错误' }
+  }
+
+  const success = Boolean(result.success)
+  try {
+    await FbMessageApi.reportMonitor(detail.monitorId, success, result.errorMessage)
+    if (success && detail.accountId) {
+      await FbMessageApi.reportUnreadBadges({
+        accountId: detail.accountId,
+        messengerUnreadCount: Number(result.messengerUnreadCount || 0),
+        notificationUnreadCount: Number(result.notificationUnreadCount || 0),
+        loggedIn: result.loggedIn !== false
+      })
+    }
+    window.dispatchEvent(new CustomEvent('fb:message:monitor-saved', { detail }))
+  } catch (error) {
+    console.warn('保存消息监控结果失败', error)
+  } finally {
+    window.chrome?.webview?.hostObjects?.sync?.wpfBridge?.CloseMessageBrowserAccount?.(String(detail.accountId || ''))
+    await refreshMessages()
+  }
+}
 
 const displayUnreadCount = computed(() => unreadCount.value)
 
@@ -121,6 +203,7 @@ const openFacebookMessageManager = () => {
 let refreshTimer: number | undefined
 onMounted(() => {
   window.addEventListener('fb:message:badge-changed', handleFacebookBadgeChanged)
+  window.addEventListener('fb:message:monitor-complete', handleMessageMonitorComplete)
   // 首次加载小红点
   refreshMessages()
   // 轮询刷新小红点
@@ -142,7 +225,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('fb:message:badge-changed', handleFacebookBadgeChanged)
+  window.removeEventListener('fb:message:monitor-complete', handleMessageMonitorComplete)
   if (refreshTimer) window.clearInterval(refreshTimer)
+  activeMessageMonitorTimers.forEach((timer) => window.clearTimeout(timer))
+  activeMessageMonitorTimers.clear()
+  finishedMessageMonitors.clear()
 })
 </script>
 <template>

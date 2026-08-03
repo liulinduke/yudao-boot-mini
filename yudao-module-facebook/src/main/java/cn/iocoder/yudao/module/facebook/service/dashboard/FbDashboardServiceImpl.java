@@ -133,6 +133,9 @@ public class FbDashboardServiceImpl implements FbDashboardService {
             return "其他采集";
         }
         String value = source.trim().toLowerCase();
+        if (value.contains("peer_follower") || value.contains("peer_following") || value.contains("同行")) {
+            return "同行采集";
+        }
         if (value.contains("comment") || value.contains("评论")) {
             return "评论采集";
         }

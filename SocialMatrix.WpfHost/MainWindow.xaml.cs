@@ -23,11 +23,9 @@ namespace SocialMatrix.WpfHost
     public partial class MainWindow : Window
     {
         private JsBridgeService? _jsBridge;
-        private CollectTaskPollingService? _collectTaskPollingService;
         private BrowserMatrixWindow? _browserMatrixWindow;
         private readonly Dictionary<string, BrowserMatrixWindow> _browserMatrixWindows = new();
         private MessageManagerWindow? _messageManagerWindow;
-        private Services.MessageMonitorTaskPollingService? _messageMonitorTaskPollingService;
         private readonly Dictionary<string, string> _messageMonitorByAccount = new();
         private bool _isWorkAreaMaximized;
         private Rect _normalWindowBounds;
@@ -185,8 +183,6 @@ namespace SocialMatrix.WpfHost
 
                 VueWebView.CoreWebView2.NavigationCompleted += (_, _) =>
                 {
-                    // 消息监控作为统一浏览器任务运行，不创建后台消息管理窗口。
-                    Dispatcher.BeginInvoke(new Action(StartMessageMonitorTaskPolling));
                 };
 
                 // 消息管理由独立 WPF 窗口承载，拦截旧前端或缓存前端发起的路由导航。
@@ -270,21 +266,6 @@ namespace SocialMatrix.WpfHost
                 $"window.dispatchEvent(new CustomEvent('fb:message:badge-changed',{{detail:{detail}}}));");
         }
 
-        private void StartCollectTaskPolling()
-        {
-            _collectTaskPollingService ??= new CollectTaskPollingService(this);
-            UpdateStatus("WPF采集任务通知监听已启动");
-            // 处理 WPF/Vue 尚未建立 WebSocket 连接前已经入队的任务，仅启动时执行一次。
-            _collectTaskPollingService.TriggerNow();
-        }
-
-        private void StartMessageMonitorTaskPolling()
-        {
-            _messageMonitorTaskPollingService ??= new Services.MessageMonitorTaskPollingService(this);
-            _messageMonitorTaskPollingService.Start();
-            UpdateStatus("Facebook消息定时接收任务监听已启动");
-        }
-
         public void StartMessageMonitorTask(string monitorId, string accountId, string cookie,
             string deviceId, string mode, string detailId)
         {
@@ -294,26 +275,9 @@ namespace SocialMatrix.WpfHost
                 long.TryParse(deviceId, out var parsedDeviceId) ? parsedDeviceId : null);
         }
 
-        public void TriggerMessageMonitorTaskClaim()
-        {
-            _messageMonitorTaskPollingService ??= new Services.MessageMonitorTaskPollingService(this);
-            _messageMonitorTaskPollingService.TriggerNow();
-        }
-
-        internal void MarkMessageMonitorReported(string accountId)
-        {
-            _messageMonitorByAccount.Remove(accountId);
-        }
-
         /// <summary>
         /// Vue 收到后台任务通知后调用，WPF 负责领取任务并启动浏览器。
         /// </summary>
-        public void TriggerCollectTaskClaim()
-        {
-            _collectTaskPollingService ??= new CollectTaskPollingService(this);
-            _collectTaskPollingService.TriggerNow();
-        }
-
         public void StartDmTaskFromQueue(string taskId, string detailId, string accountId,
             string cookie, string targetUserId, string scriptContent)
         {
@@ -413,19 +377,7 @@ namespace SocialMatrix.WpfHost
                 if (taskType == 19)
                 {
                     var monitorId = _messageMonitorByAccount.TryGetValue(accId, out var id) ? id : "";
-                    try
-                    {
-                        var monitorResult = JObject.Parse(jsonData);
-                        var success = monitorResult.Value<bool?>("success") ?? true;
-                        _ = _messageMonitorTaskPollingService?.ReportAsync(monitorId, success,
-                            monitorResult.Value<string>("errorMessage"), accId,
-                            monitorResult.Value<int?>("messengerUnreadCount") ?? 0,
-                            monitorResult.Value<int?>("notificationUnreadCount") ?? 0);
-                    }
-                    catch
-                    {
-                        _ = _messageMonitorTaskPollingService?.ReportAsync(monitorId, false, "消息监控结果解析失败", accId);
-                    }
+                    ReturnMessageMonitorResultToVue(monitorId, accId, jsonData);
                     _messageMonitorByAccount.Remove(accId);
                     return;
                 }
@@ -443,7 +395,8 @@ namespace SocialMatrix.WpfHost
                 {
                     if (_messageMonitorByAccount.TryGetValue(accId, out var monitorId))
                     {
-                        _ = _messageMonitorTaskPollingService?.ReportAsync(monitorId, false, errorMessage);
+                        ReturnMessageMonitorResultToVue(monitorId, accId,
+                            JsonConvert.SerializeObject(new { success = false, errorMessage }));
                         _messageMonitorByAccount.Remove(accId);
                         return;
                     }
@@ -528,6 +481,20 @@ namespace SocialMatrix.WpfHost
             }
         }
 
+        private void ReturnMessageMonitorResultToVue(string monitorId, string accountId, string jsonData)
+        {
+            if (VueWebView.CoreWebView2 == null) return;
+            var detail = JsonConvert.SerializeObject(new
+            {
+                monitorId,
+                accountId,
+                data = string.IsNullOrWhiteSpace(jsonData) ? "{}" : jsonData,
+                timestamp = DateTimeOffset.Now
+            });
+            VueWebView.CoreWebView2.ExecuteScriptAsync(
+                $"window.dispatchEvent(new CustomEvent('fb:message:monitor-complete',{{detail:{detail}}}));");
+        }
+
         private static bool IsNetworkLoadError(string errorMessage)
         {
             return Regex.IsMatch(errorMessage ?? "", "ConnectionClosed|网络|网络连接|页面加载失败|空白页|This site can.?t be reached|ERR_|超时", RegexOptions.IgnoreCase);
@@ -566,8 +533,6 @@ namespace SocialMatrix.WpfHost
 
         protected override void OnClosed(EventArgs e)
         {
-            _messageMonitorTaskPollingService?.Dispose();
-            _collectTaskPollingService?.Dispose();
             _messageManagerWindow?.CloseForShutdown();
             base.OnClosed(e);
         }

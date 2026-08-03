@@ -328,6 +328,9 @@ export const claimNextAiAgentDetail = async () => {
 }
 
 export const setupWpfAiAgentTaskPoller = () => {
-  // AI 获客任务改由主界面 WebSocket 通知触发：Vue -> WPF Bridge -> claim-pending。
-  // 保留导出函数，兼容 main.ts 现有初始化入口，但不再启动主动轮询。
+  // 任务由 Vue 调用后端领取，WPF 只接收已领取的明细并操作浏览器。
+  // 首屏完成后补领一次，覆盖 WPF/Vue 启动前已经创建的任务。
+  window.setTimeout(() => {
+    void claimAndStartPendingAiAgentDetails()
+  }, 1500)
 }

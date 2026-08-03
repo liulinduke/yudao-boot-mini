@@ -51,6 +51,18 @@ public class FbCollectSaveReqVO {
     @Schema(description = "备注", example = "你说的对")
     private String remark;
 
+    @Schema(description = "是否采集评论")
+    private Boolean collectComment;
+
+    @Schema(description = "是否采集点赞用户")
+    private Boolean collectLike;
+
+    @Schema(description = "评论期望数量")
+    private Integer commentExpectedCount;
+
+    @Schema(description = "点赞期望数量")
+    private Integer likeExpectedCount;
+
     @Schema(description = "账号ID列表(批量创建时使用)", example = "[1, 2, 3]")
     private List<Long> accountIds;
 

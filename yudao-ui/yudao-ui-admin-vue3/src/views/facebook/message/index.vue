@@ -375,6 +375,7 @@ const handleBrowserState = (event: any) => {
 const handleMonitorComplete = async (event: any) => {
   const data = event.detail || {}
   if (!data.monitorId) return
+  if (data.__reportedByMessage) return
   const monitorKey = String(data.monitorId)
   if (finishedMonitors.has(monitorKey)) return
   finishedMonitors.add(monitorKey)
@@ -385,6 +386,19 @@ const handleMonitorComplete = async (event: any) => {
   await FbMessageApi.reportMonitor(data.monitorId, Boolean(data.success), data.errorMessage)
   getBridge()?.CloseMessageBrowserAccount?.(String(data.accountId))
   await refreshAll()
+}
+
+const handleMonitorSaved = (event: any) => {
+  const data = event.detail || {}
+  if (!data.monitorId) return
+  const monitorKey = String(data.monitorId)
+  finishedMonitors.add(monitorKey)
+  const timeout = monitorTimeouts.get(monitorKey)
+  if (timeout) window.clearTimeout(timeout)
+  monitorTimeouts.delete(monitorKey)
+  activeMonitorIds.delete(monitorKey)
+  getBridge()?.CloseMessageBrowserAccount?.(String(data.accountId || ''))
+  void refreshAll()
 }
 
 const handleMonitorError = async (event: any) => {
@@ -444,6 +458,7 @@ onMounted(async () => {
   }
   window.addEventListener('fb:message:received', handleIncomingMessage)
   window.addEventListener('fb:message:monitor-complete', handleMonitorComplete)
+  window.addEventListener('fb:message:monitor-saved', handleMonitorSaved)
   window.addEventListener('fb:message:monitor-error', handleMonitorError)
   window.addEventListener('fb:message:browser-state', handleBrowserState)
   window.addEventListener('fb:message:window-closed', handleMessageWindowClosed)
@@ -459,6 +474,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('fb:message:received', handleIncomingMessage)
   window.removeEventListener('fb:message:monitor-complete', handleMonitorComplete)
+  window.removeEventListener('fb:message:monitor-saved', handleMonitorSaved)
   window.removeEventListener('fb:message:monitor-error', handleMonitorError)
   window.removeEventListener('fb:message:browser-state', handleBrowserState)
   window.removeEventListener('fb:message:window-closed', handleMessageWindowClosed)

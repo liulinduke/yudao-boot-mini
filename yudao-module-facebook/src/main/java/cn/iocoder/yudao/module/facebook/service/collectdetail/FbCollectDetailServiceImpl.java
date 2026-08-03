@@ -27,6 +27,7 @@ import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatServi
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
@@ -42,6 +43,8 @@ import java.util.stream.Collectors;
 @Service
 @Validated
 public class FbCollectDetailServiceImpl implements FbCollectDetailService {
+
+    private static final String COMMENT_LIKE_CONFIG_KEY_PREFIX = "facebook:collect:comment-like-config:";
 
     @Resource
     private FbCollectDetailMapper fbCollectDetailMapper;
@@ -65,6 +68,9 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbAiAgentDiscoveryLogMapper discoveryLogMapper;
     @Resource
     private FbAiAgentConfigMapper agentConfigMapper;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
     @Override
     public List<FbCollectDetailDO> getPendingDetailsByAccount(String fbAccount, Long taskId) {
         LambdaQueryWrapper<FbCollectDetailDO> wrapper = new LambdaQueryWrapper<FbCollectDetailDO>()
@@ -447,6 +453,52 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         updateObj.setEndTime(LocalDateTime.now());
         fbCollectDetailMapper.updateById(updateObj);
         aiAgentCollectQueueService.releaseRunning(detail.getFbAccount());
+        updateTaskStatusAfterDetailFailure(detail.getTaskId(), updateObj.getErrorMessage());
+    }
+
+    /**
+     * 明细失败后同步聚合主任务状态，避免所有明细失败时主任务仍显示为采集中。
+     */
+    private void updateTaskStatusAfterDetailFailure(Long taskId, String errorMessage) {
+        if (taskId == null) {
+            return;
+        }
+        List<FbCollectDetailDO> details = fbCollectDetailMapper.selectListByTaskId(taskId);
+        if (details.isEmpty()) {
+            return;
+        }
+
+        long unfinishedCount = details.stream()
+                .filter(detail -> Objects.equals(detail.getStatus(), 0) || Objects.equals(detail.getStatus(), 1))
+                .count();
+        long failedCount = details.stream()
+                .filter(detail -> Objects.equals(detail.getStatus(), 3))
+                .count();
+        int totalExpected = details.stream()
+                .map(FbCollectDetailDO::getExpectedCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int totalCollected = details.stream()
+                .map(FbCollectDetailDO::getCollectedCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+
+        FbCollectDO task = new FbCollectDO();
+        task.setId(taskId);
+        task.setTotalExpectedCount(totalExpected);
+        task.setTotalCollectedCount(totalCollected);
+        if (unfinishedCount > 0) {
+            task.setStatus(1); // 仍有明细待执行或执行中
+        } else {
+            task.setStatus(failedCount == details.size() ? 3 : 2);
+            task.setEndTime(LocalDateTime.now());
+            if (failedCount == details.size()) {
+                task.setErrorMessage(StrUtil.blankToDefault(errorMessage, "所有采集明细均执行失败"));
+            }
+        }
+        fbCollectMapper.updateById(task);
     }
 
     private FbCollectPendingDetailRespVO buildPendingDetailResp(FbCollectDetailDO detail, FbCollectDO task, FbAccountDO account) {
@@ -493,8 +545,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                     .toString();
         }
         if (task != null && Integer.valueOf(11).equals(task.getTaskType())) {
-            // 普通帖子评论点赞采集的 Vue 配置暂存在 remark 的 __CONFIG__ 段。
-            // 之前这里没有下发该配置，WPF 只能使用默认的评论/点赞数量和开关。
+            // 新任务配置保存在 Redis，避免污染用户填写的备注；保留旧备注配置兼容历史任务。
             cn.hutool.json.JSONObject runtimeConfig = cn.hutool.json.JSONUtil.createObj()
                     .set("source", "post_comment")
                     .set("sourcePostId", detail.getSourceUserId() == null ? null : String.valueOf(detail.getSourceUserId()))
@@ -503,6 +554,17 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                     .set("collectLike", true)
                     .set("commentExpectedCount", detail.getExpectedCount() == null ? 100 : detail.getExpectedCount())
                     .set("likeExpectedCount", 100);
+            String redisConfig = stringRedisTemplate.opsForValue()
+                    .get(COMMENT_LIKE_CONFIG_KEY_PREFIX + task.getId());
+            if (StrUtil.isNotBlank(redisConfig)) {
+                try {
+                    cn.hutool.json.JSONObject savedConfig = cn.hutool.json.JSONUtil.parseObj(redisConfig);
+                    savedConfig.forEach(runtimeConfig::set);
+                    return runtimeConfig.toString();
+                } catch (Exception ignored) {
+                    // Redis 配置损坏时继续尝试历史备注配置。
+                }
+            }
             String remark = task.getRemark();
             int markerIndex = remark == null ? -1 : remark.indexOf("__CONFIG__:");
             if (markerIndex >= 0) {

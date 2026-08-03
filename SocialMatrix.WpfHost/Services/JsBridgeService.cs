@@ -105,23 +105,6 @@ namespace SocialMatrix.WpfHost.Services
         }
 
         /// <summary>
-        /// 保存 Vue 登录后的 Token
-        /// </summary>
-        public void SaveToken(string token)
-        {
-            TokenManager.Save(token);
-            System.Diagnostics.Debug.WriteLine($"✅ Token 已保存: {token.Substring(0, 20)}...");
-        }
-
-        /// <summary>
-        /// 获取当前 Token
-        /// </summary>
-        public string GetToken()
-        {
-            return TokenManager.Get() ?? string.Empty;
-        }
-
-        /// <summary>
         /// 获取当前还可启动的账号浏览器窗口数量，供 Vue 领取待执行采集明细时控制并发。
         /// </summary>
         public int GetAvailableBrowserSlots()
@@ -138,20 +121,11 @@ namespace SocialMatrix.WpfHost.Services
             }
         }
 
-        /// <summary>
-        /// Vue 收到后台 AI 获客任务通知后调用，由 WPF 执行 claim-pending 并启动浏览器。
-        /// </summary>
-        public void NotifyAiAgentTaskReady()
+        public void StartMessageMonitor(string monitorId, string accountId, string cookie,
+            string deviceId, string url, string mode)
         {
-            _mainWindow.TriggerCollectTaskClaim();
-        }
-
-        /// <summary>
-        /// Vue 主界面收到消息监控定时任务通知后，唤醒 WPF 领取到期账号任务。
-        /// </summary>
-        public void NotifyMessageMonitorTaskReady()
-        {
-            _mainWindow.TriggerMessageMonitorTaskClaim();
+            Application.Current.Dispatcher.Invoke(() => _mainWindow.StartMessageMonitorTask(
+                monitorId, accountId, cookie, deviceId, mode, $"message-monitor-{monitorId}"));
         }
 
         /// <summary>
