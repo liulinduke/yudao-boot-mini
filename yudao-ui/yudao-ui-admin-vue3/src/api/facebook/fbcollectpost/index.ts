@@ -14,6 +14,7 @@ export interface FbCollectPost {
           userId: number; // 系统用户id
           deptId: number; // 部门id
           groupId: number; // 采集回来的群id
+          resourceGroupId?: number; // 资源分组ID
           reshareCount: number; // 转发数
           commentCount: number; // 评论数
           reactionCount: number; // 点赞数

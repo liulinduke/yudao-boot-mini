@@ -33,7 +33,14 @@
         prop="accountIds"
         :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
       >
-        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['repost']" class="w-full" />
+        <FbAccountSelector
+          v-model="formData.accountIds"
+          v-model:selection-mode="formData.accountSelectionMode"
+          v-model:auto-account-count="formData.autoAccountCount"
+          :show-auto-count="true"
+          :action-types="['repost']"
+          class="w-full"
+        />
       </el-form-item>
 
       <!-- 执行项配置 -->
@@ -317,11 +324,13 @@
     </template>
   </Dialog>
 
-  <!-- 群组选择器 -->
-  <GroupSelectorForRepost
+  <!-- 群组选择器：与发群帖共用已加入群组选择逻辑 -->
+  <GroupPublishGroupSelector
     v-model="groupSelectorVisible"
     :selected-group-ids="selectedGroupIds"
-    :account-ids="formData.accountIds"
+    :account-ids="selectorAccountIds"
+    :expected-account-count="formData.accountSelectionMode === 'AUTO' ? formData.autoAccountCount : selectorAccountIds.length"
+    :groups-per-account="actionConfig.shareToGroupCount"
     @confirm="handleGroupConfirm"
   />
 
@@ -347,7 +356,7 @@ import {
   createFbOperationTask,
   FbOperationTaskSaveReqVO
 } from '@/api/facebook/operation'
-import GroupSelectorForRepost from './GroupSelectorForRepost.vue'
+import GroupPublishGroupSelector from './GroupPublishGroupSelector.vue'
 import ScriptSelector from './dmtask/ScriptSelector.vue'
 
 const message = useMessage()
@@ -363,6 +372,7 @@ const formData = ref({
   postUrl: '',
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
+  autoAccountCount: undefined as number | undefined,
   remark: ''
 })
 
@@ -420,6 +430,13 @@ const formRules = reactive({
 // 计算已选群组ID列表
 const selectedGroupIds = computed(() => {
   return selectedGroups.value.map((g) => g.groupId)
+})
+
+const selectorAccountIds = computed(() => {
+  if (formData.value.accountSelectionMode === 'MANUAL') {
+    return formData.value.accountIds
+  }
+  return accounts.value.map((account) => account.id).filter(Boolean)
 })
 
 /** 打开弹窗 */
@@ -527,6 +544,11 @@ const submitForm = async () => {
       selectedGroups: selectedGroups.value
     }
 
+    if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+      message.warning('请输入自动分配的账号数量')
+      return
+    }
+
     // 计算期望数量
     let expectedCount = 0
     if (selectedActions.value.includes(1)) expectedCount += formData.value.accountIds.length // 点赞：每个账号1次
@@ -543,9 +565,12 @@ const submitForm = async () => {
       taskName: `转帖_${timestamp}`,
       accountIds: formData.value.accountIds,
       accountSelectionMode: formData.value.accountSelectionMode,
+      autoAccountCount: formData.value.autoAccountCount,
       postUrl: formData.value.postUrl,
       actionConfig: JSON.stringify(configData),
-      expectedCount: expectedCount,
+      expectedCount: formData.value.accountSelectionMode === 'AUTO'
+        ? formData.value.autoAccountCount || 0
+        : expectedCount,
       remark: formData.value.remark
     } as unknown as FbOperationTaskSaveReqVO
 
@@ -565,6 +590,7 @@ const resetForm = () => {
     postUrl: '',
     accountIds: [],
     accountSelectionMode: 'AUTO',
+    autoAccountCount: undefined,
     remark: ''
   }
   selectedActions.value = []

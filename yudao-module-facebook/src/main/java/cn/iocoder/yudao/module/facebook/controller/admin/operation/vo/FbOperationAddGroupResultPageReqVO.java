@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.facebook.controller.admin.operation.vo;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
+import java.util.List;
 
 @Schema(description = "管理后台 - 加组结果分页 Request VO")
 @Data
@@ -18,6 +19,9 @@ public class FbOperationAddGroupResultPageReqVO extends PageParam {
     @Schema(description = "Facebook账号ID", example = "10001234567890")
     private String accountId;
 
+    @Schema(description = "Facebook账号ID列表")
+    private List<String> accountIds;
+
     @Schema(description = "加组状态（0-待处理 1-成功 2-失败 3-已加入/待审核）", example = "1")
     private Integer joinStatus;
 
@@ -26,5 +30,11 @@ public class FbOperationAddGroupResultPageReqVO extends PageParam {
 
     @Schema(description = "群组名称", example = "测试群组")
     private String groupName;
+
+    @Schema(description = "群组资源分组ID")
+    private Long resourceGroupId;
+
+    @Schema(description = "仅查询加入时间早于指定天数的群组")
+    private Integer joinedBeforeDays = 3;
 
 }

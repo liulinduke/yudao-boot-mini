@@ -11,6 +11,7 @@ import cn.idev.excel.annotation.*;
 @Data
 @ExcelIgnoreUnannotated
 public class FbCollectPostRespVO {
+    private Long resourceGroupId;
 
     @Schema(description = "id", requiredMode = Schema.RequiredMode.REQUIRED, example = "21780")
     @ExcelProperty("id")

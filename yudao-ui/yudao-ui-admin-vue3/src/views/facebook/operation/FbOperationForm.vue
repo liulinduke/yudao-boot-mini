@@ -253,6 +253,14 @@
               <div class="text-gray-500 text-sm mt-2">
                 已选择 {{ selectedGroups.length }} 个群组，将自动对每个群组的成员执行加组操作
               </div>
+              <el-alert
+                v-if="formData.accountSelectionMode === 'AUTO'"
+                class="mt-2"
+                type="info"
+                :closable="false"
+                show-icon
+                title="自动分配说明：每个群组只分配一个执行账号；账号不足时，系统会按账号使用情况轮换分配。"
+              />
             </div>
             <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择群组，请点击上方按钮选择 </div>
           </div>
@@ -794,5 +802,8 @@ const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   selectedGroups.value = groups
   formData.value.targetGroupIds = groups.map((g) => g.id).join(',')
   message.success(`已选择 ${groups.length} 个群组`)
+  if (formData.value.accountSelectionMode === 'AUTO') {
+    message.info('系统将为每个群组分配一个执行账号；账号不足时会按使用情况自动轮换。')
+  }
 }
 </script>

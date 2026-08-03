@@ -36,6 +36,7 @@ export interface FbCollectUser {
   lastPostSummary: string // 最近帖子摘要
   deepCollected?: boolean // 是否已深度采集
   groupId: number // 分组ID
+  resourceGroupId?: number // 资源分组ID
   fromResource: string // 数据来源
   config: string // 配置信息
   commentContent?: string // 评论内容

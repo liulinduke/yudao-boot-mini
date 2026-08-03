@@ -46,6 +46,9 @@ public class FbCollectGroupPageReqVO extends PageParam {
     @Schema(description = "采集回来的群id", example = "4168")
     private Long groupId;
 
+    @Schema(description = "资源分组ID")
+    private Long resourceGroupId;
+
     @Schema(description = "加组次数")
     private Integer joinGroupTimes;
 

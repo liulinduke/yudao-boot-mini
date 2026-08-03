@@ -15,6 +15,7 @@ export interface FbCollectGroup {
           userId: number; // 系统用户
           deptId: number; // 部门
           groupId: number; // 采集回来的群id
+          resourceGroupId?: number; // 资源分组ID
           joinGroupTimes: number; // 加组次数
           commentTimes: number; // 评论次数
           postTimes: number; // 发帖次数

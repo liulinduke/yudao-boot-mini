@@ -13,6 +13,7 @@ import cn.iocoder.yudao.framework.excel.core.convert.DictConvert;
 @Data
 @ExcelIgnoreUnannotated
 public class FbCollectRespVO {
+    private Long resourceGroupId;
 
     @Schema(description = "任务ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "24906")
     @ExcelProperty("任务ID")

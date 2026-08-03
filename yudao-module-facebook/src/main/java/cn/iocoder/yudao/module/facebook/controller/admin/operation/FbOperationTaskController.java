@@ -82,6 +82,13 @@ public class FbOperationTaskController {
         return success(operationTaskService.getPendingDetails(accountId));
     }
 
+    @GetMapping("/followed-account-ids")
+    @Operation(summary = "查询已刷粉账号")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:query')")
+    public CommonResult<List<String>> getFollowedAccountIds(@RequestParam("targetUrl") String targetUrl) {
+        return success(operationTaskService.getFollowedAccountIds(targetUrl));
+    }
+
     @PostMapping("/batch-save-repost-result")
     @Operation(summary = "批量保存转帖结果")
     @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")

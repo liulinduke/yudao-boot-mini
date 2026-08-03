@@ -27,6 +27,9 @@ public class FbOperationTaskSaveReqVO {
     @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
     private String accountSelectionMode = "AUTO";
 
+    @Schema(description = "自动选号时使用的账号数量")
+    private Integer autoAccountCount;
+
     @Schema(description = "目标链接列表", example = "https://www.facebook.com/profile.php?id=xxx")
     private String targetUrls;
 

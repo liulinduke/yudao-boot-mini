@@ -105,6 +105,7 @@ public class FbCollectGroupController {
     @Operation(summary = "批量保存FB群组采集结果")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect-group:create')")
     public CommonResult<Integer> batchSaveFbCollectGroup(@Valid @RequestBody cn.iocoder.yudao.module.facebook.controller.admin.fbcollectgroup.vo.FbCollectGroupBatchSaveReqVO batchSaveReqVO) {
+        if (batchSaveReqVO.getResults() != null) batchSaveReqVO.getResults().forEach(item -> item.setResourceGroupId(batchSaveReqVO.getResourceGroupId()));
         Integer count = fbCollectGroupService.batchSaveFbCollectGroup(batchSaveReqVO.getDetailId(), batchSaveReqVO.getResults());
         return success(count);
     }

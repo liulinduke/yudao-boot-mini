@@ -66,6 +66,8 @@ public interface FbOperationTaskService {
      */
     List<FbOperationTaskDetailItemRespVO> getPendingDetails(String accountId);
 
+    List<String> getFollowedAccountIds(String targetUrl);
+
     /**
      * 批量保存转帖结果
      *

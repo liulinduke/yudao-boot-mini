@@ -15,6 +15,9 @@ public class FbCollectGroupBatchSaveReqVO {
     @NotNull(message = "明细ID不能为空")
     private Long detailId;
 
+    @Schema(description = "采集结果资源分组ID")
+    private Long resourceGroupId;
+
     @Schema(description = "采集结果列表")
     @Valid
     private List<FbCollectGroupSaveReqVO> results;

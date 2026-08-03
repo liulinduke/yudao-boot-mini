@@ -42,6 +42,7 @@ public class FbCollectDO extends BaseDO {
 
     /** 账号分配模式：AUTO/MANUAL。 */
     private String accountSelectionMode;
+    private Long resourceGroupId;
     /**
      * 采集链接
      */

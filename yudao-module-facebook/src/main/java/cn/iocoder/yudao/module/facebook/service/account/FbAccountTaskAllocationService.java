@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /** 统一处理采集、运营和 Agent 的账号候选与公平排序。 */
 @Service
@@ -19,6 +20,11 @@ public class FbAccountTaskAllocationService {
 
     public List<Long> selectAccounts(String mode, List<Long> requestedIds, int targetCount,
                                      String scene, List<String> actionTypes) {
+        return selectAccounts(mode, requestedIds, targetCount, scene, actionTypes, Set.of());
+    }
+
+    public List<Long> selectAccounts(String mode, List<Long> requestedIds, int targetCount,
+                                     String scene, List<String> actionTypes, Set<Long> excludedIds) {
         if (targetCount <= 0) {
             return List.of();
         }
@@ -39,6 +45,7 @@ public class FbAccountTaskAllocationService {
 
         return options.stream()
                 .filter(FbAccountSelectorOptionRespVO::getEligible)
+                .filter(option -> excludedIds == null || !excludedIds.contains(option.getId()))
                 .sorted(Comparator
                         .comparingLong((FbAccountSelectorOptionRespVO item) -> value(item.getTotal().get("taskCount")))
                         .thenComparingLong(item -> totalActionCount(item))

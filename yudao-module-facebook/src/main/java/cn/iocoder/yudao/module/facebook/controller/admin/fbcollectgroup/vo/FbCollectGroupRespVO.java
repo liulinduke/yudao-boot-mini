@@ -13,6 +13,7 @@ import cn.iocoder.yudao.framework.excel.core.convert.DictConvert;
 @Data
 @ExcelIgnoreUnannotated
 public class FbCollectGroupRespVO {
+    private Long resourceGroupId;
 
     @Schema(description = "id", requiredMode = Schema.RequiredMode.REQUIRED, example = "11890")
     @ExcelProperty("id")
@@ -79,4 +80,4 @@ public class FbCollectGroupRespVO {
     @ExcelProperty("创建时间")
     private LocalDateTime createTime;
 
-}
+}

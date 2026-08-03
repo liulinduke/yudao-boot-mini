@@ -107,6 +107,9 @@ public class FbCollectUserPageReqVO extends PageParam {
     @Schema(description = "分组ID", example = "2232")
     private Long groupId;
 
+    @Schema(description = "资源分组ID")
+    private Long resourceGroupId;
+
     @Schema(description = "数据来源")
     private String fromResource;
 

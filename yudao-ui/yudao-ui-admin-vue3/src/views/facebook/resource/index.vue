@@ -36,6 +36,9 @@
               class="!w-200px"
             />
           </el-form-item>
+          <el-form-item label="分组">
+            <ResourceGroupControl v-model="userQueryParams.resourceGroupId" resource-type="LEAD" title="潜客分组" @change="handleUserQuery" />
+          </el-form-item>
           <el-form-item label="深度采集" prop="deepCollected">
             <el-select
               v-model="userQueryParams.deepCollected"
@@ -121,6 +124,9 @@
             <template #default="scope">
               {{ formatDateTime(scope.row.createTime) }}
             </template>
+          </el-table-column>
+          <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
+            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
           </el-table-column>
           <el-table-column
             label="用户名"
@@ -261,6 +267,9 @@
               class="!w-200px"
             />
           </el-form-item>
+          <el-form-item label="分组">
+            <ResourceGroupControl v-model="groupQueryParams.resourceGroupId" resource-type="GROUP" title="群组分组" @change="handleGroupQuery" />
+          </el-form-item>
           <el-form-item label="成员数量" prop="memberQuantity">
             <el-input-number
               v-model="groupQueryParams.minMemberQuantity"
@@ -329,6 +338,9 @@
             <template #default="scope">
               {{ formatDateTime(scope.row.createTime) }}
             </template>
+          </el-table-column>
+          <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
+            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
           </el-table-column>
           <el-table-column
             label="群组名称"
@@ -421,6 +433,9 @@
               class="!w-200px"
             />
           </el-form-item>
+          <el-form-item label="分组">
+            <ResourceGroupControl v-model="postQueryParams.resourceGroupId" resource-type="POST" title="帖子分组" @change="handlePostQuery" />
+          </el-form-item>
           <el-form-item label="帖子内容" prop="postContent">
             <el-input
               v-model="postQueryParams.postContent"
@@ -507,6 +522,9 @@
             <template #default="scope">
               {{ formatDateTime(scope.row.createTime) }}
             </template>
+          </el-table-column>
+          <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
+            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
           </el-table-column>
           <el-table-column
             label="发帖人"
@@ -618,10 +636,24 @@ import download from '@/utils/download'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
+import { FbResourceGroupApi, type FbResourceGroup } from '@/api/facebook/resourcegroup'
 import { useMessage } from '@/hooks/web/useMessage'
 import PostImportForm from './components/PostImportForm.vue'
+import ResourceGroupControl from './components/ResourceGroupControl.vue'
 
 const message = useMessage()
+const resourceGroupNames = ref<Record<string, string>>({})
+const loadResourceGroupNames = async () => {
+  const all = await Promise.all([
+    FbResourceGroupApi.getList('LEAD'),
+    FbResourceGroupApi.getList('GROUP'),
+    FbResourceGroupApi.getList('POST')
+  ])
+  const names: Record<string, string> = {}
+  all.flat().forEach((item: FbResourceGroup) => { names[String(item.id)] = item.name })
+  resourceGroupNames.value = names
+}
+const getResourceGroupName = (id?: number) => id ? resourceGroupNames.value[String(id)] || '未分组' : '未分组'
 
 const aiTagOptions = [
   '高意向询价',
@@ -656,6 +688,7 @@ const userQueryParams = reactive({
   aiTags: undefined,
   intentLevel: undefined,
   touchStatus: undefined,
+  resourceGroupId: undefined,
   createTime: []
 })
 
@@ -731,6 +764,7 @@ const groupQueryParams = reactive({
   groupName: undefined,
   minMemberQuantity: undefined,
   maxMemberQuantity: undefined,
+  resourceGroupId: undefined,
   createTime: []
 })
 
@@ -809,6 +843,7 @@ const postQueryParams = reactive({
   aiTags: undefined,
   intentLevel: undefined,
   touchStatus: undefined,
+  resourceGroupId: undefined,
   createTime: []
 })
 
@@ -939,6 +974,7 @@ const getTouchTagType = (status?: string) => {
 
 /** 初始化 */
 onMounted(() => {
+  loadResourceGroupNames()
   getUserList()
 })
 

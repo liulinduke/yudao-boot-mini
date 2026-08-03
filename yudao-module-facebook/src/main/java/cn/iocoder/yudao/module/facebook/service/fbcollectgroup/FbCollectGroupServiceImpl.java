@@ -121,6 +121,8 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
             log.warn("明细 {} 不存在", detailId);
             return 0;
         }
+        FbCollectDO task = fbCollectMapper.selectById(detail.getTaskId());
+        Long resourceGroupId = task == null ? null : task.getResourceGroupId();
         
         int count = 0;
         if (CollUtil.isNotEmpty(results)) {
@@ -129,6 +131,7 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
                 result.setTaskId(detail.getTaskId());
                 
                 FbCollectGroupDO fbCollectGroup = BeanUtils.toBean(result, FbCollectGroupDO.class);
+                if (fbCollectGroup.getResourceGroupId() == null) fbCollectGroup.setResourceGroupId(resourceGroupId);
                 
                 // 清空id字段,让数据库自动生成主键
                 fbCollectGroup.setId(null);

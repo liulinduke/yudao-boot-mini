@@ -50,6 +50,9 @@ public class FbCollectPostSaveReqVO {
     @Schema(description = "采集回来的群id", example = "17546")
     private Long groupId;
 
+    @Schema(description = "资源分组ID")
+    private Long resourceGroupId;
+
     @Schema(description = "转发数", example = "6926")
     private Integer reshareCount;
 

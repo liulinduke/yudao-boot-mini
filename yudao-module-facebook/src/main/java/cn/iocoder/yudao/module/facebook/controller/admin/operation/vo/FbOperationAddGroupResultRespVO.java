@@ -51,4 +51,10 @@ public class FbOperationAddGroupResultRespVO {
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;
 
+    @Schema(description = "该账号在该群组的发帖次数")
+    private Integer publishCount;
+
+    @Schema(description = "该账号在该群组最近发帖时间")
+    private LocalDateTime lastPublishTime;
+
 }

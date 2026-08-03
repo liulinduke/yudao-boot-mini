@@ -106,6 +106,7 @@ public class FbCollectPostController {
     @Operation(summary = "批量保存FB帖子采集结果")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect-post:create')")
     public CommonResult<Integer> batchSaveFbCollectPost(@Valid @RequestBody FbCollectPostBatchSaveReqVO batchSaveReqVO) {
+        if (batchSaveReqVO.getResults() != null) batchSaveReqVO.getResults().forEach(item -> item.setResourceGroupId(batchSaveReqVO.getResourceGroupId()));
         Integer count = fbCollectPostService.batchSaveFbCollectPost(batchSaveReqVO.getDetailId(), batchSaveReqVO.getResults());
         return success(count);
     }

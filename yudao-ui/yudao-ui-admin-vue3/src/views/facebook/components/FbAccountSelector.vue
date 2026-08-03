@@ -15,6 +15,20 @@
       <span v-if="selectionMode === 'AUTO'" class="account-selector-mode-description">
         系统按使用情况平均分配
       </span>
+      <template v-if="selectionMode === 'AUTO' && showAutoCount">
+        <el-input-number
+          :model-value="autoAccountCount"
+          :min="1"
+          :max="9999"
+          :step="1"
+          controls-position="right"
+          size="small"
+          class="account-selector-auto-count"
+          placeholder="账号数量"
+          @update:model-value="handleAutoAccountCountChange"
+        />
+        <span class="account-selector-auto-count-label">个自动账号</span>
+      </template>
       <el-button
         v-if="selectionMode === 'MANUAL'"
         type="primary"
@@ -161,18 +175,25 @@ const props = withDefaults(defineProps<{
     scene?: string
     actionTypes?: string[]
     targetCount?: number
+    showAutoCount?: boolean
+    autoAccountCount?: number
+    excludedAccountIds?: Array<string | number>
     selectionMode?: 'AUTO' | 'MANUAL'
   }>(), {
     placeholder: '请选择执行账号',
     scene: 'collect',
     actionTypes: () => [],
     targetCount: 1,
-    selectionMode: 'AUTO'
+    selectionMode: 'AUTO',
+    showAutoCount: false,
+    autoAccountCount: undefined,
+    excludedAccountIds: () => []
   })
 
 const emit = defineEmits<{
   (event: 'update:modelValue', value: Array<string | number>): void
   (event: 'update:selectionMode', value: 'AUTO' | 'MANUAL'): void
+  (event: 'update:autoAccountCount', value: number | undefined): void
 }>()
 
 type AccountGroup = {
@@ -194,13 +215,15 @@ const selectedIds = computed(() => props.modelValue.map((id) => String(id)))
 const selectedAccounts = computed(() =>
   accounts.value.filter((account) => selectedIds.value.includes(String(account.id)))
 )
+const excludedAccountIdSet = computed(() => new Set(props.excludedAccountIds.map((id) => String(id))))
 
 const matchesKeyword = (value: unknown) =>
   !keyword.value || String(value || '').toLowerCase().includes(keyword.value.trim().toLowerCase())
 
 const filteredAccountPool = computed(() =>
-  accounts.value.filter(
-    (account) =>
+    accounts.value.filter(
+      (account) =>
+        !excludedAccountIdSet.value.has(String(account.id)) &&
       matchesKeyword(account.fbAccount) ||
       (account.groupId != null &&
         groups.value.some(
@@ -304,6 +327,10 @@ const handleAccountChange = (accountId: string | number, value: unknown) => {
 
 const clearSelection = () => updateSelection([])
 
+const handleAutoAccountCountChange = (value: number | null) => {
+  emit('update:autoAccountCount', value == null ? undefined : value)
+}
+
 const handleListScroll = (event: Event) => {
   const target = event.currentTarget as HTMLElement
   if (
@@ -326,14 +353,13 @@ const loadOptions = async () => {
       })
     ])
     groups.value = groupDataResponse || []
-    accounts.value = accountDataResponse || []
+    accounts.value = (accountDataResponse || []).filter(
+      (account) => !excludedAccountIdSet.value.has(String(account.id))
+    )
     visibleAccountCount.value = ACCOUNT_PAGE_SIZE
     if (selectionMode.value === 'AUTO') {
-      updateSelection(
-        accounts.value
-          .filter((account) => account.eligible !== false)
-          .map((account) => String(account.id))
-      )
+      // 自动模式由后端按任务目标数量和账号使用情况分配，不把账号池回填为手动选择结果。
+      updateSelection([])
     } else {
       updateSelection(selectedIds.value)
     }
@@ -355,7 +381,7 @@ const accountSummary = (account: FbAccountSelectorOption) => {
 watch(selectionMode, (value) => {
   emit('update:selectionMode', value)
   if (value === 'AUTO') {
-    updateSelection(accounts.value.filter((account) => account.eligible !== false).map((account) => String(account.id)))
+    updateSelection([])
   } else {
     updateSelection([])
   }
@@ -368,6 +394,11 @@ watch(keyword, () => {
 watch(() => props.selectionMode, (value) => {
   if (value && value !== selectionMode.value) selectionMode.value = value
 })
+
+watch(
+  () => props.excludedAccountIds.map((id) => String(id)).join(','),
+  () => loadOptions()
+)
 
 onMounted(loadOptions)
 </script>
@@ -394,6 +425,16 @@ onMounted(loadOptions)
 
 .account-selector-mode-description {
   color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.account-selector-auto-count {
+  width: 120px;
+}
+
+.account-selector-auto-count-label {
+  color: var(--el-text-color-secondary);
   font-size: 12px;
   white-space: nowrap;
 }

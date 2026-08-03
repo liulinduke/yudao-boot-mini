@@ -12,6 +12,16 @@ import org.springframework.validation.annotation.Validated;
 
 import jakarta.annotation.Resource;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.time.LocalDateTime;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectgroup.FbCollectGroupDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectgroup.FbCollectGroupMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMapper;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
+import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
+import java.util.Map;
+import java.util.HashMap;
 
 /**
  * 链接加组结果 Service 实现类
@@ -24,19 +34,91 @@ public class FbOperationAddGroupResultServiceImpl implements FbOperationAddGroup
 
     @Resource
     private FbOperationAddGroupResultMapper addGroupResultMapper;
+    @Resource
+    private FbCollectGroupMapper collectGroupMapper;
+    @Resource
+    private FbOperationTaskMapper operationTaskMapper;
+    @Resource
+    private FbAccountMapper accountMapper;
 
     @Override
     public PageResult<FbOperationAddGroupResultRespVO> getAddGroupResultPage(FbOperationAddGroupResultPageReqVO pageReqVO) {
-        PageResult<FbOperationAddGroupResultDO> pageResult = addGroupResultMapper.selectPage(pageReqVO,
-                new LambdaQueryWrapperX<FbOperationAddGroupResultDO>()
+        LambdaQueryWrapperX<FbOperationAddGroupResultDO> wrapper = new LambdaQueryWrapperX<FbOperationAddGroupResultDO>()
                         .eqIfPresent(FbOperationAddGroupResultDO::getTaskId, pageReqVO.getTaskId())
                         .eqIfPresent(FbOperationAddGroupResultDO::getDetailId, pageReqVO.getDetailId())
                         .eqIfPresent(FbOperationAddGroupResultDO::getAccountId, pageReqVO.getAccountId())
+                        .inIfPresent(FbOperationAddGroupResultDO::getAccountId, pageReqVO.getAccountIds())
                         .eqIfPresent(FbOperationAddGroupResultDO::getJoinStatus, pageReqVO.getJoinStatus())
                         .likeIfPresent(FbOperationAddGroupResultDO::getGroupId, pageReqVO.getGroupId())
-                        .likeIfPresent(FbOperationAddGroupResultDO::getGroupName, pageReqVO.getGroupName())
-                        .orderByDesc(FbOperationAddGroupResultDO::getId));
-        return BeanUtils.toBean(pageResult, FbOperationAddGroupResultRespVO.class);
+                        .likeIfPresent(FbOperationAddGroupResultDO::getGroupName, pageReqVO.getGroupName());
+        if (pageReqVO.getJoinedBeforeDays() != null && pageReqVO.getJoinedBeforeDays() > 0) {
+            wrapper.le(FbOperationAddGroupResultDO::getJoinTime, LocalDateTime.now().minusDays(pageReqVO.getJoinedBeforeDays()));
+        }
+        // 选择发群帖群组时，只展示加组任务产生的已加入记录，发帖结果不作为新的群组来源。
+        if (pageReqVO.getTaskId() == null && pageReqVO.getDetailId() == null
+                && pageReqVO.getAccountIds() != null && !pageReqVO.getAccountIds().isEmpty()) {
+            List<Long> joinTaskIds = operationTaskMapper.selectList(new LambdaQueryWrapperX<FbOperationTaskDO>()
+                    .eq(FbOperationTaskDO::getTaskType, 9)).stream().map(FbOperationTaskDO::getId).collect(Collectors.toList());
+            if (joinTaskIds.isEmpty()) {
+                wrapper.eq(FbOperationAddGroupResultDO::getTaskId, -1L);
+            } else {
+                wrapper.in(FbOperationAddGroupResultDO::getTaskId, joinTaskIds);
+            }
+        }
+        if (pageReqVO.getResourceGroupId() != null) {
+            List<String> groupIds = collectGroupMapper.selectList(new LambdaQueryWrapperX<FbCollectGroupDO>()
+                    .eq(FbCollectGroupDO::getResourceGroupId, pageReqVO.getResourceGroupId()))
+                    .stream().map(FbCollectGroupDO::getGroupId).filter(java.util.Objects::nonNull)
+                    .map(String::valueOf).collect(Collectors.toList());
+            if (groupIds.isEmpty()) {
+                wrapper.eq(FbOperationAddGroupResultDO::getGroupId, "__NO_RESOURCE_GROUP__");
+            } else {
+                wrapper.in(FbOperationAddGroupResultDO::getGroupId, groupIds);
+            }
+        }
+        PageResult<FbOperationAddGroupResultDO> pageResult = addGroupResultMapper.selectPage(pageReqVO,
+                wrapper.orderByDesc(FbOperationAddGroupResultDO::getId));
+        PageResult<FbOperationAddGroupResultRespVO> response = BeanUtils.toBean(pageResult, FbOperationAddGroupResultRespVO.class);
+        Map<String, String> accountNames = new HashMap<>();
+        List<Long> accountIds = new java.util.ArrayList<>();
+        response.getList().forEach(row -> {
+            try {
+                if (row.getAccountId() != null) accountIds.add(Long.valueOf(row.getAccountId()));
+            } catch (NumberFormatException ignored) {
+                // 某些历史记录可能直接保存了 Facebook 账号字符串。
+            }
+        });
+        if (!accountIds.isEmpty()) {
+            for (FbAccountDO account : accountMapper.selectBatchIds(accountIds)) {
+                accountNames.put(String.valueOf(account.getId()), account.getFbAccount());
+            }
+        }
+        response.getList().forEach(row -> {
+            String fbAccount = accountNames.get(row.getAccountId());
+            if (fbAccount != null) row.setFbAccount(fbAccount);
+        });
+        List<Long> publishTaskIds = operationTaskMapper.selectList(new LambdaQueryWrapperX<FbOperationTaskDO>()
+                .eq(FbOperationTaskDO::getTaskType, 13)).stream().map(FbOperationTaskDO::getId).collect(Collectors.toList());
+        for (FbOperationAddGroupResultRespVO row : response.getList()) {
+            if (publishTaskIds.isEmpty() || row.getAccountId() == null || row.getGroupId() == null) {
+                row.setPublishCount(0);
+                continue;
+            }
+            List<FbOperationAddGroupResultDO> history = addGroupResultMapper.selectList(new LambdaQueryWrapperX<FbOperationAddGroupResultDO>()
+                    .in(FbOperationAddGroupResultDO::getTaskId, publishTaskIds)
+                    .eq(FbOperationAddGroupResultDO::getAccountId, row.getAccountId())
+                    .eq(FbOperationAddGroupResultDO::getGroupId, row.getGroupId())
+                    .eq(FbOperationAddGroupResultDO::getJoinStatus, 1));
+            row.setPublishCount(history.size());
+            row.setLastPublishTime(history.stream().map(FbOperationAddGroupResultDO::getJoinTime)
+                    .filter(java.util.Objects::nonNull).max(LocalDateTime::compareTo).orElse(null));
+        }
+        response.setList(response.getList().stream()
+                .sorted(java.util.Comparator.comparing(FbOperationAddGroupResultRespVO::getPublishCount,
+                        java.util.Comparator.nullsFirst(Integer::compareTo)).thenComparing(FbOperationAddGroupResultRespVO::getAccountId,
+                        java.util.Comparator.nullsLast(String::compareTo)))
+                .collect(Collectors.toList()));
+        return response;
     }
 
     @Override

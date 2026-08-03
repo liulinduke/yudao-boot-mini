@@ -7,6 +7,14 @@
       label-width="120px"
       v-loading="formLoading"
     >
+      <div class="mb-12px">
+        <el-alert
+          title="群发私信会按目标用户分配，每个用户最多只分配一个执行账号；账号不足时系统会按使用情况轮换。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+      </div>
       <el-form-item label="选择目标潜客" prop="targetUserIds">
         <div class="w-full">
           <el-button type="primary" @click="openUserSelector" class="mb-2">

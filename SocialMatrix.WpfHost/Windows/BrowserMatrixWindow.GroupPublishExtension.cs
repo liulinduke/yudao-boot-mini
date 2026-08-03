@@ -351,6 +351,9 @@ namespace SocialMatrix.WpfHost.Windows
                     if (!textbox) throw new Error('未找到帖子输入框');
                     textbox.focus();
                     await new Promise(r => setTimeout(r, 400));
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('delete', false, null);
+                    await new Promise(r => setTimeout(r, 200));
                     document.execCommand('insertText', false, content);
                     textbox.dispatchEvent(new InputEvent('input', {{ data: content, bubbles: true, inputType: 'insertText' }}));
                     await new Promise(r => setTimeout(r, 800));

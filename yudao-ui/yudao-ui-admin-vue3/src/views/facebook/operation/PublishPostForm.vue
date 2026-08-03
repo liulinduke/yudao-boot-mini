@@ -12,7 +12,13 @@
         prop="accountIds"
         :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
       >
-        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" class="w-full" />
+        <FbAccountSelector
+          v-model="formData.accountIds"
+          v-model:selection-mode="formData.accountSelectionMode"
+          v-model:auto-account-count="formData.autoAccountCount"
+          :show-auto-count="true"
+          class="w-full"
+        />
       </el-form-item>
       
       <el-form-item label="帖子内容" prop="postContent">
@@ -97,6 +103,7 @@ const accounts = ref<any[]>([])
 const formData = ref({
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
+  autoAccountCount: undefined as number | undefined,
   postContent: '',
   mediaUrls: [] as string[],  // 存储本地文件路径
   privacySetting: 1,
@@ -191,6 +198,7 @@ const resetForm = () => {
   formData.value = {
     accountIds: [],
     accountSelectionMode: 'AUTO',
+    autoAccountCount: undefined,
     postContent: '',
     mediaUrls: [],
     privacySetting: 1,
@@ -212,12 +220,20 @@ const submitForm = async () => {
     const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
     
     // 构建任务数据
+    if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+      message.warning('请输入自动分配的账号数量')
+      return
+    }
+
     const data = {
       taskType: 12, // 发个人帖
       taskName: `发个人帖-${new Date().getTime()}`, // 自动生成任务名称
       accountIds: formData.value.accountIds,
       accountSelectionMode: formData.value.accountSelectionMode,
-      expectedCount: formData.value.accountIds.length,
+      autoAccountCount: formData.value.autoAccountCount,
+      expectedCount: formData.value.accountSelectionMode === 'AUTO'
+        ? formData.value.autoAccountCount || 0
+        : formData.value.accountIds.length,
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,
         mediaUrls: formData.value.mediaUrls,

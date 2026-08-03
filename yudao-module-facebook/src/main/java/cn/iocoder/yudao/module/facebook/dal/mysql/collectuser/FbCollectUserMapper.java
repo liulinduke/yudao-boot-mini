@@ -7,6 +7,8 @@ import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.collectuser.FbCollectUserDO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Param;
 import cn.iocoder.yudao.module.facebook.controller.admin.collectuser.vo.*;
 
 /**
@@ -16,6 +18,9 @@ import cn.iocoder.yudao.module.facebook.controller.admin.collectuser.vo.*;
  */
 @Mapper
 public interface FbCollectUserMapper extends BaseMapperX<FbCollectUserDO> {
+
+    @Update("UPDATE fb_collect_user SET resource_group_id = NULL WHERE resource_group_id = #{id}")
+    int clearResourceGroup(@Param("id") Long id);
 
     default PageResult<FbCollectUserDO> selectPage(FbCollectUserPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<FbCollectUserDO>()
@@ -50,6 +55,7 @@ public interface FbCollectUserMapper extends BaseMapperX<FbCollectUserDO> {
                 .eqIfPresent(FbCollectUserDO::getLastPostSummary, reqVO.getLastPostSummary())
                 .eqIfPresent(FbCollectUserDO::getDeepCollected, reqVO.getDeepCollected())
                 .eqIfPresent(FbCollectUserDO::getGroupId, reqVO.getGroupId())
+                .eqIfPresent(FbCollectUserDO::getResourceGroupId, reqVO.getResourceGroupId())
                 .eqIfPresent(FbCollectUserDO::getFromResource, reqVO.getFromResource())
                 .eqIfPresent(FbCollectUserDO::getConfig, reqVO.getConfig())
                 .likeIfPresent(FbCollectUserDO::getCommentContent, reqVO.getCommentContent())

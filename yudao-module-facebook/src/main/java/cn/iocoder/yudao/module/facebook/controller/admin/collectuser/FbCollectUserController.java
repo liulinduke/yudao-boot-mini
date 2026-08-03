@@ -105,6 +105,7 @@ public class FbCollectUserController {
     @Operation(summary = "批量保存FB用户采集结果")
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect-user:create')")
     public CommonResult<Integer> batchSaveFbCollectUser(@Valid @RequestBody FbCollectUserBatchSaveReqVO batchSaveReqVO) {
+        if (batchSaveReqVO.getResults() != null) batchSaveReqVO.getResults().forEach(item -> item.setResourceGroupId(batchSaveReqVO.getResourceGroupId()));
         Integer count = fbCollectUserService.batchSaveFbCollectUser(batchSaveReqVO.getDetailId(), batchSaveReqVO.getResults());
         return success(count);
     }

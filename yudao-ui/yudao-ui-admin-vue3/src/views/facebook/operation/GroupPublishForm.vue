@@ -12,7 +12,13 @@
         prop="accountIds"
         :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
       >
-        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" class="w-full" />
+        <FbAccountSelector
+          v-model="formData.accountIds"
+          v-model:selection-mode="formData.accountSelectionMode"
+          v-model:auto-account-count="formData.autoAccountCount"
+          :show-auto-count="true"
+          class="w-full"
+        />
       </el-form-item>
 
       <el-form-item label="帖子内容" prop="postContent">
@@ -61,7 +67,7 @@
 
       <!-- 已加入群组配置 -->
       <template v-if="formData.groupType === 1">
-        <el-form-item label="每组账号数" prop="groupsPerAccount">
+        <el-form-item label="每个账号发帖数" prop="groupsPerAccount">
           <el-input-number
             v-model="formData.groupsPerAccount"
             :min="1"
@@ -74,7 +80,7 @@
           <el-button
             type="primary"
             @click="openGroupSelector"
-            :disabled="formData.accountIds.length === 0"
+            :disabled="selectorAccountIds.length === 0"
           >
             <Icon icon="ep:search" class="mr-5px" /> 选择群组
           </el-button>
@@ -155,8 +161,11 @@
   <GroupPublishGroupSelector
     v-model="groupSelectorVisible"
     :selected-group-ids="selectedGroupIds"
-    :account-ids="formData.accountIds"
+    :account-ids="selectorAccountIds"
+    :expected-account-count="formData.accountSelectionMode === 'AUTO' ? formData.autoAccountCount : selectorAccountIds.length"
     :groups-per-account="formData.groupsPerAccount"
+    :resource-group-id="formData.resourceGroupId"
+    :joined-before-days="formData.joinedBeforeDays"
     @confirm="handleGroupConfirm"
   />
 
@@ -198,14 +207,24 @@ const selectedGroupIds = computed(() => {
   return formData.value.selectedGroups.map((g) => g.groupId)
 })
 
+const selectorAccountIds = computed(() => {
+  if (formData.value.accountSelectionMode === 'MANUAL') {
+    return formData.value.accountIds
+  }
+  return accounts.value.map((account) => account.id).filter(Boolean)
+})
+
 const formData = ref({
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
+  autoAccountCount: undefined as number | undefined,
   postContent: '',
   mediaUrls: [] as string[], // 存储本地文件路径
   anonymouslyPost: false,
   groupType: 1, // 1=已加入群组, 2=未加入群组
   groupsPerAccount: 5, // 每个账号发布的群组数量
+  resourceGroupId: undefined as number | undefined,
+  joinedBeforeDays: 3,
   selectedGroups: [] as any[], // 已选择的群组列表（已加入）
   selectedUnjoinedGroups: [] as FbCollectGroup[], // 已选择的群组列表（未加入）
   groupKeywords: '',
@@ -308,11 +327,12 @@ const handleGroupTypeChange = () => {
 
 /** 打开群组选择器（已加入） */
 const openGroupSelector = () => {
-  if (
-    formData.value.accountSelectionMode === 'MANUAL' &&
-    formData.value.accountIds.length === 0
-  ) {
+  if (formData.value.accountSelectionMode === 'MANUAL' && formData.value.accountIds.length === 0) {
     message.warning('请先选择执行账号')
+    return
+  }
+  if (selectorAccountIds.value.length === 0) {
+    message.warning('暂无可用的执行账号')
     return
   }
   groupSelectorVisible.value = true
@@ -350,11 +370,14 @@ const resetForm = () => {
   formData.value = {
     accountIds: [],
     accountSelectionMode: 'AUTO',
+    autoAccountCount: undefined,
     postContent: '',
     mediaUrls: [],
     anonymouslyPost: false,
     groupType: 1, // 1=已加入群组, 2=未加入群组
     groupsPerAccount: 5, // 每个账号发布的群组数量
+    resourceGroupId: undefined,
+    joinedBeforeDays: 3,
     selectedGroups: [], // 已选择的群组列表（已加入）
     selectedUnjoinedGroups: [], // 已选择的群组列表（未加入）
     groupKeywords: '',
@@ -372,6 +395,11 @@ const submitForm = async () => {
   try {
     formLoading.value = true
 
+    if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+      message.warning('请输入自动分配的账号数量')
+      return
+    }
+
     // 解析间隔范围
     const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
 
@@ -379,7 +407,7 @@ const submitForm = async () => {
     let expectedCount = 0
     if (formData.value.groupType === 1) {
       // 已加入群组：账号数 × 每组账号数
-      expectedCount = formData.value.accountIds.length * formData.value.groupsPerAccount
+      expectedCount = selectorAccountIds.value.length * formData.value.groupsPerAccount
     } else {
       // 未加入群组：根据选择的群组数量
       expectedCount = formData.value.selectedUnjoinedGroups.length
@@ -391,13 +419,19 @@ const submitForm = async () => {
       taskName: `发群帖-${new Date().getTime()}`, // 自动生成任务名称
       accountIds: formData.value.accountIds,
       accountSelectionMode: formData.value.accountSelectionMode,
-      expectedCount: expectedCount,
+      autoAccountCount: formData.value.autoAccountCount,
+      expectedCount:
+        formData.value.accountSelectionMode === 'AUTO'
+          ? formData.value.autoAccountCount || 0
+          : expectedCount,
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,
         mediaUrls: formData.value.mediaUrls,
         anonymouslyPost: formData.value.anonymouslyPost,
         groupType: formData.value.groupType,
         groupsPerAccount: formData.value.groupsPerAccount,
+        resourceGroupId: formData.value.resourceGroupId,
+        joinedBeforeDays: formData.value.joinedBeforeDays,
         selectedGroups: formData.value.selectedGroups,
         selectedUnjoinedGroups: formData.value.selectedUnjoinedGroups.map((g) => ({
           groupId: g.id,

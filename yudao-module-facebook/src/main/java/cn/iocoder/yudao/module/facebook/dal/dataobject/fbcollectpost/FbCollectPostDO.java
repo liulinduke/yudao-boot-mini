@@ -74,6 +74,8 @@ public class FbCollectPostDO extends BaseDO {
      * 采集回来的群id
      */
     private Long groupId;
+    /** 资源分组ID（帖子分组） */
+    private Long resourceGroupId;
     /**
      * 转发数
      */

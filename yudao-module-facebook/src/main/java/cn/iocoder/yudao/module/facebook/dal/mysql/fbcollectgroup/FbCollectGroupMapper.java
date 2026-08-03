@@ -7,6 +7,8 @@ import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.fbcollectgroup.FbCollectGroupDO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Param;
 import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectgroup.vo.*;
 
 /**
@@ -16,6 +18,9 @@ import cn.iocoder.yudao.module.facebook.controller.admin.fbcollectgroup.vo.*;
  */
 @Mapper
 public interface FbCollectGroupMapper extends BaseMapperX<FbCollectGroupDO> {
+
+    @Update("UPDATE fb_collect_group SET resource_group_id = NULL WHERE resource_group_id = #{id}")
+    int clearResourceGroup(@Param("id") Long id);
 
     default PageResult<FbCollectGroupDO> selectPage(FbCollectGroupPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<FbCollectGroupDO>()
@@ -30,6 +35,7 @@ public interface FbCollectGroupMapper extends BaseMapperX<FbCollectGroupDO> {
                 .eqIfPresent(FbCollectGroupDO::getUserId, reqVO.getUserId())
                 .eqIfPresent(FbCollectGroupDO::getDeptId, reqVO.getDeptId())
                 .eqIfPresent(FbCollectGroupDO::getGroupId, reqVO.getGroupId())
+                .eqIfPresent(FbCollectGroupDO::getResourceGroupId, reqVO.getResourceGroupId())
                 .eqIfPresent(FbCollectGroupDO::getJoinGroupTimes, reqVO.getJoinGroupTimes())
                 .eqIfPresent(FbCollectGroupDO::getCommentTimes, reqVO.getCommentTimes())
                 .eqIfPresent(FbCollectGroupDO::getPostTimes, reqVO.getPostTimes())

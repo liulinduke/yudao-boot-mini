@@ -15,6 +15,8 @@ export interface FbOperationAddGroupResult {
   joinTime?: string
   syncTime?: string
   createTime?: string
+  publishCount?: number
+  lastPublishTime?: string
 }
 
 export interface FbOperationAddGroupResultPageReqVO {

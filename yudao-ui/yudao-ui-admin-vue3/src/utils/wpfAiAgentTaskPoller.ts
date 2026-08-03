@@ -209,6 +209,7 @@ export const finishQueuedAccountTaskAndStartNext = async (
   if (nextDetail) {
     startAiAgentCollectDetail(nextDetail)
   }
+  return nextDetail || null
 }
 
 function registerQueuedDetailTimeout(accountId: string, detailId: string | number, sourceType: string) {

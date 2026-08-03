@@ -247,7 +247,13 @@ async function saveGroupPublishResult(data: any) {
     window.dispatchEvent(
       new CustomEvent('fb:group-publish:result:saved', { detail: { detailId } })
     )
-    await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
+    const nextDetail = await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
+    const nextAccountId = nextDetail
+      ? String(nextDetail.accountId || nextDetail.fbAccount || '')
+      : ''
+    if (!nextDetail || nextAccountId !== String(data.accountId)) {
+      closeBrowser(String(data.accountId))
+    }
   } catch (error) {
     handledGroupPublishDetailIds.delete(detailId)
     console.error('[发群帖结果] 上报失败:', error)

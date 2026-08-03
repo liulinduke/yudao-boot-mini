@@ -281,6 +281,17 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
             updateObj.setStartTime(now);
             operationTaskDetailMapper.updateById(updateObj);
 
+            // 主任务的开始时间以第一条明细真正被领取执行为准。
+            if (task != null && task.getStartTime() == null) {
+                FbOperationTaskDO taskUpdate = new FbOperationTaskDO();
+                taskUpdate.setId(task.getId());
+                taskUpdate.setStartTime(now);
+                if (Objects.equals(task.getStatus(), 0)) {
+                    taskUpdate.setStatus(1);
+                }
+                operationTaskMapper.updateById(taskUpdate);
+            }
+
             FbCollectPendingDetailRespVO item = new FbCollectPendingDetailRespVO();
             item.setSourceType("operation");
             item.setTaskId(detail.getTaskId());
@@ -577,6 +588,19 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
                 }
             }
             return runtimeConfig.toString();
+        }
+        if (task != null && Integer.valueOf(2).equals(task.getTaskType())
+                && StrUtil.containsIgnoreCase(detail.getSearchUrl(), "/search/top")
+                && (StrUtil.isBlank(task.getRemark())
+                || (!task.getRemark().startsWith("AI群帖获客:")
+                && !task.getRemark().startsWith("AI帖子获客:")
+                && !task.getRemark().startsWith("AI群帖评论截流-帖子采集:")
+                && !task.getRemark().startsWith("AI竞品监控-帖子采集:")))) {
+            return cn.hutool.json.JSONUtil.createObj()
+                    .set("source", "post_search")
+                    .set("latestPosts", StrUtil.contains(detail.getSearchUrl(), "filters="))
+                    .set("sourceUserId", detail.getSourceUserId() == null ? null : String.valueOf(detail.getSourceUserId()))
+                    .toString();
         }
         if (task == null || !Integer.valueOf(2).equals(task.getTaskType())
                 || StrUtil.isBlank(task.getRemark())

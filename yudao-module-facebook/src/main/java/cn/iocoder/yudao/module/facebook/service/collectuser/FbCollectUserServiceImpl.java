@@ -127,6 +127,7 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
             return 0;
         }
         FbCollectDO task = fbCollectMapper.selectById(detail.getTaskId());
+        Long resourceGroupId = task == null ? null : task.getResourceGroupId();
         boolean deepCollectTask = task != null && task.getTaskType() != null
                 && task.getTaskType() == DEEP_COLLECT_TASK_TYPE;
         boolean aiGroupCommentTask = task != null && (StrUtil.startWith(task.getRemark(), "AI群帖评论截流-评论采集:")
@@ -146,6 +147,7 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
                 result.setId(null);
                 
                 FbCollectUserDO fbCollectUser = BeanUtils.toBean(result, FbCollectUserDO.class);
+                if (fbCollectUser.getResourceGroupId() == null) fbCollectUser.setResourceGroupId(resourceGroupId);
                 
                 // 字段映射：Facebook API -> DO
                 // 设置 Facebook用户ID

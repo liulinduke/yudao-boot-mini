@@ -124,6 +124,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 .selectById(detail.getTaskId());
         boolean aiGroupPostCollect = task != null && task.getRemark() != null
                 && (task.getRemark().startsWith("AI群帖获客:") || task.getRemark().startsWith("AI帖子获客:"));
+        Long resourceGroupId = task == null ? null : task.getResourceGroupId();
         
         int count = 0;
         int duplicateCount = 0;
@@ -144,6 +145,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 }
                 
                 FbCollectPostDO fbCollectPost = BeanUtils.toBean(result, FbCollectPostDO.class);
+                if (fbCollectPost.getResourceGroupId() == null) fbCollectPost.setResourceGroupId(resourceGroupId);
                 
                 // 清空id字段,让数据库自动生成主键
                 fbCollectPost.setId(null);

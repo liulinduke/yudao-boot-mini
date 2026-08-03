@@ -2433,7 +2433,9 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("        let aiGroupPostConfig = {}; try { aiGroupPostConfig = JSON.parse(runtimeConfig || '{}') || {}; } catch (e) { aiGroupPostConfig = {}; }");
             js.AppendLine("        const isAiGroupPostCollect = aiGroupPostConfig.source === 'ai_group_post' || aiGroupPostConfig.source === 'ai_group_comment_post' || aiGroupPostConfig.source === 'ai_competitor_post';");
             js.AppendLine("        const isAiPostLeadCollect = aiGroupPostConfig.source === 'ai_post_lead';");
+            js.AppendLine("        const isSearchLatestPostCollect = aiGroupPostConfig.source === 'post_search' && aiGroupPostConfig.latestPosts;");
             js.AppendLine("        if (isAiPostLeadCollect && aiGroupPostConfig.latestPosts) console.log('[AI帖子获客] 使用最新帖子过滤');");
+            js.AppendLine("        if (isSearchLatestPostCollect) console.log('[帖子采集] 使用最新帖子过滤');");
             js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
             js.AppendLine("        let stopCurrentGroup = false;");

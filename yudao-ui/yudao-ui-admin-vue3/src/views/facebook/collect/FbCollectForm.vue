@@ -70,6 +70,15 @@
           <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" placeholder="请选择账号" class="w-full" />
         </el-form-item>
 
+        <el-form-item label="采集结果分组">
+          <ResourceGroupControl
+            v-model="formData.resourceGroupId"
+            :resource-type="getResourceGroupType(formData.taskType)"
+            :title="getResourceGroupTitle(formData.taskType)"
+          />
+          <span class="form-tip ml-2">不选择时归入对应类型的未分组</span>
+        </el-form-item>
+
         <!-- 帖子采集：同一入口下按来源切换 -->
         <template v-if="formData.taskType === 2">
           <el-form-item label="采集来源">
@@ -114,6 +123,10 @@
                 :rows="4"
                 placeholder="请输入 Facebook 搜索结果链接，多个链接请换行分隔。示例：https://www.facebook.com/search/top?q=关键词"
               />
+            </el-form-item>
+            <el-form-item label="帖子过滤">
+              <el-checkbox v-model="postLatestPosts">最新帖</el-checkbox>
+              <span class="form-tip ml-2">只采集 Facebook 搜索结果中的最新帖子</span>
             </el-form-item>
           </template>
 
@@ -735,6 +748,7 @@ import { Dialog } from '@/components/Dialog'
 import { FbCollectApi, FbCollect } from '@/api/facebook/collect'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import FbAccountSelector from '../components/FbAccountSelector.vue'
+import ResourceGroupControl from '../resource/components/ResourceGroupControl.vue'
 import { FbCollectUserApi, FbCollectUser } from '@/api/facebook/collectuser'
 import { FbCollectGroupApi, FbCollectGroup } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi, FbCollectPost } from '@/api/facebook/fbcollectpost'
@@ -745,6 +759,9 @@ import request from '@/config/axios'
 import GroupSelector from './components/GroupSelector.vue'
 import UserSelector from './components/UserSelector.vue'
 import PostSelector from './components/PostSelector.vue'
+
+const getResourceGroupType = (taskType?: number): 'LEAD' | 'GROUP' | 'POST' => taskType === 4 ? 'GROUP' : taskType === 2 ? 'POST' : 'LEAD'
+const getResourceGroupTitle = (taskType?: number) => taskType === 4 ? '群组分组' : taskType === 2 ? '帖子分组' : '潜客分组'
 
 const { t } = useI18n() // 国际化
 const message = useMessage() // 消息弹窗
@@ -770,6 +787,7 @@ const formData = ref({
   id: undefined,
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
+  resourceGroupId: undefined as number | undefined,
   taskType: undefined, // 采集类型(1主页/2帖子/3用户等),由功能卡片自动设置
   searchType: 1, // 搜索方式(0链接/1关键词),默认关键词采集
   keyword: '', // 搜索关键词(仅searchType=1时使用)
@@ -780,6 +798,8 @@ const formData = ref({
   intervalSeconds: 5,
   remark: ''
 })
+
+watch(() => formData.value.taskType, () => { formData.value.resourceGroupId = undefined })
 
 const getNonEmptyLineCount = (value: string | undefined) =>
   (value || '')
@@ -940,6 +960,7 @@ const selectedDeepUsers = ref<FbCollectUser[]>([])
 
 // 帖子采集相关
 const postSourceMode = ref<'search' | 'page' | 'group'>('search')
+const postLatestPosts = ref(false)
 const postPageInputMode = ref<'manual' | 'select'>('select')
 const postGroupInputMode = ref<'manual' | 'select'>('select')
 const selectedPostPages = ref<FbCollectUser[]>([])
@@ -1168,6 +1189,7 @@ const submitForm = async () => {
     const taskData: any = {
       accountIds: selectedAccounts.map((acc) => acc.id), // 传递账号ID列表
       accountSelectionMode: data.accountSelectionMode,
+      resourceGroupId: data.resourceGroupId,
       fbAccount: selectedAccounts[0]?.fbAccount, // 使用第一个账号的 fbAccount(后端会遍历)
       taskType: data.taskType, // 采集类型(1主页/2帖子/3用户等)
       searchType: data.searchType, // 搜索方式(0链接/1关键词)
@@ -1224,6 +1246,7 @@ const resetForm = () => {
     id: undefined,
     accountIds: [],
     accountSelectionMode: 'AUTO',
+    resourceGroupId: undefined,
     taskType: undefined, // 采集类型(由功能卡片自动设置)
     searchType: 1, // 搜索方式(默认关键词采集)
     keyword: '',
@@ -1243,6 +1266,7 @@ const resetForm = () => {
   commentLikeOptions.value = ['comment', 'like'] // 重置评论点赞选项
   likeExpectedCount.value = 100 // 重置点赞期望数量
   postSourceMode.value = 'search'
+  postLatestPosts.value = false
   postPageInputMode.value = 'select'
   postGroupInputMode.value = 'select'
   selectedPostPages.value = []
@@ -1389,7 +1413,23 @@ const normalizePostCollectUrls = (value: string): string => {
   if (postSourceMode.value === 'group') {
     return urls.map(toGroupPostsUrl).join('\n')
   }
-  return urls.map(cleanFacebookUrl).join('\n')
+  return urls
+    .map(cleanFacebookUrl)
+    .map((url) => postLatestPosts.value ? withLatestPostsFilter(url) : url)
+    .join('\n')
+}
+
+const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9In0%3D'
+
+const withLatestPostsFilter = (url: string): string => {
+  try {
+    const parsed = new URL(url)
+    if (!parsed.pathname.includes('/search/top')) return url
+    parsed.searchParams.set('filters', decodeURIComponent(RECENT_POSTS_FILTER))
+    return parsed.toString()
+  } catch {
+    return url
+  }
 }
 
 const normalizeDeepCollectUrls = (value: string): string =>

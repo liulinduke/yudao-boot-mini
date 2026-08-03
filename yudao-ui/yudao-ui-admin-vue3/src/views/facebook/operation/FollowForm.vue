@@ -38,7 +38,15 @@
         prop="accountIds"
         :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
       >
-        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['follow']" class="w-full" />
+        <FbAccountSelector
+          v-model="formData.accountIds"
+          v-model:selection-mode="formData.accountSelectionMode"
+          v-model:auto-account-count="formData.autoAccountCount"
+          :show-auto-count="true"
+          :excluded-account-ids="excludedAccountIds"
+          :action-types="['follow']"
+          class="w-full"
+        />
       </el-form-item>
 
       <el-form-item label="备注" prop="remark">
@@ -54,12 +62,13 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import FbAccountSelector from '../components/FbAccountSelector.vue'
 import {
   createFbOperationTask,
+  getFollowedAccountIds,
   type FbOperationTaskSaveReqVO
 } from '@/api/facebook/operation'
 
@@ -75,12 +84,14 @@ const dialogTitle = ref('创建刷粉任务')
 const formLoading = ref(false)
 const formRef = ref()
 const accounts = ref<any[]>([])
+const excludedAccountIds = ref<string[]>([])
 const followCommand = ref('follow')
 
 const formData = ref({
   targetUrl: '',
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
+  autoAccountCount: undefined as number | undefined,
   intervalRisk: 'high',
   remark: ''
 })
@@ -122,6 +133,25 @@ const loadAccounts = async () => {
   accounts.value = filterSelectableFbAccounts(data?.list || [])
 }
 
+const loadFollowedAccountIds = async (targetUrl: string) => {
+  if (!targetUrl) {
+    excludedAccountIds.value = []
+    return
+  }
+  try {
+    const response = await getFollowedAccountIds(targetUrl)
+    const ids = response?.data ?? response ?? []
+    excludedAccountIds.value = Array.isArray(ids) ? ids.map((id) => String(id)) : []
+  } catch (error) {
+    console.error('查询已刷粉账号失败:', error)
+    excludedAccountIds.value = []
+  }
+}
+
+watch(() => formData.value.targetUrl, (value) => {
+  void loadFollowedAccountIds(normalizeTargetUrl(value))
+})
+
 const open = async () => {
   dialogVisible.value = true
   resetForm()
@@ -136,8 +166,12 @@ const submitForm = async () => {
 
   const targetUrl = normalizeTargetUrl(formData.value.targetUrl)
   const accountIds = formData.value.accountIds || []
-    if (formData.value.accountSelectionMode === 'MANUAL' && accountIds.length === 0) {
+  if (formData.value.accountSelectionMode === 'MANUAL' && accountIds.length === 0) {
     message.warning('请选择执行账号')
+    return
+  }
+  if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+    message.warning('请输入自动分配的账号数量')
     return
   }
 
@@ -168,10 +202,13 @@ const submitForm = async () => {
       taskName: `刷粉_${timestamp}`,
       accountIds,
       accountSelectionMode: formData.value.accountSelectionMode,
+      autoAccountCount: formData.value.autoAccountCount,
       targetUrls: targetUrl,
       postUrl: targetUrl,
       actionConfig: JSON.stringify(configData),
-      expectedCount: accountIds.length,
+      expectedCount: formData.value.accountSelectionMode === 'AUTO'
+        ? formData.value.autoAccountCount || 0
+        : accountIds.length,
       remark: formData.value.remark
     }
 
@@ -190,10 +227,12 @@ const resetForm = () => {
     targetUrl: '',
     accountIds: [],
     accountSelectionMode: 'AUTO',
+    autoAccountCount: undefined,
     intervalRisk: 'high',
     remark: ''
   }
   followCommand.value = 'follow'
+  excludedAccountIds.value = []
   formRef.value?.resetFields()
 }
 </script>

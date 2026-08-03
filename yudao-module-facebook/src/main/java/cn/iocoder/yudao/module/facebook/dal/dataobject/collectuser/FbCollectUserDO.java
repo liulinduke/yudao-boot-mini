@@ -159,6 +159,8 @@ public class FbCollectUserDO extends BaseDO {
      * 分组ID
      */
     private Long groupId;
+    /** 资源分组ID（潜客分组） */
+    private Long resourceGroupId;
     /**
      * 数据来源
      */

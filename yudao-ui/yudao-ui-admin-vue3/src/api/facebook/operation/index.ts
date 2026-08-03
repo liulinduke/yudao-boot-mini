@@ -9,6 +9,7 @@ export interface FbOperationTask {
   actualCount?: number
   accountIds?: string
   accountSelectionMode?: 'AUTO' | 'MANUAL'
+  autoAccountCount?: number
   startTime?: string
   endTime?: string
   remark?: string
@@ -71,6 +72,7 @@ export interface FbOperationTaskSaveReqVO {
   taskName?: string
   accountIds: string[]
   accountSelectionMode?: 'AUTO' | 'MANUAL'
+  autoAccountCount?: number
   targetUrls?: string
   targetGroupIds?: string
   postUrl?: string
@@ -173,6 +175,10 @@ export const batchSaveAddGroupResult = (data: FbOperationAddGroupResultBatchSave
 
 export const getPendingDetails = (fbAccount: string) => {
   return request.get({ url: '/facebook/fb-operation-task/pending-details', params: { fbAccount } })
+}
+
+export const getFollowedAccountIds = (targetUrl: string) => {
+  return request.get({ url: '/facebook/fb-operation-task/followed-account-ids', params: { targetUrl } })
 }
 
 export const batchSaveRepostResult = (data: FbRepostResultBatchSaveReqVO) => {

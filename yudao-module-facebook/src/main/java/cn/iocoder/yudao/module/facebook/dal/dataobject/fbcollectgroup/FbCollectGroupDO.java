@@ -73,6 +73,8 @@ public class FbCollectGroupDO extends BaseDO {
      * 采集回来的群id
      */
     private Long groupId;
+    /** 资源分组ID（群组分组） */
+    private Long resourceGroupId;
     /**
      * 加组次数
      */
@@ -87,4 +89,4 @@ public class FbCollectGroupDO extends BaseDO {
     private Integer postTimes;
 
 
-}
+}
