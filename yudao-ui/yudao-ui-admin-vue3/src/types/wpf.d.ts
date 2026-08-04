@@ -17,7 +17,11 @@ declare global {
                 expectedCount: number,
                 taskType?: number,
                 config?: string | null,
-                isOperation?: boolean
+                isOperation?: boolean,
+                deviceId?: string,
+                password?: string,
+                tfa?: string,
+                fbAccount?: string
               ) => void
               OpenMessageManagerWindow?: () => void
               StopBrowser?: (accountId: string) => void
@@ -36,14 +40,19 @@ declare global {
                 accountId: string,
                 cookie: string,
                 targetUserId: string,
-                scriptContent: string
+                scriptContent: string,
+                password?: string,
+                tfa?: string
               ) => void
               StartGroupPublishTask?: (
                 taskId: string,
                 accountId: string,
                 cookie: string,
                 actionConfigJson: string,
-                detailId?: string
+                detailId?: string,
+                password?: string,
+                tfa?: string,
+                fbAccount?: string
               ) => void
               StartAccountLoginBatch: (
                 accountsJson: string

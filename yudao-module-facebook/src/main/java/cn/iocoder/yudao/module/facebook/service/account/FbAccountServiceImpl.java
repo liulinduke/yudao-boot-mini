@@ -152,6 +152,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             totals.put("dm", 0L);
             totals.put("repost", 0L);
             totals.put("join_group", 0L);
+            totals.put("group_post", 0L);
             totals.put("comment", 0L);
             totals.put("follow", 0L);
             totals.put("collect", 0L);

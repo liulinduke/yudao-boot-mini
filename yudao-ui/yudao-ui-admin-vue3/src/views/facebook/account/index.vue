@@ -62,7 +62,6 @@
                 {{ group.description || '暂无描述' }}
               </div>
             </div>
-
           </el-scrollbar>
         </el-card>
       </div>
@@ -114,14 +113,14 @@
 
         <!-- 操作按钮栏 -->
         <div class="mt-2 mb-2 flex gap-2 flex-wrap">
-          <el-button
+          <!-- <el-button
             type="primary"
             plain
             @click="openForm('create')"
             v-hasPermi="['facebook:fb-account:create']"
           >
             <Icon icon="ep:plus" class="mr-5px" /> 新增
-          </el-button>
+          </el-button> -->
 
           <el-dropdown trigger="click" @command="handleImportCommand">
             <el-button type="primary" plain>
@@ -621,8 +620,20 @@ const persistAccountLoginState = async (result: FbAccountLoginBridgeResult) => {
   await FbAccountApi.updateFbAccountLoginResult({
     id: String(result.accountDbId),
     loginStatus,
-    loginErrorReason: result.errorReason || ''
+    loginErrorReason: result.errorReason || '',
+    ...(result.cookie?.trim() ? { cookie: result.cookie } : {})
   })
+}
+
+const persistedLoginAccountIds = new Set<string>()
+
+const persistSuccessfulAccountLogin = async (result: FbAccountLoginBridgeResult) => {
+  if (result.status !== 'success' || !result.cookie?.trim()) return
+  const accountDbId = String(result.accountDbId)
+  if (persistedLoginAccountIds.has(accountDbId)) return
+
+  await persistAccountLoginState(result)
+  persistedLoginAccountIds.add(accountDbId)
 }
 
 const handleBatchLogin = () => {
@@ -639,6 +650,8 @@ const handleBatchLogin = () => {
     tfa: item.tfa,
     cookie: item.cookie || null
   }))
+
+  payload.forEach((item) => persistedLoginAccountIds.delete(String(item.id)))
 
   payload.forEach((item) => {
     const target = list.value.find((account) => account.id === item.id)
@@ -777,6 +790,9 @@ onMounted(() => {
 
   onAccountLoginProgress((result) => {
     updateAccountLoginState(result)
+    void persistSuccessfulAccountLogin(result).catch((error) => {
+      console.error('保存登录 Cookie 失败:', error)
+    })
   })
 
   onAccountLoginComplete(async ({ summary, results }) => {

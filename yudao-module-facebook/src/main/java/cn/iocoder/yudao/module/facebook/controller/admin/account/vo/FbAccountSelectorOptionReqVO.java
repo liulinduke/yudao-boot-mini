@@ -12,7 +12,7 @@ public class FbAccountSelectorOptionReqVO {
     @Schema(description = "场景：collect/operation/agent")
     private String scene;
 
-    @Schema(description = "操作类型：dm/repost/join_group/comment/follow/collect")
+    @Schema(description = "操作类型：dm/repost/join_group/group_post/comment/follow/collect")
     private List<String> actionTypes = new ArrayList<>();
 
     @Schema(description = "本次任务单元数量")

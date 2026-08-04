@@ -185,7 +185,9 @@ const handleStart = async (id: number) => {
           String(detail.accountId),
           detail.cookie || '',
           detail.targetUserId,
-          detail.scriptContent
+          detail.scriptContent,
+          detail.password,
+          detail.tfa
         )
         
         if (i < taskDetail.details.length - 1) {

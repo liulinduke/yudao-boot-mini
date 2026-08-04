@@ -100,6 +100,7 @@ namespace SocialMatrix.WpfHost.Windows
                             loginMode = result.LoginMode,
                             errorReason = result.ErrorReason,
                             cookieSaved = result.CookieSaved,
+                            cookie = result.CookieSaved ? result.CookieJson : null,
                             windowClosed = result.WindowClosed
                         })
                     });
@@ -186,6 +187,11 @@ namespace SocialMatrix.WpfHost.Windows
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"🔐 账号管理登录开始: account={account.AccountId}, " +
+                    $"cookie={(HasUsableFacebookCookie(account.Cookie) ? "有效" : "空")}, " +
+                    $"password={(!string.IsNullOrWhiteSpace(account.Password) ? "已配置" : "未配置")}, " +
+                    $"tfa={(!string.IsNullOrWhiteSpace(account.Tfa) ? "已配置" : "未配置")}");
                 await WaitForPageLoad(browser, 30000);
             }
             catch (Exception ex)
@@ -225,6 +231,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             await ClearFacebookCookiesAsync(browser);
+            System.Diagnostics.Debug.WriteLine($"🔑 账号 {account.AccountId} Cookie 不可用，开始账号密码登录");
             await NavigateBrowserToUrlAsync(browser, account.AccountId, "https://www.facebook.com/login", 30000);
             await WaitForPageLoad(browser, 30000);
             await Task.Delay(1000);
@@ -255,6 +262,7 @@ namespace SocialMatrix.WpfHost.Windows
                     return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA required but not configured");
                 }
 
+                System.Diagnostics.Debug.WriteLine($"🔐 账号 {account.AccountId} 检测到 2FA，开始提交动态验证码");
                 var code = GenerateTotpCode(account.Tfa);
                 if (string.IsNullOrWhiteSpace(code))
                 {
@@ -831,6 +839,7 @@ namespace SocialMatrix.WpfHost.Windows
                 loginMode = result.LoginMode,
                 errorReason = result.ErrorReason,
                 cookieSaved = result.CookieSaved,
+                cookie = result.CookieSaved ? result.CookieJson : null,
                 windowClosed = result.WindowClosed
             }));
             await Task.CompletedTask;

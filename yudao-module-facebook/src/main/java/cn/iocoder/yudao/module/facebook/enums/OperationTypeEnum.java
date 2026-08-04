@@ -12,11 +12,12 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum OperationTypeEnum {
 
-    DM("dm", "私信", 100),
-    REPOST("repost", "转帖", 50),
-    JOIN_GROUP("join_group", "加组", 30),
-    COMMENT("comment", "评论", 200),
-    FOLLOW("follow", "关注", 100);
+    DM("dm", "私信", 10),
+    REPOST("repost", "转帖", 10),
+    JOIN_GROUP("join_group", "加组", 10),
+    GROUP_POST("group_post", "发群帖", 10),
+    COMMENT("comment", "评论", 10),
+    FOLLOW("follow", "关注", 10);
 
     /**
      * 操作类型代码

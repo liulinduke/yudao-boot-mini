@@ -355,8 +355,16 @@ namespace SocialMatrix.WpfHost.Windows
                     document.execCommand('delete', false, null);
                     await new Promise(r => setTimeout(r, 200));
                     document.execCommand('insertText', false, content);
-                    textbox.dispatchEvent(new InputEvent('input', {{ data: content, bubbles: true, inputType: 'insertText' }}));
                     await new Promise(r => setTimeout(r, 800));
+                    // execCommand 已经会触发编辑器输入事件。不要再次派发带完整文本的
+                    // InputEvent，否则 Facebook composer 可能把内容追加第二次。
+                    const actual = (textbox.innerText || textbox.textContent || '').replace(/\\r\\n/g, '\\n');
+                    if (actual === content + content) {{
+                        document.execCommand('selectAll', false, null);
+                        document.execCommand('delete', false, null);
+                        document.execCommand('insertText', false, content);
+                        await new Promise(r => setTimeout(r, 300));
+                    }}
                     textbox.blur();
                     return true;
                 }})();

@@ -135,6 +135,8 @@ export interface FbAiAgentDispatchDetail {
   fbAccount: string
   accountId?: string
   cookie?: string
+  password?: string
+  tfa?: string
   searchUrl?: string
   sourceUserId?: string | number
   expectedCount?: number

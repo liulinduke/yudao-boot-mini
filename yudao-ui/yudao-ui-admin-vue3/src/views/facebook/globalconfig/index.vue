@@ -35,6 +35,16 @@
           <span class="ml-10px text-gray-500">每个账号每天最多可加入的群组数量</span>
         </el-form-item>
 
+        <el-form-item label="每日发群帖次数">
+          <el-input-number
+            v-model="formData.group_post_daily_limit"
+            :min="1"
+            :max="1000"
+            class="!w-200px"
+          />
+          <span class="ml-10px text-gray-500">每个账号每天最多发布的群组帖子数量</span>
+        </el-form-item>
+
         <el-form-item label="每日评论次数">
           <el-input-number
             v-model="formData.comment_daily_limit"
@@ -127,11 +137,12 @@ const getRecommendedConcurrent = (): number => {
 }
 
 const formData = reactive({
-  dm_daily_limit: 100,
-  repost_daily_limit: 50,
-  join_group_daily_limit: 30,
-  comment_daily_limit: 200,
-  follow_daily_limit: 100,
+  dm_daily_limit: 10,
+  repost_daily_limit: 10,
+  join_group_daily_limit: 10,
+  group_post_daily_limit: 10,
+  comment_daily_limit: 10,
+  follow_daily_limit: 10,
   browser_disable_images: false,
   browser_disable_videos: true,
   browser_max_concurrent: getRecommendedConcurrent(),
@@ -196,6 +207,7 @@ const getConfigDescription = (key: string) => {
     dm_daily_limit: '每日私信次数限制',
     repost_daily_limit: '每日转帖次数限制',
     join_group_daily_limit: '每日加组次数限制',
+    group_post_daily_limit: '每日发群帖次数限制',
     comment_daily_limit: '每日评论次数限制',
     follow_daily_limit: '每日关注次数限制',
     browser_disable_images: '指纹浏览器-不加载图片',

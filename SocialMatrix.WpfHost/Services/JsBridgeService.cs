@@ -36,7 +36,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
         /// <param name="config">配置JSON字符串（可选）</param>
         /// <param name="isOperation">是否为运营任务（true=运营任务如加组/私信/转帖，false=采集任务）</param>
-        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null)
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null, string password = null, string tfa = null, string fbAccount = null)
         {
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
@@ -54,7 +54,10 @@ namespace SocialMatrix.WpfHost.Services
                     taskType: taskType,
                     config: config,
                     isOperation: isOperation,
-                    deviceId: parsedDeviceId);
+                    deviceId: parsedDeviceId,
+                    password: password,
+                    tfa: tfa,
+                    loginAccountId: fbAccount);
             });
         }
 
@@ -278,7 +281,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="cookie">Cookie</param>
         /// <param name="fbUserId">目标用户FB ID</param>
         /// <param name="messageText">消息内容</param>
-        public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText)
+        public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText, string password = null, string tfa = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -315,7 +318,10 @@ namespace SocialMatrix.WpfHost.Services
                             expectedCount: 0,
                             taskType: 14,
                             config: dmConfig,
-                            isOperation: true);
+                            isOperation: true,
+                            password: password,
+                            tfa: tfa,
+                            loginAccountId: accountId);
                         System.Diagnostics.Debug.WriteLine($"✅ 私信任务已提交执行: TaskId={taskId}, DetailId={detailId}");
                     }
                     else
@@ -393,7 +399,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson)
+        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -426,7 +432,10 @@ namespace SocialMatrix.WpfHost.Services
                             cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
                             searchUrl: null,
                             expectedCount: 0,
-                            taskType: 12); // 发个人帖任务类型
+                            taskType: 12,
+                            password: password,
+                            tfa: tfa,
+                            loginAccountId: accountId); // 发个人帖任务类型
                         
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     }
@@ -460,7 +469,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "")
+        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "", string password = null, string tfa = null, string fbAccount = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -493,7 +502,10 @@ namespace SocialMatrix.WpfHost.Services
                             cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
                             searchUrl: null,
                             expectedCount: 0,
-                            taskType: 13); // 发群帖任务类型
+                            taskType: 13,
+                            password: password,
+                            tfa: tfa,
+                            loginAccountId: string.IsNullOrWhiteSpace(fbAccount) ? accountId : fbAccount); // 发群帖任务类型
                         
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
                     }

@@ -23,6 +23,12 @@ public class FbCollectPendingDetailRespVO {
     @Schema(description = "账号Cookie")
     private String cookie;
 
+    @Schema(description = "账号密码（供 WPF 复用账号登录流程）")
+    private String password;
+
+    @Schema(description = "账号 2FA 配置（供 WPF 复用账号登录流程）")
+    private String tfa;
+
     @Schema(description = "采集链接")
     private String searchUrl;
 

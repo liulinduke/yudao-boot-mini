@@ -32,6 +32,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -176,38 +177,47 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
                     .map(FbDmTaskDetailDO::getAccountId)
                     .collect(Collectors.toSet());
 
+            List<Long> accountIdLongs = accountIds.stream()
+                    .filter(StrUtil::isNotBlank)
+                    .map(ida -> {
+                        try {
+                            return Long.valueOf(ida.trim());
+                        } catch (NumberFormatException ex) {
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
             Map<String, String> cookieMap = new HashMap<>();
-            if (!accountIds.isEmpty()) {
-                List<Long> accountIdLongs = accountIds.stream()
-                        .filter(StrUtil::isNotBlank)
-                        .map(ida -> {
-                            try {
-                                return Long.valueOf(ida.trim());
-                            } catch (NumberFormatException ex) {
-                                return null;
-                            }
-                        })
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toList());
-                if (!accountIdLongs.isEmpty()) {
-                    List<FbAccountDO> accounts = accountMapper.selectList(
-                            new LambdaQueryWrapper<FbAccountDO>().in(FbAccountDO::getId, accountIdLongs));
-                    cookieMap = accounts.stream()
-                            .filter(acc -> acc.getCookie() != null)
-                            .collect(Collectors.toMap(
-                                    acc -> String.valueOf(acc.getId()),
-                                    FbAccountDO::getCookie,
-                                    (v1, v2) -> v1));
-                }
+            if (!accountIdLongs.isEmpty()) {
+                List<FbAccountDO> accounts = accountMapper.selectList(
+                        new LambdaQueryWrapper<FbAccountDO>().in(FbAccountDO::getId, accountIdLongs));
+                cookieMap = accounts.stream()
+                        .filter(acc -> acc.getCookie() != null)
+                        .collect(Collectors.toMap(
+                                acc -> String.valueOf(acc.getId()),
+                                FbAccountDO::getCookie,
+                                (v1, v2) -> v1));
             }
             
             // 转换为RespVO并填充cookie
             final Map<String, String> finalCookieMap = cookieMap;
+            Map<String, FbAccountDO> accountMap = accountIdLongs.isEmpty()
+                    ? Collections.emptyMap()
+                    : accountMapper.selectList(new LambdaQueryWrapper<FbAccountDO>()
+                            .in(FbAccountDO::getId, accountIdLongs))
+                    .stream()
+                    .collect(Collectors.toMap(acc -> String.valueOf(acc.getId()), Function.identity(), (v1, v2) -> v1));
             List<FbDmTaskDetailRespVO> detailRespVOs = details.stream()
                     .map(detail -> {
                         FbDmTaskDetailRespVO detailVO = BeanUtils.toBean(detail, FbDmTaskDetailRespVO.class);
                         // 从账号表中获取cookie
                         detailVO.setCookie(finalCookieMap.getOrDefault(detail.getAccountId(), ""));
+                        FbAccountDO account = accountMap.get(detail.getAccountId());
+                        if (account != null) {
+                            detailVO.setPassword(account.getPassword());
+                            detailVO.setTfa(account.getTfa());
+                        }
                         return detailVO;
                     })
                     .collect(Collectors.toList());

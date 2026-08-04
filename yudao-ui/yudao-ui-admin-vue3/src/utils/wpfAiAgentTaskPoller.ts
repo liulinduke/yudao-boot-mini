@@ -60,7 +60,9 @@ export const startAiAgentCollectDetail = (
         account,
         detail.cookie || '',
         detail.targetUserId,
-        detail.scriptContent
+        detail.scriptContent,
+        detail.password,
+        detail.tfa
       )
       registerQueuedDetailTimeout(account, detail.detailId, 'dm')
       return true
@@ -90,7 +92,10 @@ export const startAiAgentCollectDetail = (
           browserAccount,
           detail.cookie || '',
           detail.actionConfig || '{}',
-          String(detail.detailId)
+          String(detail.detailId),
+          detail.password,
+          detail.tfa,
+          detail.fbAccount
         )
         registerQueuedDetailTimeout(account, detail.detailId, 'operation')
         return true
@@ -103,7 +108,11 @@ export const startAiAgentCollectDetail = (
         detail.expectedCount || 1,
         detail.taskType || 10,
         detail.actionConfig,
-        true
+        true,
+        undefined,
+        detail.password,
+        detail.tfa,
+        detail.fbAccount
       )
       registerQueuedDetailTimeout(account, detail.detailId, 'operation')
       return true
@@ -122,7 +131,12 @@ export const startAiAgentCollectDetail = (
       detail.searchUrl,
       detail.expectedCount || 1,
       detail.taskType || 1,
-      detail.actionConfig || (detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined)
+      detail.actionConfig || (detail.sourceUserId ? JSON.stringify({ sourceUserId: String(detail.sourceUserId) }) : undefined),
+      false,
+      undefined,
+      detail.password,
+      detail.tfa,
+      detail.fbAccount
     )
     registerQueuedDetailTimeout(account, detail.detailId, 'collect')
     return true

@@ -17,6 +17,7 @@ namespace SocialMatrix.WpfHost
             object? loginMode,
             object? errorReason,
             object? cookieSaved,
+            object? cookie,
             object? windowClosed);
 
         private readonly List<AccountLoginWindowResult> _accountLoginWindowResults = new();
@@ -159,6 +160,7 @@ namespace SocialMatrix.WpfHost
                             loginMode = result.loginMode?.ToString(),
                             errorReason = result.errorReason?.ToString(),
                             cookieSaved = result.cookieSaved,
+                            cookie = result.cookie,
                             windowClosed = result.windowClosed
                         })
                     });
@@ -201,6 +203,7 @@ namespace SocialMatrix.WpfHost
                                 loginMode: item["loginMode"] ?? item["LoginMode"],
                                 errorReason: item["errorReason"] ?? item["ErrorReason"],
                                 cookieSaved: item["cookieSaved"] ?? item["CookieSaved"],
+                                cookie: item["cookie"]?.ToString() ?? item["Cookie"]?.ToString(),
                                 windowClosed: item["windowClosed"] ?? item["WindowClosed"]));
                         }
                     }

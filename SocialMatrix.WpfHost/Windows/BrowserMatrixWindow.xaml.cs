@@ -12,6 +12,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using System.Windows;
 
 namespace SocialMatrix.WpfHost.Windows
@@ -255,7 +256,8 @@ namespace SocialMatrix.WpfHost.Windows
         /// 创建浏览器实例并启动自动化采集
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com",
-            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null, bool isOperation = false)
+            string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null, bool isOperation = false,
+            string? password = null, string? tfa = null, string? loginAccountId = null)
         {
             var taskLockAcquired = false;
             if (!string.IsNullOrWhiteSpace(detailId) && !string.IsNullOrWhiteSpace(searchUrl))
@@ -415,6 +417,7 @@ namespace SocialMatrix.WpfHost.Windows
 #endif
 
             // 创建 Tab 内容容器：顶部显示 URL，浏览器占满剩余空间
+            var tabDisplayAccount = ResolveTabDisplayAccount(accountId, cookie);
             var container = new System.Windows.Controls.Grid();
             container.Tag = accountId; // 保存 accountId 以便后续查找
             container.Visibility = Visibility.Hidden;
@@ -464,7 +467,7 @@ namespace SocialMatrix.WpfHost.Windows
             };
             tabHeader.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text = accountId,
+                Text = tabDisplayAccount,
                 MaxWidth = 180,
                 TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center
@@ -551,6 +554,26 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹脚本注入完成 (DeviceName={fingerprint.DeviceName})");
 
                         var pageState = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
+                        if (pageState != FacebookPageState.Authenticated
+                            && (!string.IsNullOrWhiteSpace(password) || !string.IsNullOrWhiteSpace(tfa)))
+                        {
+                            var loginRequest = new AccountLoginRequest(
+                                long.TryParse(accountId, out var accountDbId) ? accountDbId : 0,
+                                string.IsNullOrWhiteSpace(loginAccountId) ? accountId : loginAccountId,
+                                password,
+                                tfa,
+                                cookie);
+                            var loginResult = await LoginAccountInBrowserAsync(browser, loginRequest);
+                            if (loginResult.Status == "success")
+                            {
+                                pageState = FacebookPageState.Authenticated;
+                                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 已复用账号管理登录流程完成登录");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 复用账号管理登录失败: {loginResult.ErrorReason}");
+                            }
+                        }
                         if (_browserReadySignals.TryGetValue(accountId, out var readySignal))
                         {
                             readySignal.TrySetResult(pageState);
@@ -603,13 +626,15 @@ namespace SocialMatrix.WpfHost.Windows
             };
 
             // 异步：拉取配置 → 注入 Cookie → 首次加载（只加载一次 Facebook）
-            _ = InitializeBrowserAsync(browser, accountId, cookie, initialUrl, taskType == 18);
+            _ = InitializeBrowserAsync(browser, accountId, cookie, initialUrl, taskType == 18,
+                password, tfa, string.IsNullOrWhiteSpace(loginAccountId) ? accountId : loginAccountId);
         }
 
         /// <summary>
         /// 浏览器创建后的异步初始化：配置资源拦截、注入 Cookie，再发起首次导航
         /// </summary>
-        private async Task InitializeBrowserAsync(ChromiumWebBrowser browser, string accountId, string? cookie, string initialUrl, bool profileTask = false)
+        private async Task InitializeBrowserAsync(ChromiumWebBrowser browser, string accountId, string? cookie, string initialUrl, bool profileTask = false,
+            string? password = null, string? tfa = null, string? loginAccountId = null)
         {
             try
             {
@@ -620,10 +645,14 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     FingerprintInjector.ApplyResourceFilter(browser, profileTask ? false : globalConfig.DisableImages, globalConfig.DisableVideos);
 
-                    if (!string.IsNullOrEmpty(cookie))
+                    if (HasUsableFacebookCookie(cookie))
                     {
                         System.Diagnostics.Debug.WriteLine($"🍪 为账号 {accountId} 预注入 Cookie（首次加载前）...");
                         await InjectCookies(browser, accountId, cookie);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(cookie))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"ℹ️ 账号 {accountId} Cookie 为空或为 []，跳过 Cookie 注入，等待账号密码登录");
                     }
 
                     System.Diagnostics.Debug.WriteLine($"🔗 首次加载: {initialUrl}");
@@ -752,6 +781,31 @@ namespace SocialMatrix.WpfHost.Windows
         /// 所有浏览器都常驻在 BrowserHostGrid 中，Tab 切换只改变显示状态。
         /// 使用 Hidden 而不是 Collapsed，避免切换时重新创建或重新布局浏览器。
         /// </summary>
+        private static string ResolveTabDisplayAccount(string accountId, string? cookieJson)
+        {
+            if (string.IsNullOrWhiteSpace(cookieJson)) return accountId;
+
+            try
+            {
+                var token = JToken.Parse(cookieJson);
+                var cookie = token is JArray array
+                    ? array.FirstOrDefault(item => string.Equals(item["name"]?.ToString(), "c_user", StringComparison.OrdinalIgnoreCase))
+                    : token["c_user"] != null ? token["c_user"] : null;
+                var cUser = cookie?["value"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(cUser)) return cUser;
+            }
+            catch (JsonException)
+            {
+                var match = Regex.Match(cookieJson, @"(?:^|;\s*)c_user=(?<id>[^;]+)", RegexOptions.IgnoreCase);
+                if (match.Success && !string.IsNullOrWhiteSpace(match.Groups["id"].Value))
+                {
+                    return match.Groups["id"].Value;
+                }
+            }
+
+            return accountId;
+        }
+
         private void ShowSelectedBrowserTab()
         {
             var selectedAccountId = (BrowserTabs.SelectedItem as System.Windows.Controls.TabItem)?.Tag?.ToString();
@@ -958,6 +1012,27 @@ namespace SocialMatrix.WpfHost.Windows
         /// 预注入 Cookie（在首次页面加载前写入，无需 Reload）
         /// </summary>
         /// <returns>true: 至少写入一个 Cookie</returns>
+        private static bool HasUsableFacebookCookie(string? cookieJson)
+        {
+            if (string.IsNullOrWhiteSpace(cookieJson)) return false;
+
+            try
+            {
+                var token = JToken.Parse(cookieJson);
+                if (token is JArray array)
+                {
+                    return array.Any(item =>
+                        string.Equals(item["name"]?.ToString(), "c_user", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(item["value"]?.ToString()));
+                }
+                return !string.IsNullOrWhiteSpace(token["c_user"]?.ToString());
+            }
+            catch (JsonException)
+            {
+                return Regex.IsMatch(cookieJson, @"(?:^|;\s*)c_user=[^;\s]+", RegexOptions.IgnoreCase);
+            }
+        }
+
         private async Task<bool> InjectCookies(ChromiumWebBrowser browser, string accountId, string cookieJson)
         {
             try

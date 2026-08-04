@@ -18,7 +18,10 @@ declare global {
                 taskType: number,
                 config?: string,
                 isOperation?: boolean,
-                deviceId?: string
+                deviceId?: string,
+                password?: string,
+                tfa?: string,
+                fbAccount?: string
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
@@ -37,14 +40,19 @@ declare global {
                 accountId: string,
                 cookie: string,
                 targetUserId: string,
-                scriptContent: string
+                scriptContent: string,
+                password?: string,
+                tfa?: string
               ) => void
               StartGroupPublishTask?: (
                 taskId: string,
                 accountId: string,
                 cookie: string,
                 actionConfigJson: string,
-                detailId?: string
+                detailId?: string,
+                password?: string,
+                tfa?: string,
+                fbAccount?: string
               ) => void
               StartAccountLoginBatch: (accountsJson: string) => void
               StartProfileUpdateTask?: (
@@ -78,6 +86,7 @@ export interface FbAccountLoginBridgeResult {
   loginMode?: 'cookie' | 'credential'
   errorReason?: string
   cookieSaved?: boolean
+  cookie?: string
   windowClosed?: boolean
 }
 
@@ -90,19 +99,22 @@ export function startBrowserCollect(
   taskType: number = 1,
   config?: string,
   isOperation: boolean = false,
-  deviceId?: string
+  deviceId?: string,
+  password?: string,
+  tfa?: string,
+  fbAccount?: string
 ): void {
   try {
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
       if (config) {
         try {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId, password, tfa, fbAccount)
         } catch (e) {
           bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
         }
       } else {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId, password, tfa, fbAccount)
       }
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')

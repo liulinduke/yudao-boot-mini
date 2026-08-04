@@ -227,6 +227,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
             item.setAccountId(detail.getAccountId());
             item.setFbAccount(account == null ? queueItem.getFbAccount() : account.getFbAccount());
             item.setCookie(account == null ? null : account.getCookie());
+            item.setPassword(account == null ? null : account.getPassword());
+            item.setTfa(account == null ? null : account.getTfa());
             item.setTaskType(14);
             item.setTargetUserId(detail.getTargetUserId());
             item.setScriptContent(detail.getScriptContent());
@@ -299,6 +301,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
             item.setAccountId(detail.getAccountId());
             item.setFbAccount(StrUtil.blankToDefault(detail.getFbAccount(), queueItem.getFbAccount()));
             item.setCookie(account == null ? null : account.getCookie());
+            item.setPassword(account == null ? null : account.getPassword());
+            item.setTfa(account == null ? null : account.getTfa());
             item.setTaskType(task == null ? 10 : task.getTaskType());
             String startUrl = resolveOperationStartUrl(detail, task);
             item.setSearchUrl(startUrl);
@@ -518,6 +522,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         item.setDetailId(detail.getId());
         item.setFbAccount(detail.getFbAccount());
         item.setCookie(account == null ? null : account.getCookie());
+        item.setPassword(account == null ? null : account.getPassword());
+        item.setTfa(account == null ? null : account.getTfa());
         // 同行采集一条明细可能包含多个关系页，首次导航使用第一个 URL，
         // 完整关系 URL 列表通过 actionConfig 下发给 WPF。
         item.setSearchUrl(Integer.valueOf(8).equals(task == null ? null : task.getTaskType())

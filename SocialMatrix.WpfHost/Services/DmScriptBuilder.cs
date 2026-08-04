@@ -125,7 +125,7 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("            // 不使用整段 paste/insertText，逐字输入并加入不规则停顿。");
             _js.AppendLine("            for (const ch of messageText) {");
             _js.AppendLine("                document.execCommand('insertText', false, ch);");
-            _js.AppendLine("                editor.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                // execCommand 已经触发 input，避免再次触发编辑器状态更新。");
             _js.AppendLine("                const pause = 45 + Math.random() * 125 + (Math.random() > 0.92 ? 250 + Math.random() * 500 : 0);");
             _js.AppendLine("                await randomDelay(pause, pause + 45);");
             _js.AppendLine("            }");

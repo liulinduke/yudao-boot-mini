@@ -294,7 +294,8 @@ namespace SocialMatrix.WpfHost
         /// 为指定账号创建浏览器实例（供 Vue 调用）
         /// </summary>
         public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null,
-            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false, long? deviceId = null)
+            string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false, long? deviceId = null,
+            string? password = null, string? tfa = null, string? loginAccountId = null)
         {
             // 记录配置信息
             if (!string.IsNullOrEmpty(config))
@@ -313,7 +314,9 @@ namespace SocialMatrix.WpfHost
 
             // 在统一矩阵窗口的账号 Tab 中创建浏览器并启动自动化任务
             browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
-                cookie, searchUrl, expectedCount, deviceId: deviceId, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation);
+                cookie, searchUrl, expectedCount, deviceId: deviceId, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation,
+                password: password, tfa: tfa, loginAccountId: loginAccountId);
+
             
             UpdateStatus($"已为账号 {accountId} 启动自动化采集 (明细ID: {detailId}, 类型: {taskType})");
         }

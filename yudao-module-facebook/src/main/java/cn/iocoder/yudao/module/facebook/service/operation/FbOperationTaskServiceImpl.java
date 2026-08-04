@@ -657,6 +657,10 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         if (detail == null) {
             throw exception(OPERATION_TASK_DETAIL_NOT_EXISTS);
         }
+        FbOperationTaskDO parentTask = operationTaskMapper.selectById(detail.getTaskId());
+        OperationTypeEnum resultLimitType = parentTask != null && Integer.valueOf(13).equals(parentTask.getTaskType())
+                ? OperationTypeEnum.GROUP_POST
+                : OperationTypeEnum.JOIN_GROUP;
 
         // 批量保存结果
         String detailFbAccount = StrUtil.blankToDefault(detail.getFbAccount(), resolveFbAccount(detail.getAccountId()));
@@ -685,7 +689,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
 
         results.stream()
                 .filter(r -> r.getJoinStatus() != null && (r.getJoinStatus() == 1 || r.getJoinStatus() == 3))
-                .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), OperationTypeEnum.JOIN_GROUP));
+                .forEach(r -> dailyLimitService.useOnce(r.getAccountId(), resultLimitType));
 
         // 更新明细的实际完成数量和状态
         int successCount = (int) results.stream()
@@ -1213,6 +1217,7 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         if (Integer.valueOf(14).equals(taskType)) return Collections.singletonList("dm");
         if (Integer.valueOf(10).equals(taskType)) return Collections.singletonList("repost");
         if (Integer.valueOf(9).equals(taskType)) return Collections.singletonList("join_group");
+        if (Integer.valueOf(13).equals(taskType)) return Collections.singletonList("group_post");
         if (Integer.valueOf(16).equals(taskType)) return Collections.singletonList("follow");
         JSONObject config = parseActionConfig(rawConfig);
         JSONArray actions = config.getJSONArray("actions");

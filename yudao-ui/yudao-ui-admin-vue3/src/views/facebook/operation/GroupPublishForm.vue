@@ -9,14 +9,14 @@
     >
       <el-form-item
         label="执行账号"
-        prop="accountIds"
-        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+        :prop="formData.accountSelectionMode === 'MANUAL' ? 'accountIds' : undefined"
       >
         <FbAccountSelector
           v-model="formData.accountIds"
           v-model:selection-mode="formData.accountSelectionMode"
           v-model:auto-account-count="formData.autoAccountCount"
           :show-auto-count="true"
+          :action-types="['group_post']"
           class="w-full"
         />
       </el-form-item>

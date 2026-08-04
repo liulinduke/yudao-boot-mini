@@ -9,8 +9,7 @@
     >
       <el-form-item
         label="执行账号"
-        prop="accountIds"
-        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+        :prop="formData.accountSelectionMode === 'MANUAL' ? 'accountIds' : undefined"
       >
         <FbAccountSelector
           v-model="formData.accountIds"
@@ -267,7 +266,9 @@ const submitForm = async () => {
             String(taskId),
             String(accountId),
             cookie,
-            data.actionConfig
+            data.actionConfig,
+            accountInfo.password,
+            accountInfo.tfa
           )
           
           // 等待间隔时间（防风控）

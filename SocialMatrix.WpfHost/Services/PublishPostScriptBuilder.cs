@@ -202,11 +202,11 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("            await randomDelay(300, 600);");
             _js.AppendLine("            try {");
             _js.AppendLine("                document.execCommand('insertText', false, content);");
-            _js.AppendLine("                textbox.dispatchEvent(new InputEvent('input', { data: content, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                // execCommand 已经触发 input，不能再次派发带完整内容的 InputEvent。");
             _js.AppendLine("            } catch (e) {");
             _js.AppendLine("                for (const ch of content) {");
             _js.AppendLine("                    document.execCommand('insertText', false, ch);");
-            _js.AppendLine("                    textbox.dispatchEvent(new InputEvent('input', { data: ch, bubbles: true, inputType: 'insertText' }));");
+            _js.AppendLine("                    // 每个 execCommand 都会触发对应的 input 事件。");
             _js.AppendLine("                    await randomDelay(20, 60);");
             _js.AppendLine("                }");
             _js.AppendLine("            }");

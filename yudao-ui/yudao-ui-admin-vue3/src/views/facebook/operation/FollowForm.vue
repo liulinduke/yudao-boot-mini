@@ -35,8 +35,7 @@
 
       <el-form-item
         label="账号配置"
-        prop="accountIds"
-        :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
+        :prop="formData.accountSelectionMode === 'MANUAL' ? 'accountIds' : undefined"
       >
         <FbAccountSelector
           v-model="formData.accountIds"

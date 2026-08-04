@@ -27,6 +27,12 @@ public class FbDmTaskDetailRespVO {
     @Schema(description = "账号Cookie（用于WPF调用）")
     private String cookie;
 
+    @Schema(description = "账号密码（用于WPF复用账号登录流程）")
+    private String password;
+
+    @Schema(description = "账号2FA配置（用于WPF复用账号登录流程）")
+    private String tfa;
+
     @Schema(description = "状态：0待执行 1成功 2失败", example = "0")
     private Integer status;
 

@@ -373,8 +373,8 @@ const accountSummary = (account: FbAccountSelectorOption) => {
   const limits = account.limits || {}
   const total = account.total || {}
   return [
-    `今日：私信 ${today.dm || 0}/${limits.dm || 0} · 转帖 ${today.repost || 0}/${limits.repost || 0} · 加组 ${today.join_group || 0}/${limits.join_group || 0} · 评论 ${today.comment || 0}/${limits.comment || 0} · 关注 ${today.follow || 0}/${limits.follow || 0}`,
-    `累计：任务 ${total.taskCount || 0} · 私信 ${total.dm || 0} · 转帖 ${total.repost || 0} · 加组 ${total.join_group || 0} · 评论 ${total.comment || 0} · 关注 ${total.follow || 0} · 采集 ${total.collect || 0} 条`
+    `今日：私信 ${today.dm || 0}/${limits.dm || 0} · 转帖 ${today.repost || 0}/${limits.repost || 0} · 加组 ${today.join_group || 0}/${limits.join_group || 0} · 发群帖 ${today.group_post || 0}/${limits.group_post || 0} · 评论 ${today.comment || 0}/${limits.comment || 0} · 关注 ${today.follow || 0}/${limits.follow || 0}`,
+    `累计：任务 ${total.taskCount || 0} · 私信 ${total.dm || 0} · 转帖 ${total.repost || 0} · 加组 ${total.join_group || 0} · 发群帖 ${total.group_post || 0} · 评论 ${total.comment || 0} · 关注 ${total.follow || 0} · 采集 ${total.collect || 0} 条`
   ].join('\n')
 }
 
