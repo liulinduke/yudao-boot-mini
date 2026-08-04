@@ -97,6 +97,15 @@ public class FbOperationTaskController {
         return success(true);
     }
 
+    @PostMapping("/detail-success")
+    @Operation(summary = "标记运营明细成功")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")
+    public CommonResult<Boolean> markDetailSuccess(@RequestParam("detailId") Long detailId,
+                                                    @RequestParam(value = "actualCount", required = false) Integer actualCount) {
+        operationTaskService.markDetailSuccess(detailId, actualCount);
+        return success(true);
+    }
+
     @PostMapping("/detail-fail")
     @Operation(summary = "标记运营明细失败")
     @PreAuthorize("@ss.hasPermission('facebook:operation-task:update')")

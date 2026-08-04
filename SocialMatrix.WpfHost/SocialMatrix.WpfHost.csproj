@@ -25,7 +25,7 @@
     <!-- WebView2 -->
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2365.46" />
     <!-- CefSharp (131+ 完全支持 .NET 8) -->
-    <PackageReference Include="CefSharp.Wpf.NETCore" Version="131.3.7" />
+    <PackageReference Include="CefSharp.Wpf.NETCore" Version="134.3.90" />
     <!-- JSON 处理 -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Otp.NET" Version="1.4.0" />

@@ -76,6 +76,14 @@ public interface FbOperationTaskService {
     void batchSaveRepostResult(@Valid FbRepostResultBatchSaveReqVO batchSaveReqVO);
 
     /**
+     * 标记发个人帖等无结果明细的运营任务成功。
+     *
+     * @param detailId 明细 ID
+     * @param actualCount 实际完成数量
+     */
+    void markDetailSuccess(Long detailId, Integer actualCount);
+
+    /**
      * 标记运营明细失败，并释放账号队列运行锁。
      *
      * @param detailId 明细 ID

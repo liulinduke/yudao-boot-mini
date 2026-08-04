@@ -377,24 +377,25 @@ namespace SocialMatrix.WpfHost
             browserMatrixWindow.OnCollectionComplete += (dId, accId, jsonData, taskType) =>
             {
                 System.Diagnostics.Debug.WriteLine($"📨 MainWindow 收到采集完成事件: 明细ID={dId}, 账号={accId}, 数据长度={jsonData.Length}, 类型={taskType}");
-                if (taskType == 19)
+                // 事件可能由 CEF/采集线程同步触发，不能在这里阻塞采集任务的 finally 清理。
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    var monitorId = _messageMonitorByAccount.TryGetValue(accId, out var id) ? id : "";
-                    ReturnMessageMonitorResultToVue(monitorId, accId, jsonData);
-                    _messageMonitorByAccount.Remove(accId);
-                    return;
-                }
-                // 将数据回传给 Vue
-                Dispatcher.Invoke(() =>
-                {
+                    if (taskType == 19)
+                    {
+                        var monitorId = _messageMonitorByAccount.TryGetValue(accId, out var id) ? id : "";
+                        ReturnMessageMonitorResultToVue(monitorId, accId, jsonData);
+                        _messageMonitorByAccount.Remove(accId);
+                        return;
+                    }
+                    // 将数据回传给 Vue
                     ReturnCollectionDataToVue(dId, accId, jsonData, taskType);
-                });
+                }));
             };
 
             // 登录页/Cookie 失效由 Vue relay 持久化到账号登录状态，WPF 不直接改业务数据。
             browserMatrixWindow.OnCollectionError += (accId, errorMessage) =>
             {
-                Dispatcher.Invoke(() =>
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_messageMonitorByAccount.TryGetValue(accId, out var monitorId))
                     {
@@ -409,7 +410,7 @@ namespace SocialMatrix.WpfHost
                     {
                         browserMatrixWindow.CloseBrowser(accId);
                     }
-                });
+                }));
             };
 
             RegisterAccountLoginWindowEvents(browserMatrixWindow);

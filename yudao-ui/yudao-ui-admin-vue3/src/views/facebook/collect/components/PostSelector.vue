@@ -34,10 +34,15 @@
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column label="帖子ID" prop="id" width="100" />
-        <el-table-column label="发帖人" prop="postUser" width="150" />
+        <!-- <el-table-column label="帖子ID" prop="id" width="100" /> -->
+        <el-table-column label="发帖人" prop="postUser" width="150" show-overflow-tooltip />
         <el-table-column label="帖子链接" prop="url" min-width="250" show-overflow-tooltip />
-        <el-table-column label="帖子内容" prop="postContent" min-width="300" show-overflow-tooltip />
+        <el-table-column
+          label="帖子内容"
+          prop="postContent"
+          min-width="300"
+          show-overflow-tooltip
+        />
         <el-table-column label="点赞数" prop="reactionCount" width="100" />
         <el-table-column label="评论数" prop="commentCount" width="100" />
         <el-table-column label="转发数" prop="reshareCount" width="100" />
@@ -87,7 +92,7 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'confirm': [selectedPosts: FbCollectPost[]]
+  confirm: [selectedPosts: FbCollectPost[]]
 }>()
 
 // 状态
@@ -106,14 +111,17 @@ const queryParams = reactive({
 })
 
 // 监听 modelValue 变化
-watch(() => props.modelValue, (val) => {
-  visible.value = val
-  if (val) {
-    // 打开时重置并加载数据
-    pageNo.value = 1
-    loadList()
+watch(
+  () => props.modelValue,
+  (val) => {
+    visible.value = val
+    if (val) {
+      // 打开时重置并加载数据
+      pageNo.value = 1
+      loadList()
+    }
   }
-})
+)
 
 // 监听 visible 变化
 watch(visible, (val) => {
@@ -128,7 +136,7 @@ const loadList = async () => {
       pageNo: pageNo.value,
       pageSize: pageSize.value
     }
-    
+
     // 添加查询条件
     if (queryParams.postContent) {
       params.postContent = queryParams.postContent
@@ -136,7 +144,7 @@ const loadList = async () => {
     if (queryParams.postUser) {
       params.postUser = queryParams.postUser
     }
-    
+
     const response = await FbCollectPostApi.getFbCollectPostPage(params)
     list.value = response.list || []
     total.value = response.total || 0
@@ -167,7 +175,7 @@ const handleConfirm = () => {
     message.warning('请至少选择一个帖子')
     return
   }
-  
+
   emit('confirm', selectedPosts.value)
   visible.value = false
 }

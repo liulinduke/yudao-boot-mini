@@ -209,12 +209,15 @@ const resetForm = () => {
 /** 提交表单 */
 const emit = defineEmits(['success'])
 const submitForm = async () => {
+  if (formLoading.value) return
+  formLoading.value = true
   const valid = await formRef.value?.validate()
-  if (!valid) return
+  if (!valid) {
+    formLoading.value = false
+    return
+  }
   
   try {
-    formLoading.value = true
-    
     // 解析间隔范围
     const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
     
@@ -246,12 +249,18 @@ const submitForm = async () => {
     const taskId = await OperationApi.createFbOperationTask(data)
     console.log('✅ 发个人帖任务创建成功, TaskId:', taskId)
 
+    // 从后端明细取得最终账号和明细 ID，WPF 成功后必须用真实明细 ID 回传状态。
+    const taskDetail = await OperationApi.getFbOperationTask(String(taskId))
+    const detailData = (taskDetail as any)?.data || taskDetail
+    const taskDetails = Array.isArray(detailData?.details) ? detailData.details : []
+    const detailByAccountId = new Map<string, any>(
+      taskDetails.map((detail: any) => [String(detail.accountId || '').trim(), detail])
+    )
+
     // 自动模式下账号由后端最终分配，不能继续使用表单里的空 accountIds。
     let executionAccountIds = [...formData.value.accountIds]
     if (formData.value.accountSelectionMode === 'AUTO') {
-      const taskDetail = await OperationApi.getFbOperationTask(String(taskId))
-      const detailData = (taskDetail as any)?.data || taskDetail
-      executionAccountIds = (detailData?.details || [])
+      executionAccountIds = taskDetails
         .map((detail: any) => String(detail.accountId || '').trim())
         .filter(Boolean)
     }
@@ -271,6 +280,10 @@ const submitForm = async () => {
           const cookie = accountInfo.cookie || ''
           
           console.log(`📝 启动账号 ${accountId} 的发个人帖任务`)
+          const detail = detailByAccountId.get(String(accountId))
+          if (!detail?.id) {
+            throw new Error(`未找到账号 ${accountId} 对应的任务明细`)
+          }
           
           // @ts-ignore
           window.chrome.webview.hostObjects.sync.wpfBridge.StartPublishPostTask(
@@ -279,7 +292,8 @@ const submitForm = async () => {
             cookie,
             data.actionConfig,
             accountInfo.password,
-            accountInfo.tfa
+            accountInfo.tfa,
+            String(detail.id)
           )
           
           // 等待间隔时间（防风控）

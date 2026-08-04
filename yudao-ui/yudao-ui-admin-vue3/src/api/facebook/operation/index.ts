@@ -185,6 +185,10 @@ export const batchSaveRepostResult = (data: FbRepostResultBatchSaveReqVO) => {
   return request.post({ url: '/facebook/fb-operation-task/batch-save-repost-result', data })
 }
 
+export const markOperationDetailSuccess = (data: { detailId: string | number; actualCount?: number }) => {
+  return request.post({ url: '/facebook/fb-operation-task/detail-success', params: data })
+}
+
 export const markOperationDetailFailed = (data: { detailId: string | number; errorMsg?: string }) => {
   return request.post({ url: '/facebook/fb-operation-task/detail-fail', params: data })
 }

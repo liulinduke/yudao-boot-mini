@@ -23,6 +23,15 @@ declare global {
                 tfa?: string,
                 fbAccount?: string
               ) => void
+              StartPublishPostTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                actionConfigJson: string,
+                password?: string,
+                tfa?: string,
+                detailId?: string
+              ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
               UpdateGlobalConfig?: (disableImages: boolean, disableVideos: boolean, maxConcurrent: number) => void

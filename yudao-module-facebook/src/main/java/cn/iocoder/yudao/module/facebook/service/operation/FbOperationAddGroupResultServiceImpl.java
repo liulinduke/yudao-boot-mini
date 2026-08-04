@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.LinkedHashSet;
+import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationGroupAccountCountDTO;
 
 /**
  * 链接加组结果 Service 实现类
@@ -140,41 +141,21 @@ public class FbOperationAddGroupResultServiceImpl implements FbOperationAddGroup
         if (targetCount <= 0) {
             return List.of();
         }
-        LambdaQueryWrapperX<FbOperationAddGroupResultDO> wrapper = new LambdaQueryWrapperX<FbOperationAddGroupResultDO>()
-                .eq(FbOperationAddGroupResultDO::getJoinStatus, 1);
-        List<Long> joinTaskIds = operationTaskMapper.selectList(new LambdaQueryWrapperX<FbOperationTaskDO>()
-                .eq(FbOperationTaskDO::getTaskType, 9)).stream()
-                .map(FbOperationTaskDO::getId).collect(Collectors.toList());
-        if (joinTaskIds.isEmpty()) {
-            return List.of();
-        }
-        wrapper.in(FbOperationAddGroupResultDO::getTaskId, joinTaskIds);
-        if (reqVO.getJoinedBeforeDays() != null && reqVO.getJoinedBeforeDays() > 0) {
-            wrapper.le(FbOperationAddGroupResultDO::getJoinTime,
-                    LocalDateTime.now().minusDays(reqVO.getJoinedBeforeDays()));
-        }
-        wrapper.likeIfPresent(FbOperationAddGroupResultDO::getGroupName, reqVO.getGroupName());
-        if (reqVO.getAccountIds() != null && !reqVO.getAccountIds().isEmpty()) {
-            wrapper.in(FbOperationAddGroupResultDO::getAccountId, reqVO.getAccountIds());
-        }
+        List<String> groupIds = null;
         if (reqVO.getResourceGroupId() != null) {
-            List<String> groupIds = collectGroupMapper.selectList(new LambdaQueryWrapperX<FbCollectGroupDO>()
+            groupIds = collectGroupMapper.selectList(new LambdaQueryWrapperX<FbCollectGroupDO>()
                     .eq(FbCollectGroupDO::getResourceGroupId, reqVO.getResourceGroupId()))
                     .stream().map(FbCollectGroupDO::getGroupId).filter(java.util.Objects::nonNull)
                     .map(String::valueOf).collect(Collectors.toList());
             if (groupIds.isEmpty()) return List.of();
-            wrapper.in(FbOperationAddGroupResultDO::getGroupId, groupIds);
         }
-        Map<String, Set<String>> groupsByAccount = new HashMap<>();
-        addGroupResultMapper.selectList(wrapper).forEach(row -> {
-            if (row.getAccountId() != null && row.getGroupId() != null) {
-                groupsByAccount.computeIfAbsent(row.getAccountId(), key -> new LinkedHashSet<>())
-                        .add(row.getGroupId());
-            }
-        });
-        List<Long> candidates = groupsByAccount.entrySet().stream()
-                .filter(entry -> entry.getValue().size() >= minGroupCount)
-                .map(entry -> parseLong(entry.getKey())).filter(java.util.Objects::nonNull)
+        List<String> requestedAccountIds = reqVO.getAccountIds() == null
+                ? null : reqVO.getAccountIds().stream().filter(java.util.Objects::nonNull).toList();
+        List<Long> candidates = addGroupResultMapper.selectSelectorAccountCounts(
+                        requestedAccountIds, groupIds, reqVO.getGroupName(),
+                        reqVO.getJoinedBeforeDays(), minGroupCount).stream()
+                .map(FbOperationGroupAccountCountDTO::getAccountId)
+                .map(this::parseLong).filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
         if (candidates.isEmpty()) return List.of();
         String actionType = "repost".equalsIgnoreCase(reqVO.getActionType()) ? "repost" : "group_post";

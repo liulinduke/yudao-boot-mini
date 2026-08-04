@@ -1,6 +1,7 @@
 using CefSharp;
 using CefSharp.Wpf;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SocialMatrix.WpfHost.Helpers;
 using System;
 using System.Collections.Generic;
@@ -117,7 +118,7 @@ namespace SocialMatrix.WpfHost.Services
         {
             try
             {
-                var cookieList = JsonConvert.DeserializeObject<List<dynamic>>(cookieJson);
+                var cookieList = JArray.Parse(cookieJson);
                 if (cookieList == null) return false;
                 var manager = browser.RequestContext.GetCookieManager(null);
                 if (manager == null) return false;
@@ -128,15 +129,13 @@ namespace SocialMatrix.WpfHost.Services
                     {
                         var cookie = new CefSharp.Cookie
                         {
-                            Name = item.name?.ToString(),
-                            Value = item.value?.ToString(),
-                            Domain = item.domain?.ToString(),
-                            Path = item.path?.ToString() ?? "/",
-                            Secure = item.secure?.ToObject<bool>() ?? false,
-                            HttpOnly = item.httpOnly?.ToObject<bool>() ?? false,
-                            Expires = item.expirationDate != null
-                                ? DateTimeOffset.FromUnixTimeSeconds(item.expirationDate).DateTime
-                                : DateTime.MaxValue,
+                            Name = item["name"]?.ToString(),
+                            Value = item["value"]?.ToString(),
+                            Domain = item["domain"]?.ToString(),
+                            Path = item["path"]?.ToString() ?? "/",
+                            Secure = item["secure"]?.Value<bool>() ?? false,
+                            HttpOnly = item["httpOnly"]?.Value<bool>() ?? false,
+                            Expires = FacebookCookieExpirationHelper.Parse(item["expirationDate"]),
                             SameSite = CefSharp.Enums.CookieSameSite.NoRestriction
                         };
                         await manager.SetCookieAsync("https://www.facebook.com", cookie);

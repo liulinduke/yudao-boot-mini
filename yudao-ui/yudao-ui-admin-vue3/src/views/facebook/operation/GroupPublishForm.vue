@@ -338,7 +338,7 @@ const openGroupSelector = () => {
     message.warning('请先选择执行账号')
     return
   }
-  if (selectorAccountIds.value.length === 0) {
+  if (formData.value.accountSelectionMode === 'MANUAL' && selectorAccountIds.value.length === 0) {
     message.warning('暂无可用的执行账号')
     return
   }

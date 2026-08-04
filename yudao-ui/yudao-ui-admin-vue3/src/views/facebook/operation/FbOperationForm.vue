@@ -463,7 +463,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import FbAccountSelector from '../components/FbAccountSelector.vue'
@@ -661,6 +661,33 @@ const open = async (type: string, id?: string | number, taskTypeValue?: number) 
   }
 }
 defineExpose({ open })
+
+const refreshOpenTaskDetail = async (event: Event) => {
+  if (formType.value !== 'view' || !dialogVisible.value || !taskDetail.value?.task?.id) {
+    return
+  }
+  const detailId = String((event as CustomEvent).detail?.detailId || '')
+  if (!detailId || !detailList.value.some((item) => String(item.id) === detailId)) {
+    return
+  }
+  const data = await getFbOperationTask(taskDetail.value.task.id)
+  taskDetail.value = data
+  detailList.value = data.details || []
+  resultList.value = data.results || []
+  repostResultList.value =
+    data.task?.taskType === 10 || data.task?.taskType === 15 || data.task?.taskType === 16
+      ? data.repostResults || []
+      : []
+  groupPublishResultList.value = data.task?.taskType === 13 ? data.groupPublishResults || [] : []
+}
+
+onMounted(() => {
+  window.addEventListener('fb:publish-post:result:saved', refreshOpenTaskDetail)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('fb:publish-post:result:saved', refreshOpenTaskDetail)
+})
 
 /** 加载账号列表 */
 const loadAccounts = async () => {

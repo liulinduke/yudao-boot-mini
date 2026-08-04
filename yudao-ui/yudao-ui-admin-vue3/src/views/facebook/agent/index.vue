@@ -292,7 +292,12 @@
           <template v-if="isSourceUrlAgent(wizardForm.agentType)">
             <el-form-item label="采集最近">
               <div class="inline-row">
-                <el-input-number v-model="wizardState.recentDays" :min="1" :max="30" />
+                <el-input-number
+                  v-model="wizardState.recentDays"
+                  :min="1"
+                  :max="30"
+                  @change="markRecentDaysCustomized"
+                />
                 <span>{{ isCompetitorAgent(wizardForm.agentType) ? '天主页帖子' : '天群帖' }}</span>
               </div>
               <div class="form-tip">建议采集天数不超过执行频率周期（{{ collectionCycleDays }}天），否则可能采集到重复内容。</div>
@@ -466,6 +471,7 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column>
+              <el-table-column label="采集账号" prop="fbAccount" width="140" />
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
               </el-table-column>
@@ -750,10 +756,21 @@ const wizardState = reactive({
   latestPosts: true
 })
 
+const recentDaysCustomized = ref(false)
+
 watch(
   () => wizardState.accountSelectionMode,
   () => {
     wizardFormRef.value?.clearValidate?.('accountIds')
+  }
+)
+
+watch(
+  () => wizardForm.executeFrequency,
+  (value) => {
+    if (recentDaysCustomized.value) return
+    const days = Number(value) || 1
+    wizardState.recentDays = days
   }
 )
 
@@ -1085,11 +1102,18 @@ const syncWizard = (config?: FbAiAgentConfig) => {
   wizardState.manualCompetitorPageUrlsText = competitorUrls.join('\n')
   wizardState.selectedCompetitorPages = []
   let configuredRecentDays = Number((isCompetitorAgent(wizardForm.agentType) ? competitorConfig.recentDays : groupConfig.recentDays) || 0)
+  recentDaysCustomized.value = configuredRecentDays > 0
   wizardState.recentDays = configuredRecentDays || Number(wizardForm.executeFrequency) || 1
   const postLeadConfig = getPostLeadConfig(wizardForm)
   wizardState.latestPosts = Object.prototype.hasOwnProperty.call(postLeadConfig, 'latestPosts')
     ? Boolean(postLeadConfig.latestPosts)
     : true
+}
+
+const markRecentDaysCustomized = (value?: number) => {
+  if (value != null) {
+    recentDaysCustomized.value = true
+  }
 }
 
 const buildSubmitData = (): FbAiAgentConfig => {

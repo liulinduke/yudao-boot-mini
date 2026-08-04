@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -19,6 +20,7 @@ namespace SocialMatrix.WpfHost.Services
     public class JsBridgeService
     {
         private readonly MainWindow _mainWindow;
+        private readonly ConcurrentDictionary<string, byte> _directPublishAccounts = new();
 
         public JsBridgeService(MainWindow mainWindow)
         {
@@ -399,13 +401,18 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null)
+        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null, string detailId = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 try
                 {
                     System.Diagnostics.Debug.WriteLine($"🚀 启动发个人帖任务: TaskId={taskId}, AccountId={accountId}");
+                    if (!_directPublishAccounts.TryAdd(accountId, 0))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⛔ 忽略重复的发个人帖调用: account={accountId}, taskId={taskId}");
+                        return;
+                    }
                     
                     // 获取BrowserMatrixWindow实例
                     var mainWindow = Application.Current.MainWindow as MainWindow;
@@ -424,10 +431,17 @@ namespace SocialMatrix.WpfHost.Services
                     if (needCreateBrowser)
                     {
                         System.Diagnostics.Debug.WriteLine($"🆕 为账号 {accountId} 创建浏览器");
+
+                        // 必须在创建 Tab 前注册首页初始化信号，等待 Cookie/密码/2FA 登录流程完成。
+                        browserMatrixWindow ??= mainWindow.GetOrCreateBrowserMatrixWindow(accountId);
+                        var readyTask = browserMatrixWindow.WaitForBrowserReadyAsync(accountId);
                         
                         // 创建浏览器（不指定URL，稍后脚本会导航）
+                        var callbackDetailId = string.IsNullOrWhiteSpace(detailId)
+                            ? $"publish_post_{taskId}_{accountId}"
+                            : detailId;
                         mainWindow.CreateBrowserForAccount(
-                            detailId: $"publish_post_{taskId}_{accountId}",
+                            detailId: callbackDetailId,
                             accountId: accountId,
                             cookie: string.IsNullOrEmpty(cookie) ? null : cookie,
                             searchUrl: null,
@@ -436,8 +450,20 @@ namespace SocialMatrix.WpfHost.Services
                             password: password,
                             tfa: tfa,
                             loginAccountId: accountId); // 发个人帖任务类型
-                        
+
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
+
+                        var completed = await Task.WhenAny(readyTask, Task.Delay(30000));
+                        if (completed != readyTask)
+                        {
+                            throw new TimeoutException($"账号 {accountId} 首页登录状态确认超时");
+                        }
+                        var pageState = await readyTask;
+                        if (pageState != BrowserMatrixWindow.FacebookPageState.Authenticated)
+                        {
+                            throw new InvalidOperationException(
+                                $"账号 {accountId} 未完成登录，无法发个人帖: {pageState}");
+                        }
                     }
 
                     if (browserMatrixWindow != null)
@@ -447,6 +473,21 @@ namespace SocialMatrix.WpfHost.Services
                         // 执行发个人帖
                         System.Diagnostics.Debug.WriteLine($"📝 开始执行发个人帖...");
                         await browserMatrixWindow.ExecutePublishPost(accountId, actionConfigJson);
+
+                        var callbackDetailId = string.IsNullOrWhiteSpace(detailId)
+                            ? $"publish_post_{taskId}_{accountId}"
+                            : detailId;
+                        var resultJson = JsonConvert.SerializeObject(new
+                        {
+                            success = true,
+                            taskId,
+                            detailId = callbackDetailId,
+                            accountId,
+                            actualCount = 1,
+                            message = "发个人帖成功"
+                        });
+                        browserMatrixWindow.NotifyCollectionComplete(
+                            callbackDetailId, accountId, resultJson, 12);
                         
                         System.Diagnostics.Debug.WriteLine($"✅ 发个人帖任务完成: TaskId={taskId}");
                     }
@@ -458,6 +499,10 @@ namespace SocialMatrix.WpfHost.Services
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"❌ 发个人帖任务异常: {ex.Message}\n{ex.StackTrace}");
+                }
+                finally
+                {
+                    _directPublishAccounts.TryRemove(accountId, out _);
                 }
             });
         }
@@ -494,6 +539,10 @@ namespace SocialMatrix.WpfHost.Services
                     if (needCreateBrowser)
                     {
                         System.Diagnostics.Debug.WriteLine($"🆕 为账号 {accountId} 创建浏览器");
+
+                        // 发群帖也必须等待首页完成 Cookie/密码/2FA 登录，不能只等待页面可执行脚本。
+                        browserMatrixWindow ??= mainWindow.GetOrCreateBrowserMatrixWindow(accountId);
+                        var readyTask = browserMatrixWindow.WaitForBrowserReadyAsync(accountId);
                         
                         // 创建浏览器（不指定URL，稍后脚本会导航）
                         mainWindow.CreateBrowserForAccount(
@@ -508,6 +557,18 @@ namespace SocialMatrix.WpfHost.Services
                             loginAccountId: string.IsNullOrWhiteSpace(fbAccount) ? accountId : fbAccount); // 发群帖任务类型
                         
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
+
+                        var completed = await Task.WhenAny(readyTask, Task.Delay(30000));
+                        if (completed != readyTask)
+                        {
+                            throw new TimeoutException($"账号 {accountId} 首页登录状态确认超时");
+                        }
+                        var pageState = await readyTask;
+                        if (pageState != BrowserMatrixWindow.FacebookPageState.Authenticated)
+                        {
+                            throw new InvalidOperationException(
+                                $"账号 {accountId} 未完成登录，无法发群帖: {pageState}");
+                        }
                     }
 
                     if (browserMatrixWindow != null)

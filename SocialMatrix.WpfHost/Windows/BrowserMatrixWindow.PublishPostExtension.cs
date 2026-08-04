@@ -74,7 +74,6 @@ namespace SocialMatrix.WpfHost.Windows
                 var builder = new PublishPostScriptBuilder(actionConfigJson);
 
                 await RunPublishPostScript(browser, builder.BuildOpenComposerScript(), "打开发帖 composer");
-                await RunPublishPostScript(browser, builder.BuildSetPrivacyScript(privacySetting), "设置隐私");
 
                 if (!string.IsNullOrWhiteSpace(postContent))
                 {
@@ -85,6 +84,8 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     await UploadPublishPostMedia(browser, mediaUrls);
                 }
+
+                await RunPublishPostScript(browser, builder.BuildSetPrivacyScript(privacySetting), "设置隐私");
 
                 await RunPublishPostScript(browser, builder.BuildClickPostScript(), "发布帖子");
 

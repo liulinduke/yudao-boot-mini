@@ -201,6 +201,69 @@ namespace SocialMatrix.WpfHost.Windows
             await Task.Delay(1500);
 
             var pageState = await DetectFacebookPageStateAsync(browser, account.AccountId);
+            if (pageState == FacebookPageState.Unknown)
+            {
+                var continueClicked = await ClickFacebookContinueAsync(browser);
+                if (continueClicked)
+                {
+                    System.Diagnostics.Debug.WriteLine($"▶️ 账号 {account.AccountId} 检测到 Continue，已点击并等待页面状态");
+                    try
+                    {
+                        await WaitForPageLoad(browser, 30000);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {account.AccountId} 点击 Continue 后页面等待异常: {ex.Message}");
+                    }
+                    await Task.Delay(1800);
+
+                    var continueAuthState = await DetectFacebookAuthStateAsync(browser);
+                    if (continueAuthState == "home")
+                    {
+                        await DismissPostLoginOverlayAsync(browser);
+                        var cookieJson = await ExportFacebookCookiesAsync(browser);
+                        if (!string.IsNullOrWhiteSpace(cookieJson))
+                        {
+                            return new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true, CookieJson: cookieJson);
+                        }
+                    }
+                    if (continueAuthState == "two_factor")
+                    {
+                        return await SubmitTwoFactorAndCaptureAsync(browser, account);
+                    }
+                    if (await SubmitContinuePasswordAsync(browser, account.Password))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🔑 账号 {account.AccountId} Continue 后已提交密码登录");
+                        try
+                        {
+                            // 与采集任务保持一致：等 CEF 页面加载完成事件结束后，再判断登录结果。
+                            await WaitForPageLoad(browser, 30000);
+                            System.Diagnostics.Debug.WriteLine($"📌 账号 {account.AccountId} 密码登录后的首页页面加载完成");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {account.AccountId} 密码登录后页面加载等待异常: {ex.Message}");
+                        }
+                        var passwordAuthState = await WaitForPostCredentialStateAsync(browser, account.AccountId);
+                        System.Diagnostics.Debug.WriteLine($"🔍 Continue 后密码登录状态: {passwordAuthState}");
+                        if (passwordAuthState == "home")
+                        {
+                            await DismissPostLoginOverlayAsync(browser);
+                            var cookieJson = await ExportFacebookCookiesAsync(browser);
+                            if (!string.IsNullOrWhiteSpace(cookieJson))
+                            {
+                                return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true, CookieJson: cookieJson);
+                            }
+                            return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "Login succeeded but cookie was not captured");
+                        }
+                        if (passwordAuthState == "two_factor")
+                        {
+                            return await SubmitTwoFactorAndCaptureAsync(browser, account);
+                        }
+                    }
+                    pageState = await DetectFacebookPageStateAsync(browser, account.AccountId);
+                }
+            }
             if (pageState == FacebookPageState.NetworkError || pageState == FacebookPageState.PageLoading || pageState == FacebookPageState.Unknown)
             {
                 return new AccountLoginResult(account.Id, account.AccountId, "network_error", ErrorReason: GetPageStateMessage(pageState));
@@ -208,7 +271,8 @@ namespace SocialMatrix.WpfHost.Windows
 
             if (pageState == FacebookPageState.Authenticated)
             {
-                await DismissPostLoginOverlayAsync(browser);
+                // 有效 Cookie 已直接进入首页，不经过密码登录，不处理 Remember password 弹框。
+                System.Diagnostics.Debug.WriteLine($"✅ 账号 {account.AccountId} Cookie 已直接进入 Facebook 首页，跳过 Remember password");
                 var cookieJson = await ExportFacebookCookiesAsync(browser);
                 if (!string.IsNullOrWhiteSpace(cookieJson))
                 {
@@ -257,50 +321,7 @@ namespace SocialMatrix.WpfHost.Windows
 
             if (authState == "two_factor")
             {
-                if (string.IsNullOrWhiteSpace(account.Tfa))
-                {
-                    return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA required but not configured");
-                }
-
-                System.Diagnostics.Debug.WriteLine($"🔐 账号 {account.AccountId} 检测到 2FA，开始提交动态验证码");
-                var code = GenerateTotpCode(account.Tfa);
-                if (string.IsNullOrWhiteSpace(code))
-                {
-                    return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "Failed to generate 2FA code");
-                }
-
-                var twoFactorResult = await browser.EvaluateScriptAsync(BuildTwoFactorSubmitScript(code));
-                if (!twoFactorResult.Success || !(twoFactorResult.Result is bool submitted) || !submitted)
-                {
-                    return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA submission failed");
-                }
-
-                await Task.Delay(5000);
-                authState = await DetectFacebookAuthStateAsync(browser);
-                if (authState == "remember_browser")
-                {
-                    await browser.EvaluateScriptAsync(BuildRememberBrowserScript());
-                    await Task.Delay(3000);
-                    authState = await DetectFacebookAuthStateAsync(browser);
-                }
-
-                if (authState == "home")
-                {
-                    await DismissPostLoginOverlayAsync(browser);
-                    var cookieJson = await ExportFacebookCookiesAsync(browser);
-                    if (!string.IsNullOrWhiteSpace(cookieJson))
-                    {
-                        return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true, CookieJson: cookieJson);
-                    }
-                    return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA passed but cookie was not captured");
-                }
-
-                return new AccountLoginResult(
-                    account.Id,
-                    account.AccountId,
-                    authState == "disabled" ? "account_disabled" : "failed",
-                    "credential",
-                    MapAuthStateToReason(authState));
+                return await SubmitTwoFactorAndCaptureAsync(browser, account);
             }
 
             return new AccountLoginResult(
@@ -309,6 +330,162 @@ namespace SocialMatrix.WpfHost.Windows
                 authState == "disabled" ? "account_disabled" : "failed",
                 "credential",
                 MapAuthStateToReason(authState));
+        }
+
+        private async Task<bool> ClickFacebookContinueAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                var result = await browser.EvaluateScriptAsync($@"
+                    new Promise(async function(resolve) {{
+                        try {{
+                            {BuildLoginHumanHelpers()}
+                            const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                            const isContinue = (el) => {{
+                                if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                                const text = norm(el.innerText || el.textContent || el.getAttribute('aria-label'));
+                                return text === 'continue' || text.startsWith('continue ') || text === '继续' || text.startsWith('继续 ');
+                            }};
+                            const candidates = [...document.querySelectorAll('[role=""button""], button')]
+                                .filter(isContinue)
+                                .sort((a, b) => {{
+                                    const aa = a.getAttribute('aria-label') || '';
+                                    const bb = b.getAttribute('aria-label') || '';
+                                    const aSpecific = /continue\s+.+/i.test(aa) ? 0 : 1;
+                                    const bSpecific = /continue\s+.+/i.test(bb) ? 0 : 1;
+                                    return aSpecific - bSpecific;
+                                }});
+                            if (!candidates.length) {{ resolve(false); return; }}
+                            await humanClick(candidates[0]);
+                            resolve(true);
+                        }} catch (e) {{
+                            console.warn('[登录] 点击 Continue 失败:', e);
+                            resolve(false);
+                        }}
+                    }});
+                ");
+                return result.Success && result.Result is bool clicked && clicked;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 点击 Continue 脚本异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<AccountLoginResult> SubmitTwoFactorAndCaptureAsync(
+            ChromiumWebBrowser browser, AccountLoginRequest account)
+        {
+            if (string.IsNullOrWhiteSpace(account.Tfa))
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA required but not configured");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"🔐 账号 {account.AccountId} 检测到 2FA，开始提交动态验证码");
+            var code = GenerateTotpCode(account.Tfa);
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "Failed to generate 2FA code");
+            }
+
+            var twoFactorResult = await browser.EvaluateScriptAsync(BuildTwoFactorSubmitScript(code));
+            if (!twoFactorResult.Success || !(twoFactorResult.Result is bool submitted) || !submitted)
+            {
+                return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA submission failed");
+            }
+
+            await Task.Delay(5000);
+            var authState = await DetectFacebookAuthStateAsync(browser);
+            if (authState == "remember_browser")
+            {
+                await browser.EvaluateScriptAsync(BuildRememberBrowserScript());
+                try
+                {
+                    await WaitForPageLoad(browser, 30000);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {account.AccountId} 点击 Trust this device 后等待页面异常: {ex.Message}");
+                }
+                await Task.Delay(3000);
+                authState = await DetectFacebookAuthStateAsync(browser);
+            }
+
+            if (authState == "home")
+            {
+                await DismissPostLoginOverlayAsync(browser);
+                var cookieJson = await ExportFacebookCookiesAsync(browser);
+                if (!string.IsNullOrWhiteSpace(cookieJson))
+                {
+                    return new AccountLoginResult(account.Id, account.AccountId, "success", "credential", null, true, CookieJson: cookieJson);
+                }
+                return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "2FA passed but cookie was not captured");
+            }
+
+            return new AccountLoginResult(
+                account.Id,
+                account.AccountId,
+                authState == "disabled" ? "account_disabled" : "failed",
+                "credential",
+                MapAuthStateToReason(authState));
+        }
+
+        private async Task<bool> SubmitContinuePasswordAsync(ChromiumWebBrowser browser, string? password)
+        {
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                return false;
+            }
+            try
+            {
+                var result = await browser.EvaluateScriptAsync($@"
+                    new Promise(async function(resolve) {{
+                        try {{
+                            {BuildLoginHumanHelpers()}
+                            const isActuallyVisible = (el) => {{
+                                if (!isVisible(el)) return false;
+                                const rect = el.getBoundingClientRect();
+                                const style = window.getComputedStyle(el);
+                                return rect.width > 8 && rect.height > 8 &&
+                                    style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                            }};
+                            let input = null;
+                            for (let attempt = 0; attempt < 30 && !input; attempt++) {{
+                                input = [...document.querySelectorAll('input[name=""pass""], input[type=""password""]')]
+                                    .find(el => isActuallyVisible(el) && !el.disabled) || null;
+                                if (!input) await randomDelay(250, 450);
+                            }}
+                            if (!input) {{ resolve(false); return; }}
+                            await humanClick(input);
+                            await humanTypeInput(input, {JsonConvert.SerializeObject(password)});
+                            await randomDelay(400, 800);
+                            const form = input.closest('form');
+                            const formSubmit = form
+                                ? [...form.querySelectorAll('button[type=""submit""], input[type=""submit""]')]
+                                    .find(el => isActuallyVisible(el))
+                                : null;
+                            const visibleLoginButton = [...document.querySelectorAll('[role=""button""], button, input[type=""submit""]')]
+                                .find(el => isActuallyVisible(el) && /^(log in|login|登录)$/i.test((el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || '').trim()));
+                            const submit = formSubmit || visibleLoginButton;
+                            if (!submit || !isActuallyVisible(submit)) {{ resolve(false); return; }}
+                            await humanClick(submit);
+                            resolve(true);
+                        }} catch (e) {{
+                            console.warn('[登录] Continue 后密码提交失败:', e);
+                            resolve(false);
+                        }}
+                    }});
+                ");
+                var submitted = result.Success && result.Result is bool value && value;
+                System.Diagnostics.Debug.WriteLine(
+                    $"🔍 Continue 后密码提交结果: success={result.Success}, submitted={submitted}, result={result.Result}");
+                return submitted;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ Continue 后密码提交脚本异常: {ex.Message}");
+                return false;
+            }
         }
 
         private async Task<string> DetectFacebookAuthStateAsync(ChromiumWebBrowser browser)
@@ -364,10 +541,92 @@ namespace SocialMatrix.WpfHost.Windows
                 : "unknown";
         }
 
+        private async Task<string> WaitForPostCredentialStateAsync(ChromiumWebBrowser browser, string accountId)
+        {
+            for (var attempt = 0; attempt < 30; attempt++)
+            {
+                var authState = await DetectFacebookAuthStateAsync(browser);
+                if (authState == "two_factor" || authState == "remember_browser" || authState == "disabled"
+                    || authState == "checkpoint" || authState == "phone_verify" || authState == "email_verify"
+                    || authState == "identity_verify" || authState == "recover_code")
+                {
+                    return authState;
+                }
+
+                var pageState = await DetectFacebookPageStateAsync(browser, accountId);
+                if (pageState == FacebookPageState.Authenticated)
+                {
+                    return "home";
+                }
+                if (pageState == FacebookPageState.AccountDisabled)
+                {
+                    return "disabled";
+                }
+                var homeDomResult = await browser.EvaluateScriptAsync(@"
+                    document.readyState === 'complete' && !!document.querySelector(
+                        '[role=""feed""], [role=""main""], [data-pagelet=""MainFeed""], ' +
+                        'nav[aria-label=""Primary""], [aria-label=""Your profile""], [aria-label=""Home""]');
+                ");
+                if (homeDomResult.Success && homeDomResult.Result is bool homeReady && homeReady)
+                {
+                    return "home";
+                }
+                await Task.Delay(1000);
+            }
+            return await DetectFacebookAuthStateAsync(browser);
+        }
+
+        private async Task WaitForFacebookHomeReadyAsync(ChromiumWebBrowser browser)
+        {
+            for (var attempt = 0; attempt < 30; attempt++)
+            {
+                if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
+                {
+                    return;
+                }
+                var result = await browser.EvaluateScriptAsync(@"
+                    (function() {
+                        if (document.readyState !== 'complete') return false;
+                        return !!document.querySelector(
+                            '[role=""feed""], [role=""main""], [data-pagelet=""MainFeed""], ' +
+                            'nav[aria-label=""Primary""], [aria-label=""Your profile""], [aria-label=""Home""]');
+                    })();
+                ");
+                if (result.Success && result.Result is bool ready && ready)
+                {
+                    System.Diagnostics.Debug.WriteLine("📌 登录后 Facebook 首页 DOM 已就绪，开始等待 Remember password 弹框");
+                    return;
+                }
+                await Task.Delay(500);
+            }
+            System.Diagnostics.Debug.WriteLine("⚠️ 登录后首页 DOM 等待超时，继续检查 Remember password 弹框");
+        }
+
         private async Task DismissPostLoginOverlayAsync(ChromiumWebBrowser browser)
         {
             try
             {
+                try
+                {
+                    // 使用采集同一套页面加载完成等待，避免在主界面尚未加载时处理登录浮层。
+                    await WaitForPageLoad(browser, 30000);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 登录后处理浮层前页面加载等待异常: {ex.Message}");
+                }
+                await WaitForFacebookHomeReadyAsync(browser);
+
+                // Facebook 的 Remember password 浮层通常在首页渲染完成后异步出现，轮询一小段时间避免错过。
+                for (var attempt = 0; attempt < 60; attempt++)
+                {
+                    if (await AcceptRememberPasswordPromptAsync(browser))
+                    {
+                        await Task.Delay(700);
+                        return;
+                    }
+                    await Task.Delay(500);
+                }
                 await browser.EvaluateScriptAsync(@"
                     new Promise(function(resolve) {
                         try {
@@ -456,6 +715,53 @@ namespace SocialMatrix.WpfHost.Windows
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Post-login overlay dismiss failed: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> AcceptRememberPasswordPromptAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                var result = await browser.EvaluateScriptAsync($@"
+                    new Promise(async function(resolve) {{
+                        try {{
+                            {BuildLoginHumanHelpers()}
+                            const pageText = (document.body?.innerText || '').toLowerCase();
+                            if (!pageText.includes('remember password')) {{ resolve(false); return; }}
+                            const isActuallyVisible = (el) => {{
+                                if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                                const rect = el.getBoundingClientRect();
+                                const style = window.getComputedStyle(el);
+                                return rect.width > 8 && rect.height > 8 &&
+                                    style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                            }};
+                            const okButton = [...document.querySelectorAll('[role=""button""][aria-label=""OK""]')]
+                                .find(isActuallyVisible) || [...document.querySelectorAll('[role=""button""], button')]
+                                .find(el => {{
+                                    if (!isActuallyVisible(el)) return false;
+                                    const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    return text === 'ok';
+                                }});
+                            if (!okButton) {{ resolve(false); return; }}
+                            await humanClick(okButton);
+                            resolve(true);
+                        }} catch (e) {{
+                            console.warn('[登录] 点击 Remember password 的 OK 失败:', e);
+                            resolve(false);
+                        }}
+                    }});
+                ");
+                var accepted = result.Success && result.Result is bool value && value;
+                if (accepted)
+                {
+                    System.Diagnostics.Debug.WriteLine("✅ 已点击 Remember password 弹框的 OK");
+                }
+                return accepted;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ Remember password 弹框处理失败: {ex.Message}");
+                return false;
             }
         }
 
@@ -704,18 +1010,30 @@ namespace SocialMatrix.WpfHost.Windows
                 new Promise(function(resolve) {{
                 (async function() {{
                     {BuildLoginHumanHelpers()}
-                    const primaryButtons = [...document.querySelectorAll('[role=""button""]')]
+                    const isActuallyVisible = (el) => {{
+                        if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        return rect.width > 8 && rect.height > 8 && rect.top >= 0 &&
+                            style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                    }};
+                    const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    const buttons = [...document.querySelectorAll('[role=""button""], button')]
+                        .filter(isActuallyVisible);
+                    const trustButton = buttons.find(el => {{
+                        const text = norm(el.innerText || el.textContent || el.getAttribute('aria-label'));
+                        return text === 'trust this device' || text === '信任此设备' || text === '信任这台设备';
+                    }});
+                    const primaryButtons = buttons
                         .map(el => ({{ el, rect: el.getBoundingClientRect() }}))
                         .filter(item =>
-                            isVisible(item.el) &&
-                            item.el.getAttribute('aria-disabled') !== 'true' &&
                             item.rect.width >= 160 &&
                             item.rect.height >= 32 &&
                             item.rect.top >= 100
                         )
                         .sort((a, b) => (a.rect.top - b.rect.top) || (a.rect.left - b.rect.left));
 
-                    const submit = primaryButtons[0]?.el;
+                    const submit = trustButton || primaryButtons[0]?.el;
                     if (!submit) {{
                         resolve(false);
                         return;

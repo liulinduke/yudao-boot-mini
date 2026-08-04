@@ -1403,6 +1403,23 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return selected.stream().map(String::valueOf).collect(Collectors.toList());
     }
 
+    /**
+     * 触达阶段重新选择账号，不沿用采集阶段账号池。
+     * AUTO 按本批实际触达数量决定最多参与的账号数，MANUAL 仍限制在用户选择的账号范围内。
+     */
+    private List<String> resolveAgentTouchAccountIds(FbAiAgentConfigDO config, String actionType, int targetCount) {
+        if (config == null || targetCount <= 0) {
+            return Collections.emptyList();
+        }
+        List<String> requested = parseCsvStringList(config.getAccountIds());
+        List<Long> requestedIds = requested.stream().map(Long::valueOf).collect(Collectors.toList());
+        String mode = StrUtil.isBlank(config.getAccountSelectionMode())
+                ? (CollUtil.isEmpty(requested) ? "AUTO" : "MANUAL") : config.getAccountSelectionMode();
+        List<Long> selected = accountAllocationService.selectAccounts(
+                mode, requestedIds, targetCount, "agent", Collections.singletonList(actionType));
+        return selected.stream().map(String::valueOf).collect(Collectors.toList());
+    }
+
     private int distributeExpectedCount(int total, int buckets, int index) {
         if (buckets <= 0) {
             return total;
@@ -1676,9 +1693,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private int queueHighIntentTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> scopedLeadIds) {
-        if (CollUtil.isEmpty(accountIds)) {
-            return 0;
-        }
         List<Long> discoveryTaskIds = getAgentDiscoveryTaskIds(config.getId());
         if (CollUtil.isEmpty(discoveryTaskIds)) {
             return 0;
@@ -1700,9 +1714,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private int queuePostHighIntentTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> scopedPostIds) {
-        if (CollUtil.isEmpty(accountIds)) {
-            return 0;
-        }
         List<Long> postIds = CollUtil.isNotEmpty(scopedPostIds) ? scopedPostIds : getAgentPostLeadIds(config.getId());
         if (CollUtil.isEmpty(postIds)) {
             return 0;
@@ -1899,6 +1910,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(users)) {
             return 0;
         }
+        List<String> touchAccountIds = resolveAgentTouchAccountIds(config, "dm", users.size());
+        if (CollUtil.isEmpty(touchAccountIds)) {
+            return 0;
+        }
         int queued = 0;
         Set<String> queuedTargetUserIds = new HashSet<>();
         int missingTarget = 0;
@@ -1922,7 +1937,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 existingTargetTouch++;
                 continue;
             }
-            String accountId = pickAccount(accountIds, queued);
+            String accountId = pickAccount(touchAccountIds, queued);
             FbAiTouchRecordDO record = buildTouchRecord(config, "user", user.getId(), user.getUrl(),
                     user.getFbUserId(), accountId, "dm", buildDmContent(config, user));
             createTouchRecord(record);
@@ -1947,12 +1962,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(users)) {
             return 0;
         }
+        List<String> touchAccountIds = resolveAgentTouchAccountIds(config, "comment", users.size());
+        if (CollUtil.isEmpty(touchAccountIds)) {
+            return 0;
+        }
         int queued = 0;
         for (FbCollectUserDO user : users) {
             if (StrUtil.isBlank(user.getUrl()) || !isCommentablePostUrl(user.getUrl()) || existsTouchRecord("user", user.getId(), "comment")) {
                 continue;
             }
-            String accountId = pickAccount(accountIds, queued);
+            String accountId = pickAccount(touchAccountIds, queued);
             FbAiTouchRecordDO record = buildTouchRecord(config, "user", user.getId(), user.getUrl(),
                     user.getFbUserId(), accountId, "comment", buildCommentContent(config, user));
             createTouchRecord(record);
@@ -1976,12 +1995,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(posts)) {
             return 0;
         }
+        List<String> touchAccountIds = resolveAgentTouchAccountIds(config, "comment", posts.size());
+        if (CollUtil.isEmpty(touchAccountIds)) {
+            return 0;
+        }
         int queued = 0;
         for (FbCollectPostDO post : posts) {
             if (StrUtil.isBlank(post.getUrl()) || !isCommentablePostUrl(post.getUrl()) || existsTouchRecord("post", post.getId(), "comment")) {
                 continue;
             }
-            String accountId = pickAccount(accountIds, queued);
+            String accountId = pickAccount(touchAccountIds, queued);
             FbAiTouchRecordDO record = buildTouchRecord(config, "post", post.getId(), post.getUrl(),
                     post.getPostAuthorId(), accountId, "comment", buildCommentContent(config, post));
             createTouchRecord(record);
@@ -2005,6 +2028,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(posts)) {
             return 0;
         }
+        List<String> touchAccountIds = resolveAgentTouchAccountIds(config, "dm", posts.size());
+        if (CollUtil.isEmpty(touchAccountIds)) {
+            return 0;
+        }
         int queued = 0;
         Set<String> queuedTargetUserIds = new HashSet<>();
         for (FbCollectPostDO post : posts) {
@@ -2017,7 +2044,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (existsTouchRecord("post", post.getId(), "dm") || existsTouchRecordByTargetUserId(post.getPostAuthorId(), "dm")) {
                 continue;
             }
-            String accountId = pickAccount(accountIds, queued);
+            String accountId = pickAccount(touchAccountIds, queued);
             FbAiTouchRecordDO record = buildTouchRecord(config, "post", post.getId(), post.getPostAuthorUrl(),
                     post.getPostAuthorId(), accountId, "dm", buildDmContent(config, post));
             createTouchRecord(record);
@@ -2027,7 +2054,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private int queueCommentLeadDmTouches(FbAiAgentConfigDO config, List<String> accountIds, List<Long> leadIds) {
-        if (CollUtil.isEmpty(accountIds) || CollUtil.isEmpty(leadIds) || !Boolean.TRUE.equals(config.getAutoDmEnabled())) {
+        if (CollUtil.isEmpty(leadIds) || !Boolean.TRUE.equals(config.getAutoDmEnabled())) {
             return 0;
         }
         int remaining = Math.min(MAX_TOUCH_QUEUE_PER_RUN, remainingDailyTouchLimit(config.getDailyDmLimit(), "dm"));
@@ -2045,6 +2072,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(users)) {
             return 0;
         }
+        List<String> touchAccountIds = resolveAgentTouchAccountIds(config, "dm", users.size());
+        if (CollUtil.isEmpty(touchAccountIds)) {
+            return 0;
+        }
         int queued = 0;
         Set<String> queuedTargetUserIds = new HashSet<>();
         for (FbCollectUserDO user : users) {
@@ -2057,7 +2088,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (existsTouchRecord("comment", user.getId(), "dm") || existsTouchRecordByTargetUserId(user.getFbUserId(), "dm")) {
                 continue;
             }
-            String accountId = pickAccount(accountIds, queued);
+            String accountId = pickAccount(touchAccountIds, queued);
             FbAiTouchRecordDO record = buildTouchRecord(config, "comment", user.getId(), user.getUrl(),
                     user.getFbUserId(), accountId, "dm", buildDmContent(config, user));
             createTouchRecord(record);
@@ -3552,7 +3583,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (CollUtil.isEmpty(resolveCompetitorPageUrls(BeanUtils.toBean(reqVO, FbAiAgentConfigDO.class)))) {
                 throw exception0(2_011_000_008, "启用AI竞品监控前请配置竞品主页");
             }
-            if (StrUtil.isBlank(reqVO.getAccountIds())) {
+            if (isManualAccountSelection(reqVO) && StrUtil.isBlank(reqVO.getAccountIds())) {
                 throw exception0(2_011_000_003, "启用Agent前请选择执行账号池");
             }
             if (StrUtil.isBlank(reqVO.getExportProduct())) {
@@ -3567,7 +3598,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (StrUtil.isBlank(reqVO.getMonitorGroupIds()) && CollUtil.isEmpty(resolveGroupPostUrls(BeanUtils.toBean(reqVO, FbAiAgentConfigDO.class)))) {
                 throw exception0(2_011_000_008, "启用群组型Agent前请配置监控群组");
             }
-            if (StrUtil.isBlank(reqVO.getAccountIds())) {
+            if (isManualAccountSelection(reqVO) && StrUtil.isBlank(reqVO.getAccountIds())) {
                 throw exception0(2_011_000_003, "启用Agent前请选择执行账号池");
             }
             if (StrUtil.isBlank(reqVO.getExportProduct())) {
@@ -3586,7 +3617,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 && !hasSearchKeywordParameter(reqVO.getSearchUrlTemplate())) {
             throw exception0(2_011_000_011, "链接搜索模式下请填写包含 q 参数的 Facebook 搜索结果链接");
         }
-        if (StrUtil.isBlank(reqVO.getAccountIds())) {
+        if (isManualAccountSelection(reqVO) && StrUtil.isBlank(reqVO.getAccountIds())) {
             throw exception0(2_011_000_003, "启用Agent前请选择执行账号池");
         }
         List<String> keywordPool = parseJsonStringList(reqVO.getKeywordPool());
@@ -3602,6 +3633,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (reqVO.getKeywordsPerRun() != null && reqVO.getKeywordsPerRun() > keywordPool.size()) {
             throw exception0(2_011_000_005, "每轮执行关键词数量不能大于关键词池总数");
         }
+    }
+
+    private boolean isManualAccountSelection(FbAiAgentConfigSaveReqVO reqVO) {
+        return reqVO == null || !"AUTO".equalsIgnoreCase(reqVO.getAccountSelectionMode());
     }
 
     private boolean isValidExecuteTime(String executeTime) {

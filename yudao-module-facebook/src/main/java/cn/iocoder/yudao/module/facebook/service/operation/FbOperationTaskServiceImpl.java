@@ -172,6 +172,8 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
                     ? detailActionConfig.getJSONArray("groups") == null ? 0 : detailActionConfig.getJSONArray("groups").size()
                     : Integer.valueOf(13).equals(task.getTaskType())
                     ? calculateGroupPublishExpectedCount(detailActionConfig)
+                    : Integer.valueOf(12).equals(task.getTaskType())
+                    ? 1
                     : createReqVO.getExpectedCount();
             if ((Integer.valueOf(9).equals(task.getTaskType()) || Integer.valueOf(13).equals(task.getTaskType()))
                     && detailExpectedCount <= 0) {
@@ -830,6 +832,35 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         releaseOperationAccountRunning(detail);
 
         // 更新主任务的统计信息
+        updateTaskStatistics(detail.getTaskId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markDetailSuccess(Long detailId, Integer actualCount) {
+        if (detailId == null) {
+            return;
+        }
+        FbOperationTaskDetailDO detail = operationTaskDetailMapper.selectById(detailId);
+        if (detail == null) {
+            throw exception(OPERATION_TASK_DETAIL_NOT_EXISTS);
+        }
+        if (Integer.valueOf(2).equals(detail.getStatus())) {
+            return;
+        }
+        if (Integer.valueOf(3).equals(detail.getStatus())) {
+            return;
+        }
+
+        detail.setStatus(2);
+        detail.setActualCount(actualCount != null && actualCount > 0 ? actualCount : 1);
+        if (detail.getStartTime() == null) {
+            detail.setStartTime(LocalDateTime.now());
+        }
+        detail.setEndTime(LocalDateTime.now());
+        detail.setErrorMsg(null);
+        operationTaskDetailMapper.updateById(detail);
+        releaseOperationAccountRunning(detail);
         updateTaskStatistics(detail.getTaskId());
     }
 

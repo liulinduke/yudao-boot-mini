@@ -2,7 +2,7 @@ import { DmTaskApi } from '@/api/facebook/dmtask'
 import { FbCollectGroupApi } from '@/api/facebook/fbcollectgroup'
 import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import { FbCollectUserApi } from '@/api/facebook/collectuser'
-import { batchSaveAddGroupResult, batchSaveRepostResult } from '@/api/facebook/operation'
+import { batchSaveAddGroupResult, batchSaveRepostResult, markOperationDetailSuccess } from '@/api/facebook/operation'
 import {
   beginQueuedDetailResult,
   beginQueuedDmResult,
@@ -21,6 +21,7 @@ const handledCollectDetailIds = new Set<string>()
 const handledDmDetailIds = new Set<string>()
 const handledGroupPublishDetailIds = new Set<string>()
 const handledRepostDetailIds = new Set<string>()
+const handledPublishPostDetailIds = new Set<string>()
 let initialized = false
 
 function parseResultList(raw: unknown): any[] {
@@ -58,6 +59,10 @@ export function setupWpfOperationSync() {
     }
     if (data.taskType === 13) {
       await saveGroupPublishResult(data)
+      return
+    }
+    if (data.taskType === 12) {
+      await savePublishPostResult(data)
       return
     }
     if (data.taskType !== 14) {
@@ -257,6 +262,37 @@ async function saveGroupPublishResult(data: any) {
   } catch (error) {
     handledGroupPublishDetailIds.delete(detailId)
     console.error('[发群帖结果] 上报失败:', error)
+  }
+}
+
+async function savePublishPostResult(data: any) {
+  const detailId = String(data.detailId || '')
+  if (!detailId || handledPublishPostDetailIds.has(detailId)) {
+    return
+  }
+
+  handledPublishPostDetailIds.add(detailId)
+  const accountId = String(data.accountId || '')
+  try {
+    const result = data.results && typeof data.results === 'object' ? data.results : {}
+    if (result.success === false) {
+      throw new Error(result.message || '发个人帖失败')
+    }
+    await markOperationDetailSuccess({
+      detailId,
+      actualCount: Number(result.actualCount || 1)
+    })
+    window.dispatchEvent(new CustomEvent('fb:publish-post:result:saved', { detail: { detailId } }))
+    const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+    const nextAccountId = nextDetail
+      ? String(nextDetail.accountId || nextDetail.fbAccount || '')
+      : ''
+    if (accountId && (!nextDetail || nextAccountId !== accountId)) {
+      closeBrowser(accountId)
+    }
+  } catch (error) {
+    handledPublishPostDetailIds.delete(detailId)
+    console.error('[发个人帖结果] 上报失败:', error)
   }
 }
 

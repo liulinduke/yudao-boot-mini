@@ -58,6 +58,11 @@ namespace SocialMatrix.WpfHost.Windows
         public event Action<string, string, string, int>? OnCollectionComplete; // (detailId, accountId, jsonData, taskType)
         public event Action<string, string>? OnCollectionError;    // (accountId, errorMessage)
 
+        public void NotifyCollectionComplete(string detailId, string accountId, string jsonData, int taskType)
+        {
+            OnCollectionComplete?.Invoke(detailId, accountId, jsonData, taskType);
+        }
+
         /// <summary>
         /// 注册一个账号的首页初始化完成等待。调用方必须在创建浏览器前注册。
         /// </summary>
@@ -1065,7 +1070,7 @@ namespace SocialMatrix.WpfHost.Windows
             try
             {
                 // 使用动态类型解析，避免枚举转换问题
-                var cookieList = JsonConvert.DeserializeObject<List<dynamic>>(cookieJson);
+                var cookieList = JArray.Parse(cookieJson);
                 if (cookieList == null) return false;
 
                 // ❗ 关键修复：使用浏览器关联的 RequestContext 的 CookieManager，而不是全局的
@@ -1084,21 +1089,19 @@ namespace SocialMatrix.WpfHost.Windows
                     {
                         var cookie = new CefSharp.Cookie
                         {
-                            Name = cookieData.name?.ToString(),
-                            Value = cookieData.value?.ToString(),
-                            Domain = cookieData.domain?.ToString(),
-                            Path = cookieData.path?.ToString() ?? "/",
-                            Secure = cookieData.secure?.ToObject<bool>() ?? false,
-                            HttpOnly = cookieData.httpOnly?.ToObject<bool>() ?? false,
-                            Expires = cookieData.expirationDate != null
-                                ? DateTimeOffset.FromUnixTimeSeconds(cookieData.expirationDate).DateTime
-                                : DateTime.MaxValue
+                            Name = cookieData["name"]?.ToString(),
+                            Value = cookieData["value"]?.ToString(),
+                            Domain = cookieData["domain"]?.ToString(),
+                            Path = cookieData["path"]?.ToString() ?? "/",
+                            Secure = cookieData["secure"]?.Value<bool>() ?? false,
+                            HttpOnly = cookieData["httpOnly"]?.Value<bool>() ?? false,
+                            Expires = FacebookCookieExpirationHelper.Parse(cookieData["expirationDate"])
                         };
 
                         // 处理 sameSite 字段（可选）
-                        if (cookieData.sameSite != null)
+                        if (cookieData["sameSite"] != null)
                         {
-                            var sameSiteStr = cookieData.sameSite.ToString();
+                            var sameSiteStr = cookieData["sameSite"]!.ToString();
                             CefSharp.Enums.CookieSameSite sameSite;
                             if (Enum.TryParse<CefSharp.Enums.CookieSameSite>(sameSiteStr, true, out sameSite))
                             {

@@ -96,8 +96,9 @@ namespace SocialMatrix.WpfHost.Services
             _js.AppendLine("                    element.dispatchEvent(new MouseEvent('mousedown', eventOptions));");
             _js.AppendLine("                    await randomDelay(80, 180);");
             _js.AppendLine("                    element.dispatchEvent(new MouseEvent('mouseup', eventOptions));");
+            // The synthetic mouse sequence already dispatches click. Calling element.click()
+            // here dispatches a second click and makes Facebook open duplicate dialogs.
             _js.AppendLine("                    element.dispatchEvent(new MouseEvent('click', eventOptions));");
-            _js.AppendLine("                    if (typeof element.click === 'function') element.click();");
             _js.AppendLine("                    return true;");
             _js.AppendLine("                } catch (e) { console.warn('[人类行为] 点击失败:', e); return false; }");
             _js.AppendLine("            };");

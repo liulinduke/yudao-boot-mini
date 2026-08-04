@@ -174,7 +174,9 @@ const loadGroups = async () => {
       const accountResult = await FbOperationAddGroupResultApi.getSelectorAccounts({
         accountSelectionMode: 'AUTO',
         targetAccountCount: props.targetAccountCount,
-        minGroupCount: props.groupsPerAccount || 1,
+        // 每个账号发帖数是最多选择数量，不要求账号必须先有同样数量的群组。
+        // 账号只要有至少一个符合条件的已加入群组，就可以参与自动分配。
+        minGroupCount: 1,
         joinedBeforeDays: queryParams.value.joinedBeforeDays,
         resourceGroupId: queryParams.value.resourceGroupId,
         groupName: queryParams.value.groupName,
