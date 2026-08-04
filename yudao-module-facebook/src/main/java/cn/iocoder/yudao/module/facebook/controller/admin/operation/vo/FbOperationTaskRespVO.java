@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.operation.vo;
 
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
@@ -10,6 +12,7 @@ import java.time.LocalDateTime;
 public class FbOperationTaskRespVO {
 
     @Schema(description = "任务ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     @Schema(description = "任务类型（9-链接加组 10-转贴 11-群发私信 12-发个人帖 13-发群帖）", requiredMode = Schema.RequiredMode.REQUIRED, example = "9")

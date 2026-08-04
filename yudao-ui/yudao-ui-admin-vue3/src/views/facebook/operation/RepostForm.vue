@@ -330,6 +330,11 @@
     :account-ids="selectorAccountIds"
     :expected-account-count="formData.accountSelectionMode === 'AUTO' ? formData.autoAccountCount : selectorAccountIds.length"
     :groups-per-account="actionConfig.shareToGroupCount"
+    :account-selection-mode="formData.accountSelectionMode"
+    :target-account-count="formData.autoAccountCount"
+    :joined-before-days="joinedBeforeDays"
+    :resource-group-id="resourceGroupId"
+    action-type="repost"
     @confirm="handleGroupConfirm"
   />
 
@@ -385,6 +390,8 @@ const actionConfig = ref({
 // 群组选择
 const selectedGroups = ref<any[]>([])
 const groupSelectorVisible = ref(false)
+const joinedBeforeDays = ref(3)
+const resourceGroupId = ref<number | undefined>()
 
 // 账号列表
 const accounts = ref<any[]>([])
@@ -435,7 +442,7 @@ const selectorAccountIds = computed(() => {
   if (formData.value.accountSelectionMode === 'MANUAL') {
     return formData.value.accountIds
   }
-  return accounts.value.map((account) => account.id).filter(Boolean)
+  return []
 })
 
 /** 打开弹窗 */
@@ -464,6 +471,14 @@ const loadAccounts = async () => {
 
 /** 打开群组选择器 */
 const openGroupSelector = () => {
+  if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+    message.warning('请先填写自动分配的账号数量')
+    return
+  }
+  if (formData.value.accountSelectionMode === 'MANUAL' && selectorAccountIds.value.length === 0) {
+    message.warning('请先选择执行账号')
+    return
+  }
   groupSelectorVisible.value = true
 }
 

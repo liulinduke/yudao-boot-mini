@@ -245,6 +245,19 @@ const submitForm = async () => {
     // 1. 创建任务
     const taskId = await OperationApi.createFbOperationTask(data)
     console.log('✅ 发个人帖任务创建成功, TaskId:', taskId)
+
+    // 自动模式下账号由后端最终分配，不能继续使用表单里的空 accountIds。
+    let executionAccountIds = [...formData.value.accountIds]
+    if (formData.value.accountSelectionMode === 'AUTO') {
+      const taskDetail = await OperationApi.getFbOperationTask(String(taskId))
+      const detailData = (taskDetail as any)?.data || taskDetail
+      executionAccountIds = (detailData?.details || [])
+        .map((detail: any) => String(detail.accountId || '').trim())
+        .filter(Boolean)
+    }
+    if (executionAccountIds.length === 0) {
+      throw new Error('任务已创建，但没有获取到后端分配的执行账号')
+    }
     
     // 2. 调用 WPF 执行任务（为每个账号启动）
     // @ts-ignore
@@ -252,10 +265,8 @@ const submitForm = async () => {
       console.log('🚀 开始调用 WPF 执行发个人帖任务...')
       
       // 获取账号信息（需要从后端获取cookie）
-      for (const accountId of formData.value.accountIds) {
+      for (const accountId of executionAccountIds) {
         try {
-          // TODO: 这里需要从后端获取账号的 cookie
-          // 暂时使用空字符串，实际使用时需要从 FbAccountApi 获取
           const accountInfo = await FbAccountApi.getFbAccount(accountId)
           const cookie = accountInfo.cookie || ''
           

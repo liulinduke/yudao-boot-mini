@@ -312,7 +312,8 @@ const handleDelete = async (row: FbOperationTask) => {
     if (row.sourceType === 'dm' || row.taskType === 14) {
       await DmTaskApi.deleteDmTask(row.id!)
     } else {
-      await deleteFbOperationTask(Number(row.id))
+      // 雪花 ID 必须保持字符串，不能经过 Number 转换导致精度丢失。
+      await deleteFbOperationTask(String(row.id))
     }
     message.success(t('common.delSuccess'))
     await getList()

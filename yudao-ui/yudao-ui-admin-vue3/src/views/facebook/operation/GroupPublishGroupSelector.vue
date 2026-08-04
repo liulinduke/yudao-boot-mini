@@ -95,9 +95,13 @@ const props = defineProps<{
   resourceGroupId?: number
   joinedBeforeDays?: number
   expectedAccountCount?: number
+  accountSelectionMode?: 'AUTO' | 'MANUAL'
+  targetAccountCount?: number
+  actionType?: 'group_post' | 'repost'
 }>()
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
+const message = useMessage()
 
 const visible = ref(false)
 const loading = ref(false)
@@ -157,14 +161,42 @@ watch(visible, (val) => {
 
 /** 加载群组列表 */
 const loadGroups = async () => {
-  if (!props.accountIds || props.accountIds.length === 0) {
-    return
-  }
-  
   loading.value = true
   try {
     queryParams.value.groupName = searchKeyword.value
-    queryParams.value.accountIds = (props.accountIds || []).map(String)
+    let accountIds = (props.accountIds || []).map(String)
+    if (props.accountSelectionMode === 'AUTO') {
+      if (!props.targetAccountCount || props.targetAccountCount <= 0) {
+        groupList.value = []
+        total.value = 0
+        return
+      }
+      const accountResult = await FbOperationAddGroupResultApi.getSelectorAccounts({
+        accountSelectionMode: 'AUTO',
+        targetAccountCount: props.targetAccountCount,
+        minGroupCount: props.groupsPerAccount || 1,
+        joinedBeforeDays: queryParams.value.joinedBeforeDays,
+        resourceGroupId: queryParams.value.resourceGroupId,
+        groupName: queryParams.value.groupName,
+        actionType: props.actionType || 'group_post'
+      })
+      accountIds = (accountResult || []).map(String)
+      if (accountIds.length === 0) {
+        groupList.value = []
+        total.value = 0
+        message.warning('没有符合条件的可执行账号，请检查账号已加入群组数量、加组时间或每日额度')
+        return
+      }
+      if (accountIds.length < props.targetAccountCount) {
+        message.warning(`当前仅找到 ${accountIds.length} 个符合条件的账号，将按实际账号数执行`)
+      }
+    }
+    if (accountIds.length === 0) {
+      groupList.value = []
+      total.value = 0
+      return
+    }
+    queryParams.value.accountIds = accountIds
     
     const data = await FbOperationAddGroupResultApi.getAddGroupResultPage(queryParams.value)
     groupList.value = data.list || []

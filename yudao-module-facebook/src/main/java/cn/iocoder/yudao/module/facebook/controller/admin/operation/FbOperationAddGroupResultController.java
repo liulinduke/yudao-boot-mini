@@ -4,6 +4,7 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationAddGroupResultPageReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationAddGroupResultRespVO;
+import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationGroupSelectorAccountReqVO;
 import cn.iocoder.yudao.module.facebook.service.operation.FbOperationAddGroupResultService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -47,6 +48,13 @@ public class FbOperationAddGroupResultController {
     public CommonResult<List<FbOperationAddGroupResultRespVO>> getAddGroupResultByTaskId(@RequestParam("taskId") Long taskId) {
         List<FbOperationAddGroupResultRespVO> list = addGroupResultService.getAddGroupResultByTaskId(taskId);
         return success(list);
+    }
+
+    @PostMapping("/selector-accounts")
+    @Operation(summary = "解析已加入群组操作账号")
+    @PreAuthorize("@ss.hasPermission('facebook:operation-task:query')")
+    public CommonResult<List<String>> getSelectorAccountIds(@Valid @RequestBody FbOperationGroupSelectorAccountReqVO reqVO) {
+        return success(addGroupResultService.getSelectorAccountIds(reqVO));
     }
 
 }

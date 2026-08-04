@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.facebook.service.operation;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationAddGroupResultPageReqVO;
 import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationAddGroupResultRespVO;
+import cn.iocoder.yudao.module.facebook.controller.admin.operation.vo.FbOperationGroupSelectorAccountReqVO;
 
 import java.util.List;
 
@@ -28,5 +29,8 @@ public interface FbOperationAddGroupResultService {
      * @return 加组结果列表
      */
     List<FbOperationAddGroupResultRespVO> getAddGroupResultByTaskId(Long taskId);
+
+    /** 解析有足够已加入群组且可执行当前操作的账号。 */
+    List<String> getSelectorAccountIds(FbOperationGroupSelectorAccountReqVO reqVO);
 
 }

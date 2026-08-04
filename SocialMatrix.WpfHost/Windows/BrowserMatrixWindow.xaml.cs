@@ -39,6 +39,8 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly ConcurrentDictionary<string, string> _dmTaskIds = new(); // 账号 -> 私信主任务ID
         private readonly ConcurrentDictionary<string, bool> _accountIsOperation = new(); // 账号 -> 是否为运营任务
         private readonly ConcurrentDictionary<string, byte> _dmSendingAccounts = new(); // 账号 -> 私信发送中，避免同账号并发串消息
+        private readonly ConcurrentDictionary<string, ChromiumWebBrowser> _initialLoadBrowsers = new();
+        private volatile bool _isClosing;
 
         public enum FacebookPageState
         {
@@ -143,6 +145,7 @@ namespace SocialMatrix.WpfHost.Windows
             // 监听窗口关闭事件，清理所有资源
             this.Closed += (sender, e) =>
             {
+                _isClosing = true;
                 _instances.Remove(this);
                 CleanupAllResources();
             };
@@ -204,6 +207,7 @@ namespace SocialMatrix.WpfHost.Windows
             _browserTabs.Clear();
             _browserContainers.Clear();
             _browserInitialized.Clear();
+            _initialLoadBrowsers.Clear();
             _browserReadySignals.Clear();
             lock (_browserLoadErrorLock)
             {
@@ -457,6 +461,7 @@ namespace SocialMatrix.WpfHost.Windows
             container.Children.Add(browser);
 
             _browsers[accountId] = browser;
+            _initialLoadBrowsers[accountId] = browser;
             _accountTaskTypes[accountId] = taskType; // 保存账号对应的任务类型
 
             // 每个账号 Tab 使用独立的关闭按钮，关闭时只释放当前账号的浏览器资源。
@@ -678,7 +683,16 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 await Task.Delay(attempt == 1 ? 8000 : 12000);
 
+                if (!IsInitialLoadBrowserActive(browser, accountId))
+                {
+                    return;
+                }
+
                 bool isBlank = await IsBrowserBlankPageAsync(browser);
+                if (!IsInitialLoadBrowserActive(browser, accountId))
+                {
+                    return;
+                }
                 if (!isBlank)
                 {
                     return;
@@ -687,7 +701,7 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 首次加载空白，重试 {attempt}/{maxAttempts}: {initialUrl}");
                 await RunOnBrowserUiThreadAsync(browser, () =>
                 {
-                    if (!browser.IsDisposed)
+                    if (IsInitialLoadBrowserActive(browser, accountId))
                     {
                         browser.Load(initialUrl);
                     }
@@ -695,6 +709,10 @@ namespace SocialMatrix.WpfHost.Windows
                 });
             }
 
+            if (!IsInitialLoadBrowserActive(browser, accountId))
+            {
+                return;
+            }
             if (await IsBrowserBlankPageAsync(browser))
             {
                 var err = $"账号 {accountId} 首次加载仍为空白页，请重试登录";
@@ -708,6 +726,14 @@ namespace SocialMatrix.WpfHost.Windows
                     }
                 }));
             }
+        }
+
+        private bool IsInitialLoadBrowserActive(ChromiumWebBrowser browser, string accountId)
+        {
+            return !_isClosing
+                && !browser.IsDisposed
+                && _initialLoadBrowsers.TryGetValue(accountId, out var activeBrowser)
+                && ReferenceEquals(activeBrowser, browser);
         }
 
         private async Task<bool> IsBrowserBlankPageAsync(ChromiumWebBrowser browser)
@@ -847,6 +873,7 @@ namespace SocialMatrix.WpfHost.Windows
                 }
                 _browsers.Remove(accountId);
             }
+            _initialLoadBrowsers.TryRemove(accountId, out _);
 
             if (_requestContexts.TryGetValue(accountId, out var requestContext))
             {

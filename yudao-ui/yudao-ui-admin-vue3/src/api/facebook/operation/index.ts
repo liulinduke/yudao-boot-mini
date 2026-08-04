@@ -165,7 +165,7 @@ export const updateFbOperationTask = (data: FbOperationTaskSaveReqVO) => {
   return request.put({ url: '/facebook/fb-operation-task/update', data })
 }
 
-export const deleteFbOperationTask = (id: number) => {
+export const deleteFbOperationTask = (id: string | number) => {
   return request.delete({ url: '/facebook/fb-operation-task/delete', params: { id } })
 }
 

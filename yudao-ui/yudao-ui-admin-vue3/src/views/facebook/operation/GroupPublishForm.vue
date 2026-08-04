@@ -80,7 +80,7 @@
           <el-button
             type="primary"
             @click="openGroupSelector"
-            :disabled="selectorAccountIds.length === 0"
+            :disabled="formData.accountSelectionMode === 'AUTO' ? !formData.autoAccountCount : selectorAccountIds.length === 0"
           >
             <Icon icon="ep:search" class="mr-5px" /> 选择群组
           </el-button>
@@ -166,6 +166,9 @@
     :groups-per-account="formData.groupsPerAccount"
     :resource-group-id="formData.resourceGroupId"
     :joined-before-days="formData.joinedBeforeDays"
+    :account-selection-mode="formData.accountSelectionMode"
+    :target-account-count="formData.autoAccountCount"
+    action-type="group_post"
     @confirm="handleGroupConfirm"
   />
 
@@ -211,7 +214,7 @@ const selectorAccountIds = computed(() => {
   if (formData.value.accountSelectionMode === 'MANUAL') {
     return formData.value.accountIds
   }
-  return accounts.value.map((account) => account.id).filter(Boolean)
+  return []
 })
 
 const formData = ref({
@@ -327,6 +330,10 @@ const handleGroupTypeChange = () => {
 
 /** 打开群组选择器（已加入） */
 const openGroupSelector = () => {
+  if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
+    message.warning('请先填写自动分配的账号数量')
+    return
+  }
   if (formData.value.accountSelectionMode === 'MANUAL' && formData.value.accountIds.length === 0) {
     message.warning('请先选择执行账号')
     return

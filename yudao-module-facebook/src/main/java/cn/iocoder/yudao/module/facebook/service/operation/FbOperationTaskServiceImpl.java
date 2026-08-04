@@ -110,8 +110,21 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         if (ADD_GROUP_TASK_TYPE == createReqVO.getTaskType() && accountTargetCount <= 0) {
             throw invalidParamException("请选择目标群组");
         }
+        String allocationMode = createReqVO.getAccountSelectionMode();
+        List<Long> allocationIds = requestedIds;
+        // 已加入群组操作必须沿用群组所属账号，不能把群组重新分配给未加入的账号。
+        if (isJoinedGroupOperation(createReqVO.getTaskType(), createReqVO.getActionConfig())) {
+            List<Long> groupAccountIds = selectedJoinedGroupAccountIds(createReqVO.getActionConfig());
+            if ("AUTO".equalsIgnoreCase(allocationMode)) {
+                allocationIds = groupAccountIds;
+            } else {
+                Set<Long> requestedSet = new HashSet<>(requestedIds);
+                allocationIds = groupAccountIds.stream().filter(requestedSet::contains).collect(Collectors.toList());
+            }
+            allocationMode = "MANUAL";
+        }
         List<Long> selectedIds = accountAllocationService.selectAccounts(
-                createReqVO.getAccountSelectionMode(), requestedIds,
+                allocationMode, allocationIds,
                 accountTargetCount, "operation",
                 resolveActionTypes(createReqVO.getTaskType(), createReqVO.getActionConfig()));
         if (CollUtil.isEmpty(selectedIds)) {
@@ -1050,6 +1063,38 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             groups = config.getJSONArray("groups");
         }
         return groups == null ? 0 : groups.size();
+    }
+
+    private boolean isJoinedGroupOperation(Integer taskType, String rawConfig) {
+        JSONObject config = parseActionConfig(rawConfig);
+        if (Integer.valueOf(13).equals(taskType)) {
+            return Integer.valueOf(1).equals(config.getInt("groupType", 1))
+                    && config.getJSONArray("selectedGroups") != null
+                    && !config.getJSONArray("selectedGroups").isEmpty();
+        }
+        if (Integer.valueOf(10).equals(taskType)) {
+            JSONArray actions = config.getJSONArray("actions");
+            return actions != null && actions.toList(Integer.class).contains(5)
+                    && config.getJSONArray("selectedGroups") != null
+                    && !config.getJSONArray("selectedGroups").isEmpty();
+        }
+        return false;
+    }
+
+    private List<Long> selectedJoinedGroupAccountIds(String rawConfig) {
+        JSONObject config = parseActionConfig(rawConfig);
+        JSONArray groups = config.getJSONArray("selectedGroups");
+        if (groups == null || groups.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return groups.stream()
+                .map(item -> item instanceof JSONObject ? (JSONObject) item : JSONUtil.parseObj(item))
+                .map(group -> group.getStr("accountId"))
+                .filter(StrUtil::isNotBlank)
+                .map(this::parseLongOrNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     private int resolveAccountTargetCount(FbOperationTaskSaveReqVO reqVO) {
