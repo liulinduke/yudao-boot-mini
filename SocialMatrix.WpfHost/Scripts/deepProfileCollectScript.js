@@ -70,10 +70,40 @@
     const extractProfileId = () => {
       const url = new URL(location.href);
       if (url.searchParams.get('id')) return url.searchParams.get('id');
+      // Comet/A-B 版本经常不把主页 ID 放在 URL，而是放在当前主页状态的 profile_id 中。
+      const profileIdMatch = document.documentElement.innerHTML.match(/\\?"profile_id\\?"\s*:\s*\\?"?(\d{6,})/i);
+      if (profileIdMatch) return profileIdMatch[1];
       const entityMatch = document.documentElement.innerHTML.match(/"entity_id":"?(\d+)"?/);
       if (entityMatch) return entityMatch[1];
       const pageIdMatch = document.documentElement.innerHTML.match(/"page_id":"?(\d+)"?/);
       return pageIdMatch ? pageIdMatch[1] : '';
+    };
+
+    const getProfileHeaderName = () => {
+      const main = document.querySelector('[role="main"]');
+      if (main) {
+        const lines = String(main.innerText || '')
+          .split(/\n+/)
+          .map(clean)
+          .filter((line) => line && line.length >= 2 && line.length <= 160);
+        // 新版主页没有 h1，role=main 的第一行就是主页名称。
+        const candidate = lines.find((line) =>
+          !/^(notifications|通知|消息|facebook)$/i.test(line) &&
+          !/followers|following|粉丝|关注/i.test(line)
+        );
+        if (candidate) return candidate;
+      }
+      const headings = Array.from(document.querySelectorAll('h1, [role="heading"]'))
+        .map(text)
+        .filter((line) => line && !/^(notifications|通知|消息|facebook)$/i.test(line));
+      return headings[0] || '';
+    };
+
+    const getProfileAvatar = () => {
+      const avatar = document.querySelector(
+        '[data-imgperflogname="profilePicture"], [data-imgperflogname="profilePic"], img[alt*="profile" i]'
+      );
+      return clean(avatar && (avatar.getAttribute('src') || avatar.getAttribute('content')));
     };
 
     const parseFollowers = (value) => {
@@ -215,9 +245,9 @@
 
     try {
       await sleep(1200);
-      result.userName = clean(document.querySelector('h1') && document.querySelector('h1').innerText) || getMeta('og:title') || document.title.replace(/\| Facebook.*$/i, '').trim();
+      result.userName = getProfileHeaderName() || getMeta('og:title') || document.title.replace(/\| Facebook.*$/i, '').trim();
       result.syncTime = toLocalDateTime(new Date());
-      result.avatar = getMeta('og:image');
+      result.avatar = getMeta('og:image') || getProfileAvatar();
       result.url = canonicalize(getMeta('og:url') || location.href);
       result.fbUserId = extractProfileId();
       result.id = result.fbUserId;
