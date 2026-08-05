@@ -184,13 +184,15 @@ public class FbCollectServiceImpl implements FbCollectService {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }
 
-        List<Long> accountIds = createReqVO.getAccountIds();
-        if (CollUtil.isEmpty(accountIds)) {
-            throw exception(FB_COLLECT_NOT_EXISTS);
+        List<Long> accountIds = createReqVO.getAccountIds() == null
+                ? Collections.emptyList() : createReqVO.getAccountIds();
+        String accountSelectionMode = createReqVO.getAccountSelectionMode();
+        if ("MANUAL".equalsIgnoreCase(accountSelectionMode) && CollUtil.isEmpty(accountIds)) {
+            throw new IllegalArgumentException("手动选择模式下请选择采集账号");
         }
 
         List<Long> assignedAccountIds = accountAllocationService.selectAccounts(
-                createReqVO.getAccountSelectionMode(), accountIds, urls.size(), "collect", List.of("collect"));
+                accountSelectionMode, accountIds, urls.size(), "collect", List.of("collect"));
         if (CollUtil.isEmpty(assignedAccountIds)) {
             throw exception(FB_COLLECT_NOT_EXISTS);
         }

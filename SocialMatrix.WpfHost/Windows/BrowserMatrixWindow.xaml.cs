@@ -99,6 +99,10 @@ namespace SocialMatrix.WpfHost.Windows
             public int MaxConcurrent { get; set; } = 19;      // 8GB内存推荐值：(8192 * 0.7) / 300 ≈ 19
         }
 
+        // 测试排查时设为 true，任务结束后保留浏览器；正常运行改为 false。
+        private const bool KeepBrowserAfterTask = true;
+        internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
+
         /// <summary>
         /// 全局配置由Vue通过JsBridge同步，WPF不直接访问后台。
         /// </summary>
@@ -1432,7 +1436,10 @@ namespace SocialMatrix.WpfHost.Windows
             if (actions.Count == 0)
             {
                 OnCollectionError?.Invoke(accountId, "未选择养号动作");
-                CloseBrowser(accountId);
+                if (!KeepBrowserAfterTask)
+                {
+                    CloseBrowser(accountId);
+                }
                 return;
             }
 
@@ -1454,9 +1461,14 @@ namespace SocialMatrix.WpfHost.Windows
                     if (!durationCts.IsCancellationRequested && !browser.IsDisposed)
                     {
                         System.Diagnostics.Debug.WriteLine(
-                            $"⏱️ 账号 {accountId} 养号达到设定时长 {durationMinutes} 分钟，立即关闭浏览器");
+                            KeepBrowserAfterTask
+                                ? $"⏱️ 账号 {accountId} 养号达到设定时长 {durationMinutes} 分钟，测试保留浏览器"
+                                : $"⏱️ 账号 {accountId} 养号达到设定时长 {durationMinutes} 分钟，立即关闭浏览器");
                         durationCts.Cancel();
-                        CloseBrowser(accountId);
+                        if (!KeepBrowserAfterTask)
+                        {
+                            CloseBrowser(accountId);
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1562,7 +1574,7 @@ namespace SocialMatrix.WpfHost.Windows
                 durationCts.Cancel();
                 await durationWatchdog;
                 // 养号完成事件不会经过采集结果回传链路，必须由 WPF 在到时或异常后主动关闭浏览器。
-                if (!browser.IsDisposed)
+                if (!KeepBrowserAfterTask && !browser.IsDisposed)
                 {
                     CloseBrowser(accountId);
                     System.Diagnostics.Debug.WriteLine($"🛑 账号 {accountId} 养号结束，已关闭浏览器并释放资源");
@@ -2040,6 +2052,24 @@ namespace SocialMatrix.WpfHost.Windows
             }
             finally
             {
+                // 采集任务是一次性任务。结果回传事件已发出后关闭当前账号 Tab，
+                // 避免只释放任务锁而遗留浏览器和 RequestContext。
+                if (!KeepBrowserAfterTask
+                    && _browsers.TryGetValue(accountId, out var completedBrowser)
+                    && ReferenceEquals(completedBrowser, browser)
+                    && !completedBrowser.IsDisposed)
+                {
+                    CloseBrowser(accountId);
+                    if (GetActiveBrowserCount() == 0)
+                    {
+                        Application.Current.Dispatcher.Invoke(Close);
+                    }
+                }
+                else if (KeepBrowserAfterTask)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"🧪 全局配置已开启，保留账号 {accountId} 的浏览器用于测试排查");
+                }
                 ReleaseAccountTask(accountId, detailId);
                 System.Diagnostics.Debug.WriteLine(
                     $"🏁 采集任务结束: account={accountId}, detailId={detailId}, " +
@@ -2582,12 +2612,13 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
             js.AppendLine("        let stopCurrentGroup = false;");
-            js.AppendLine("        const seenUrls = new Set();");
+            js.AppendLine("        const seenPostKeys = new Set();");
             js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
             // 部分 Facebook 搜索会话会延迟数十秒才追加下一批。页面有新卡片或扩展时计数会归零。
             js.AppendLine("        const maxConsecutiveNoNew = 10;");
-            js.AppendLine("        let lastScrollHeight = document.documentElement.scrollHeight || 0;");
+        js.AppendLine("        let lastScrollHeight = document.documentElement.scrollHeight || 0;");
+            js.AppendLine("        let lastCardsSignature = '';");
             js.AppendLine("        let scrollCount = 0;");
             js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
             js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
@@ -2602,6 +2633,10 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 if (!/(\.|^)facebook\.com$/i.test(u.hostname)) return null;
                 const path = u.pathname;
                 const q = u.searchParams;
+                // /watch/hashtag/* 是话题视频列表页，不是具体帖子，不能作为采集结果。
+                if (/^\/watch\/hashtag(?:\/|$)/i.test(path) || /^\/hashtag(?:\/|$)/i.test(path)) {
+                    return null;
+                }
                 if ((path.includes('/permalink.php') || path.includes('/story.php')) && q.get('story_fbid')) {
                     return u.origin + path + u.search;
                 }
@@ -2751,17 +2786,27 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         const getPostCards = () => {
             const articleCards = Array.from(document.querySelectorAll('[role=""article""]'));
             const feedCards = [];
+            const pageletCards = Array.from(document.querySelectorAll('[data-pagelet*=""FeedUnit_""], [data-pagelet*=""feed_unit""]'));
             document.querySelectorAll('[data-ad-comet-preview=""message""], [data-testid=""post_message""], [data-ad-rendering-role=""story_message""]').forEach(message => {
                 let card = message;
-                while (card.parentElement && card.parentElement.getAttribute('role') !== 'feed') {
+                while (card.parentElement
+                    && card.parentElement.getAttribute('role') !== 'feed'
+                    && !/FeedUnit_|feed_unit/i.test(card.parentElement.getAttribute('data-pagelet') || '')) {
                     card = card.parentElement;
                 }
-                if (card.parentElement && card.parentElement.getAttribute('role') === 'feed') {
+                if (card.parentElement && (card.parentElement.getAttribute('role') === 'feed'
+                    || /FeedUnit_|feed_unit/i.test(card.parentElement.getAttribute('data-pagelet') || ''))) {
                     feedCards.push(card);
                 }
             });
-            return Array.from(new Set([...articleCards, ...feedCards]));
+            return Array.from(new Set([...articleCards, ...feedCards, ...pageletCards]));
         };
+
+        const getPostCardsSignature = (cards) => cards.map(card => {
+            const text = cleanText(card.innerText || card.textContent).slice(0, 180);
+            const href = card.querySelector('a[href]')?.href || '';
+            return text + '|' + href;
+        }).join('||');
 
         const isCardDescendant = (node, card) => {
             const article = node.closest('[role=""article""]');
@@ -2852,6 +2897,15 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             .replace(/\\u003A/gi, ':')
             .replace(/\\\//g, '/')
             .replace(/&amp;/g, '&');
+        const normalizeHydratedSource = (value) => (value || '')
+            .replace(/\\u002F/gi, '/')
+            .replace(/\\u003A/gi, ':')
+            .replace(/\\u0026/gi, '&')
+            .replace(/\\u003F/gi, '?')
+            .replace(/\\u003D/gi, '=')
+            .replace(/\\\//g, '/')
+            .replace(/\\(['""])/g, '$1')
+            .replace(/\s+/g, ' ');
         const findHydratedPostUrl = (card, postContent) => {
             const contentKey = cleanText(postContent).slice(0, 160);
             if (!contentKey) return null;
@@ -2868,13 +2922,17 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             for (const script of Array.from(document.scripts)) {
                 const source = script.textContent || '';
                 if (!source || source.length < 100) continue;
+                const normalizedSource = normalizeHydratedSource(source);
                 for (const prefix of prefixes) {
-                    const index = source.indexOf(prefix);
-                    if (index < 0) continue;
+                    const rawIndex = source.indexOf(prefix);
+                    const normalizedIndex = normalizedSource.indexOf(prefix);
+                    if (rawIndex < 0 && normalizedIndex < 0) continue;
                     // Restrict matching to this story's hydration object instead of scanning all loaded search results.
-                    const scope = source.slice(Math.max(0, index - 16000), Math.min(source.length, index + 32000));
+                    const sourceForSearch = rawIndex >= 0 ? source : normalizedSource;
+                    const index = rawIndex >= 0 ? rawIndex : normalizedIndex;
+                    const scope = sourceForSearch.slice(Math.max(0, index - 16000), Math.min(sourceForSearch.length, index + 32000));
                     if (groupId && !scope.includes(groupId)) continue;
-                    const urlCandidates = scope.match(/https?(?::|\\u003A)(?:(?:\\\/)|(?:\\u002F)|\/){2}[^""'\\\s<>]+/gi) || [];
+                    const urlCandidates = scope.match(/https?:\/\/[^""'\s<>]+/gi) || [];
                     result = urlCandidates
                         .map(decodeHydratedUrl)
                         .map(canonicalPostUrl)
@@ -2897,8 +2955,10 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const url = postLinkEl
                     ? canonicalPostUrl(postLinkEl.href)
                     : findHydratedPostUrl(card, postContent);
-                if (!url || seenUrls.has(url)) return null;
                 const itemId = getPostItemId(url);
+                // Facebook 同一帖子可能因 cft/tn 参数不同产生多个 URL，优先按真实帖子 ID 临时去重。
+                const postKey = itemId || url;
+                if (!url || seenPostKeys.has(postKey)) return null;
                 const parsedTime = postLinkEl
                     ? parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'))
                     : { date: null, daysAgo: null, raw: '' };
@@ -2933,7 +2993,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     }
                 }
 
-                seenUrls.add(url);
+                seenPostKeys.add(postKey);
                 return {
                     itemId, postUser, postAuthorId: authorInfo.postAuthorId, postAuthorUrl: authorInfo.postAuthorUrl,
                     url, fromResource: isAiPostLeadCollect ? 'ai_post_lead' : (isAiGroupPostCollect ? (aiGroupPostConfig.source === 'ai_competitor_post' ? 'ai_competitor_post' : (aiGroupPostConfig.source === 'ai_group_comment_post' ? 'ai_group_comment_post' : 'ai_group_post')) : (isGroupPost ? 'group' : 'page')),
@@ -2960,6 +3020,9 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     return;
                 }
                 const cards = getPostCards();
+                const currentCardsSignature = getPostCardsSignature(cards);
+                const cardsChanged = !!lastCardsSignature && currentCardsSignature !== lastCardsSignature;
+                lastCardsSignature = currentCardsSignature;
 
                 let newItemsFound = 0;
                 for (let i = 0; i < cards.length && results.length < targetCount; i++) {
@@ -2978,7 +3041,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const currentScrollHeight = document.documentElement.scrollHeight || 0;
                 const pageExpanded = currentScrollHeight > lastScrollHeight + 80;
                 lastScrollHeight = Math.max(lastScrollHeight, currentScrollHeight);
-                consecutiveNoNewItems = (newItemsFound > 0 || pageExpanded)
+                consecutiveNoNewItems = (newItemsFound > 0 || pageExpanded || cardsChanged)
                     ? 0
                     : consecutiveNoNewItems + 1;
                 console.log(`[帖子采集] ${results.length}/${targetCount}, 本轮新增 ${newItemsFound}, 页面扩展 ${pageExpanded}, 无新增 ${consecutiveNoNewItems}/${maxConsecutiveNoNew}`);
@@ -3005,18 +3068,21 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 // 实际变化后再进入下一轮；连续无新增达到阈值才结束，避免慢加载结果页提前停止。
                 let cardsAfterScroll = cards.length;
                 let heightAfterScroll = currentScrollHeight;
+                let signatureAfterScroll = currentCardsSignature;
                 const loadDeadline = Date.now() + 15000;
                 while (Date.now() < loadDeadline) {
                     await new Promise(resolve => setTimeout(resolve, 500));
                     cardsAfterScroll = getPostCards().length;
                     heightAfterScroll = document.documentElement.scrollHeight || 0;
-                    if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80) break;
+                    signatureAfterScroll = getPostCardsSignature(getPostCards());
+                    if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80 || signatureAfterScroll !== currentCardsSignature) break;
                 }
 
                 scrollCount++;
-                if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80) {
+                if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80 || signatureAfterScroll !== currentCardsSignature) {
                     consecutiveNoNewItems = 0;
                     lastScrollHeight = Math.max(lastScrollHeight, heightAfterScroll);
+                    lastCardsSignature = signatureAfterScroll;
                     console.log(`[帖子采集] 滚动后检测到页面追加，继续等待下一轮解析: cards=${cardsAfterScroll}`);
                 }
 
@@ -3703,7 +3769,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             finally
             {
                 _browserReadySignals.Remove(accountId);
-                if (createdForLanguageTask)
+                if (createdForLanguageTask && !KeepBrowserAfterTask)
                 {
                     CloseBrowser(accountId);
                 }

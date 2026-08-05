@@ -53,11 +53,11 @@
     >
       <div class="account-selector-panel">
       <div class="account-selector-tip">
-        系统会优先使用执行较少、较久未使用的账号，并尽量平均分摊任务。
+        系统会在可用账号池中按轮询顺序平均分配任务，账号不可用或达到上限时自动跳过。
       </div>
       <div v-if="selectionMode === 'AUTO'" class="account-selector-auto-summary">
         <div class="account-selector-auto-title">系统自动分配账号</div>
-        <div>当前有 {{ accounts.length }} 个可用账号，系统会按照使用次数和最近执行时间自动平均分配。</div>
+        <div>当前有 {{ accounts.length }} 个可用账号，系统会按轮询顺序平均分配，所有账号依次参与。</div>
       </div>
 
       <template v-else>

@@ -727,7 +727,7 @@ const submitForm = async () => {
 
     const data = {
       ...formData.value,
-      // 账号最终由后端按目标明细和公平排序分配，前端不要提前截断账号池。
+      // 账号最终由后端按目标明细和轮询队列分配，前端不要提前截断账号池。
       accountIds: formData.value.accountIds.map((id) => String(id)),
       taskName: `${taskNamePrefix}_${timestamp}`,
       actionConfig:
@@ -829,7 +829,7 @@ const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   formData.value.targetGroupIds = groups.map((g) => g.id).join(',')
   message.success(`已选择 ${groups.length} 个群组`)
   if (formData.value.accountSelectionMode === 'AUTO') {
-    message.info('系统将为每个群组分配一个执行账号；账号不足时会按使用情况自动轮换。')
+    message.info('系统将为每个群组分配一个执行账号；账号不足时会按轮询顺序循环使用。')
   }
 }
 </script>

@@ -160,7 +160,8 @@ public class FbOperationAddGroupResultServiceImpl implements FbOperationAddGroup
         if (candidates.isEmpty()) return List.of();
         String actionType = "repost".equalsIgnoreCase(reqVO.getActionType()) ? "repost" : "group_post";
         List<Long> selected = accountAllocationService.selectAccounts(
-                "MANUAL", candidates, targetCount, "operation", List.of(actionType));
+                "MANUAL", candidates, targetCount, "operation", List.of(actionType),
+                java.util.Set.of(), false);
         return selected.stream().map(String::valueOf).collect(Collectors.toList());
     }
 

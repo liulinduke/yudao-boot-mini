@@ -9,7 +9,7 @@
     >
       <div class="mb-12px">
         <el-alert
-          title="群发私信会按目标用户分配，每个用户最多只分配一个执行账号；账号不足时系统会按使用情况轮换。"
+          title="群发私信会按目标用户分配，每个用户最多只分配一个执行账号；账号不足时系统会按轮询顺序循环使用。"
           type="info"
           :closable="false"
           show-icon

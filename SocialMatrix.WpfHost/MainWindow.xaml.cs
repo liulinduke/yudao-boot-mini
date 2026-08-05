@@ -412,7 +412,8 @@ namespace SocialMatrix.WpfHost
                         return;
                     }
                     ReturnCollectionErrorToVue(accId, detailId, errorMessage);
-                    if (IsNetworkLoadError(errorMessage))
+                    if (IsNetworkLoadError(errorMessage)
+                        && !BrowserMatrixWindow.KeepBrowserAfterTaskForDebug)
                     {
                         browserMatrixWindow.CloseBrowser(accId);
                     }

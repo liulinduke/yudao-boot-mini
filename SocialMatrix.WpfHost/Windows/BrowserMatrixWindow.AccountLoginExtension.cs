@@ -105,7 +105,9 @@ namespace SocialMatrix.WpfHost.Windows
                         })
                     });
                     OnAccountLoginBatchComplete?.Invoke(payload);
-                    if (_accountLoginCloseAfterEachAccount && GetActiveBrowserCount() == 0)
+                    if (_accountLoginCloseAfterEachAccount
+                        && !KeepBrowserAfterTaskForDebug
+                        && GetActiveBrowserCount() == 0)
                     {
                         Application.Current.Dispatcher.BeginInvoke(new Action(() =>
                         {
@@ -164,7 +166,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             bool windowClosed = false;
-            if (_accountLoginCloseAfterEachAccount)
+            if (_accountLoginCloseAfterEachAccount && !KeepBrowserAfterTaskForDebug)
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {

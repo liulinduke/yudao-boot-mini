@@ -1168,9 +1168,17 @@ const submitForm = async () => {
       console.log('✅ 群组成员采集URL已自动补全:', urls)
     }
 
-    // 获取选中的账号信息
+    // 账号选择器回传的 ID 就是最终选择结果，不再用分页账号列表二次过滤。
+    // 二次过滤会因为两个接口返回范围或状态字段不同，把用户已选账号误删掉。
+    const selectedAccountIds = Array.from(
+      new Set(
+        ((data as any).accountIds || [])
+          .map((id: string | number) => String(id).trim())
+          .filter(Boolean)
+      )
+    )
     const selectedAccounts = accounts.value.filter((acc) =>
-      (data as any).accountIds?.includes(acc.id)
+      selectedAccountIds.includes(String(acc.id))
     )
 
     const commentExpectedCount = commentLikeOptions.value.includes('comment')
@@ -1187,7 +1195,7 @@ const submitForm = async () => {
 
     // 准备任务数据(包含所有账号和URL)
     const taskData: any = {
-      accountIds: selectedAccounts.map((acc) => acc.id), // 传递账号ID列表
+      accountIds: selectedAccountIds, // 直接传递选择器选中的账号ID列表
       accountSelectionMode: data.accountSelectionMode,
       resourceGroupId: data.resourceGroupId,
       fbAccount: selectedAccounts[0]?.fbAccount, // 使用第一个账号的 fbAccount(后端会遍历)

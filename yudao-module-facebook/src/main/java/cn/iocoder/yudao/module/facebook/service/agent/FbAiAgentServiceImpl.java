@@ -248,6 +248,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     .in(FbCollectPostDO::getId, postIds)
                     .orderByDesc(FbCollectPostDO::getCreateTime)
                     .orderByDesc(FbCollectPostDO::getId));
+            records.sort((left, right) -> compareLeadPriority(
+                    left.getIntentLevel(), left.getProductRelevanceScore(), left.getCreateTime(), left.getId(),
+                    right.getIntentLevel(), right.getProductRelevanceScore(), right.getCreateTime(), right.getId()));
             int pageNo = Math.max(pageReqVO.getPageNo(), 1);
             int pageSize = Math.max(pageReqVO.getPageSize(), 10);
             int fromIndex = Math.min((pageNo - 1) * pageSize, records.size());
@@ -262,6 +265,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectUserDO::getId, leadIds)
                 .orderByDesc(FbCollectUserDO::getCreateTime)
                 .orderByDesc(FbCollectUserDO::getId));
+        records.sort((left, right) -> compareLeadPriority(
+                left.getIntentLevel(), left.getProductRelevanceScore(), left.getCreateTime(), left.getId(),
+                right.getIntentLevel(), right.getProductRelevanceScore(), right.getCreateTime(), right.getId()));
         if (config != null && (AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())
                 || AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType()))) {
             enrichCommentLeadPostFields(records);
@@ -271,6 +277,52 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         int fromIndex = Math.min((pageNo - 1) * pageSize, records.size());
         int toIndex = Math.min(fromIndex + pageSize, records.size());
         return new PageResult<>(records.subList(fromIndex, toIndex), (long) records.size());
+    }
+
+    /** 线索默认按 A、B、C、D 意向等级，再按分数从高到低排列。 */
+    private int compareLeadPriority(String leftLevel, Integer leftScore, LocalDateTime leftCreateTime, Long leftId,
+                                    String rightLevel, Integer rightScore, LocalDateTime rightCreateTime, Long rightId) {
+        int levelCompare = Integer.compare(intentLevelRank(leftLevel), intentLevelRank(rightLevel));
+        if (levelCompare != 0) {
+            return levelCompare;
+        }
+        int scoreCompare = Integer.compare(
+                rightScore == null ? 0 : rightScore,
+                leftScore == null ? 0 : leftScore);
+        if (scoreCompare != 0) {
+            return scoreCompare;
+        }
+        int timeCompare = compareNullableDesc(leftCreateTime, rightCreateTime);
+        if (timeCompare != 0) {
+            return timeCompare;
+        }
+        return Long.compare(rightId == null ? 0L : rightId, leftId == null ? 0L : leftId);
+    }
+
+    private int intentLevelRank(String intentLevel) {
+        if (intentLevel == null) {
+            return 4;
+        }
+        return switch (intentLevel.trim().toUpperCase(Locale.ROOT)) {
+            case "A" -> 0;
+            case "B" -> 1;
+            case "C" -> 2;
+            case "D" -> 3;
+            default -> 4;
+        };
+    }
+
+    private int compareNullableDesc(LocalDateTime left, LocalDateTime right) {
+        if (left == right) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return right.compareTo(left);
     }
 
     private void enrichCommentLeadPostFields(List<FbCollectUserDO> records) {
