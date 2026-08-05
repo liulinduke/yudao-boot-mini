@@ -56,6 +56,7 @@ namespace SocialMatrix.WpfHost.Windows
 
         // 采集结果回调
         public event Action<string, string, string, int>? OnCollectionComplete; // (detailId, accountId, jsonData, taskType)
+        public event Action<string, string, string, int>? OnCollectionBatch; // (detailId, accountId, jsonData, taskType)
         public event Action<string, string>? OnCollectionError;    // (accountId, errorMessage)
 
         public void NotifyCollectionComplete(string detailId, string accountId, string jsonData, int taskType)
@@ -151,6 +152,15 @@ namespace SocialMatrix.WpfHost.Windows
             this.Closed += (sender, e) =>
             {
                 _isClosing = true;
+                // 用户关闭整个矩阵窗口时，所有仍在运行的明细都必须通知 Vue 结束，
+                // 否则前端账号队列会保留到超时，阻塞下一次立即执行。
+                foreach (var item in _accountDetailIds.ToArray())
+                {
+                    if (!string.IsNullOrWhiteSpace(item.Value))
+                    {
+                        OnCollectionError?.Invoke(item.Key, "浏览器矩阵窗口已关闭，当前任务已停止");
+                    }
+                }
                 _instances.Remove(this);
                 CleanupAllResources();
             };
@@ -404,6 +414,26 @@ namespace SocialMatrix.WpfHost.Windows
             }
             _requestContexts[accountId] = requestContext;
 
+            browser.JavascriptMessageReceived += (_, args) =>
+            {
+                try
+                {
+                    var message = args.Message?.ToString();
+                    if (string.IsNullOrWhiteSpace(message)) return;
+                    var payload = JObject.Parse(message);
+                    if (!string.Equals(payload["type"]?.ToString(), "collection-batch", StringComparison.Ordinal)) return;
+                    var results = payload["results"] as JArray;
+                    if (results == null || results.Count == 0) return;
+                    var activeDetailId = _accountDetailIds.TryGetValue(accountId, out var value) ? value : "";
+                    var activeTaskType = _accountTaskTypes.TryGetValue(accountId, out var type) ? type : 1;
+                    OnCollectionBatch?.Invoke(activeDetailId, accountId, results.ToString(Formatting.None), activeTaskType);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 采集分批回传解析失败: {ex.Message}");
+                }
+            };
+
             browser.LoadError += (_, args) =>
             {
                 // CefSharp uses ERR_ABORTED for normal redirects/navigation cancellation.
@@ -498,6 +528,13 @@ namespace SocialMatrix.WpfHost.Windows
             closeTabButton.Click += (sender, args) =>
             {
                 args.Handled = true;
+                // 手动关闭 Tab 等同于终止当前任务。先通知 Vue 持久化明细失败并释放前端账号队列，
+                // 否则 Vue 会一直认为该账号仍在运行，后续任务无法领取到可用浏览器槽位。
+                if (_accountDetailIds.TryGetValue(accountId, out var detailId)
+                    && !string.IsNullOrWhiteSpace(detailId))
+                {
+                    OnCollectionError?.Invoke(accountId, "浏览器已被手动关闭，当前任务已停止");
+                }
                 CloseBrowser(accountId);
                 if (GetActiveBrowserCount() == 0)
                 {
@@ -900,6 +937,7 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             _browserInitialized.Remove(accountId);
+            _accountDetailIds.TryRemove(accountId, out _);
             _accountTaskTypes.TryRemove(accountId, out _);
             _accountIsOperation.TryRemove(accountId, out _);
             ShowSelectedBrowserTab();
@@ -2547,8 +2585,9 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("        const seenUrls = new Set();");
             js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
-            js.AppendLine("        const maxConsecutiveNoNew = 5;");
-            js.AppendLine("        let lastCardCount = 0;");
+            // 部分 Facebook 搜索会话会延迟数十秒才追加下一批。页面有新卡片或扩展时计数会归零。
+            js.AppendLine("        const maxConsecutiveNoNew = 10;");
+            js.AppendLine("        let lastScrollHeight = document.documentElement.scrollHeight || 0;");
             js.AppendLine("        let scrollCount = 0;");
             js.AppendLine(JsScriptHelper.GetRandomDelayFunction());
             js.AppendLine(JsScriptHelper.GetMouseMovementFunction());
@@ -2564,28 +2603,24 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const path = u.pathname;
                 const q = u.searchParams;
                 if ((path.includes('/permalink.php') || path.includes('/story.php')) && q.get('story_fbid')) {
-                    const idPart = q.get('id') ? '&id=' + encodeURIComponent(q.get('id')) : '';
-                    return 'https://www.facebook.com/permalink.php?story_fbid=' + encodeURIComponent(q.get('story_fbid')) + idPart;
+                    return u.origin + path + u.search;
                 }
                 if (path.includes('/groups/') && q.get('multi_permalinks')) {
-                    const groupMatch = path.match(/\/groups\/([^/]+)/);
-                    if (!groupMatch) return null;
-                    return 'https://www.facebook.com/groups/' + groupMatch[1] + '/permalink/' + q.get('multi_permalinks') + '/';
+                    return u.origin + path + u.search;
                 }
                 const groupPost = path.match(/\/groups\/([^/]+)\/posts\/([^/]+)/);
                 if (groupPost) {
-                    return 'https://www.facebook.com/groups/' + groupPost[1] + '/posts/' + groupPost[2] + '/';
+                    return u.origin + path + u.search;
                 }
                 const groupPermalink = path.match(/\/groups\/([^/]+)\/permalink\/([^/]+)/);
                 if (groupPermalink) {
-                    return 'https://www.facebook.com/groups/' + groupPermalink[1] + '/permalink/' + groupPermalink[2] + '/';
+                    return u.origin + path + u.search;
                 }
-                if (/\/posts\//i.test(path)) return 'https://www.facebook.com' + path.replace(/\/+$/, '');
+                if (/\/posts\//i.test(path)) return u.origin + path + u.search;
                 if (path.includes('/photo/') && q.get('fbid')) {
-                    const setPart = q.get('set') ? '&set=' + encodeURIComponent(q.get('set')) : '';
-                    return 'https://www.facebook.com/photo/?fbid=' + encodeURIComponent(q.get('fbid')) + setPart;
+                    return u.origin + path + u.search;
                 }
-                if (path.includes('/videos/') || path.includes('/watch/')) return 'https://www.facebook.com' + path.replace(/\/+$/, '');
+                if (path.includes('/videos/') || path.includes('/watch/') || path.includes('/reel/')) return u.origin + path + u.search;
                 return null;
             } catch {
                 return null;
@@ -2598,6 +2633,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const u = new URL(url);
                 if (u.searchParams.get('story_fbid')) return u.searchParams.get('story_fbid');
                 if (u.searchParams.get('fbid')) return u.searchParams.get('fbid');
+                if (u.searchParams.get('multi_permalinks')) return u.searchParams.get('multi_permalinks');
                 const groupPost = u.pathname.match(/\/groups\/[^/]+\/posts\/([^/]+)/);
                 if (groupPost) return groupPost[1];
                 const permalink = u.pathname.match(/\/permalink\/([^/]+)/);
@@ -2606,6 +2642,8 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 if (post) return post[1];
                 const video = u.pathname.match(/\/videos\/([^/]+)/);
                 if (video) return video[1];
+                const reel = u.pathname.match(/\/reel\/([^/]+)/);
+                if (reel) return reel[1];
             } catch {}
             return '';
         };
@@ -2708,6 +2746,28 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             }) || null;
         };
 
+        // Facebook 搜索结果会按账号、实验版本渲染成两种结构：常规的 role=article，
+        // 或只有 role=feed 下的消息容器。不能只依赖前者，否则页面上明明有帖子却采集为 0。
+        const getPostCards = () => {
+            const articleCards = Array.from(document.querySelectorAll('[role=""article""]'));
+            const feedCards = [];
+            document.querySelectorAll('[data-ad-comet-preview=""message""], [data-testid=""post_message""], [data-ad-rendering-role=""story_message""]').forEach(message => {
+                let card = message;
+                while (card.parentElement && card.parentElement.getAttribute('role') !== 'feed') {
+                    card = card.parentElement;
+                }
+                if (card.parentElement && card.parentElement.getAttribute('role') === 'feed') {
+                    feedCards.push(card);
+                }
+            });
+            return Array.from(new Set([...articleCards, ...feedCards]));
+        };
+
+        const isCardDescendant = (node, card) => {
+            const article = node.closest('[role=""article""]');
+            return article ? article === card : card.contains(node);
+        };
+
         const getHeaderLinks = (card) => Array.from(card.querySelectorAll('a[href]'))
             .filter(link => cleanText(link.textContent || link.getAttribute('aria-label')))
             .slice(0, 12);
@@ -2771,12 +2831,12 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             // Interaction counters are filtered separately because they are span/button nodes.
             const ignoredText = /^(reply|share|like|comment|see \d+ replies?|view \d+ replies?|write a public comment|admin|wa|\d+\s*(?:[smhdwy]))$/i;
             const candidates = Array.from(card.querySelectorAll('[dir=""auto""], [dir=""ltr""]'))
-                .filter(node => node.closest('[role=""article""]') === card)
+                .filter(node => isCardDescendant(node, card))
                 .filter(node => !node.closest('a, button, [role=""button""]'))
                 .map(node => cleanText(node.innerText || node.textContent))
                 .filter(text => text && text.length <= 500 && !ignoredText.test(text));
             const structuralCandidates = Array.from(card.querySelectorAll('div[dir=""auto""], div[dir=""ltr""], p[dir=""auto""], p[dir=""ltr""]'))
-                .filter(node => node.closest('[role=""article""]') === card)
+                .filter(node => isCardDescendant(node, card))
                 .filter(node => !node.closest('a, button, [role=""button""]'))
                 .map(node => cleanText(node.innerText || node.textContent))
                 .filter(text => text && text.length <= 500 && !ignoredText.test(text));
@@ -2784,26 +2844,64 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 .sort((a, b) => b.length - a.length)[0] || '';
         };
 
+        // Facebook 的搜索实验有时会把时间锚点改写成当前 search URL，卡片 DOM 中不再保留帖子链接。
+        // 仅从 Facebook 已下发的 hydration 脚本读取真实 URL；没有真实 URL 时跳过，绝不按群组或正文拼接。
+        const hydratedPostUrlCache = new Map();
+        const decodeHydratedUrl = (value) => cleanText(value)
+            .replace(/\\u002F/gi, '/')
+            .replace(/\\u003A/gi, ':')
+            .replace(/\\\//g, '/')
+            .replace(/&amp;/g, '&');
+        const findHydratedPostUrl = (card, postContent) => {
+            const contentKey = cleanText(postContent).slice(0, 160);
+            if (!contentKey) return null;
+            const groupLink = Array.from(card.querySelectorAll('a[href*=""/groups/""]'))
+                .find(link => !/\/user\/|\/posts\/|\/permalink\//.test(link.pathname || ''));
+            const groupMatch = groupLink?.pathname.match(/\/groups\/([^/]+)/);
+            const groupId = groupMatch ? groupMatch[1] : '';
+            const cacheKey = groupId + '|' + contentKey;
+            if (hydratedPostUrlCache.has(cacheKey)) return hydratedPostUrlCache.get(cacheKey);
+
+            const prefixes = [contentKey, contentKey.slice(0, 100), contentKey.slice(0, 60)]
+                .filter((value, index, values) => value.length >= 24 && values.indexOf(value) === index);
+            let result = null;
+            for (const script of Array.from(document.scripts)) {
+                const source = script.textContent || '';
+                if (!source || source.length < 100) continue;
+                for (const prefix of prefixes) {
+                    const index = source.indexOf(prefix);
+                    if (index < 0) continue;
+                    // Restrict matching to this story's hydration object instead of scanning all loaded search results.
+                    const scope = source.slice(Math.max(0, index - 16000), Math.min(source.length, index + 32000));
+                    if (groupId && !scope.includes(groupId)) continue;
+                    const urlCandidates = scope.match(/https?(?::|\\u003A)(?:(?:\\\/)|(?:\\u002F)|\/){2}[^""'\\\s<>]+/gi) || [];
+                    result = urlCandidates
+                        .map(decodeHydratedUrl)
+                        .map(canonicalPostUrl)
+                        .find(Boolean) || null;
+                    if (result) break;
+                }
+                if (result) break;
+            }
+            hydratedPostUrlCache.set(cacheKey, result);
+            return result;
+        };
+
         const extractPostData = (card) => {
             try {
-                const hasContent = card.querySelector('[data-ad-comet-preview=""message""]') ||
-                                  card.querySelector('[data-testid=""post_message""]') ||
-                                  card.querySelector('span[dir=""auto""]');
-                if (!hasContent) return null;
-
-                const svgCount = card.querySelectorAll('svg').length;
-                const imgCount = card.querySelectorAll('img').length;
-                const linkCount = card.querySelectorAll('a').length;
-                if (svgCount > 0 && imgCount > 0 && linkCount < 3) return null;
-
-                const postLinkEl = findPostTimeLink(card);
-
-                if (!postLinkEl) return null;
-
-                const url = canonicalPostUrl(postLinkEl.href);
+                const postContent = getPostContent(card);
+                // Recent posts 的图片、视频和 Reel 也都是帖子，不能按卡片外观过滤。
+                // 只要 Facebook 提供了真实帖子链接（DOM 或同一条 hydration 数据）就允许采集。
+                const postLinkEl = findPostTimeLink(card) || Array.from(card.querySelectorAll('a[href]'))
+                    .find(link => canonicalPostUrl(link.href));
+                const url = postLinkEl
+                    ? canonicalPostUrl(postLinkEl.href)
+                    : findHydratedPostUrl(card, postContent);
                 if (!url || seenUrls.has(url)) return null;
                 const itemId = getPostItemId(url);
-                const parsedTime = parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'));
+                const parsedTime = postLinkEl
+                    ? parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'))
+                    : { date: null, daysAgo: null, raw: '' };
                 if (isAiGroupPostCollect && recentDays > 0 && parsedTime.daysAgo !== null && parsedTime.daysAgo > recentDays) {
                     console.log('[AI群帖采集] 遇到超过最近天数的帖子，停止当前群:', parsedTime.raw, recentDays);
                     stopCurrentGroup = true;
@@ -2815,8 +2913,6 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const postUser = getAuthorName(card, postLinkEl);
                 const groupName = getGroupName(card);
                 const isGroupPost = !!groupName || url.includes('/groups/') || location.pathname.includes('/groups/');
-                const postContent = getPostContent(card);
-
                 let reactionCount = '', commentCount = '', reshareCount = '';
                 const numberSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
                 for (const span of numberSpans) {
@@ -2863,13 +2959,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     resolve(JSON.stringify(results));
                     return;
                 }
-                const cards = document.querySelectorAll('[role=""article""]');
-                if (cards.length === lastCardCount && cards.length > 0) {
-                    consecutiveNoNewItems++;
-                } else {
-                    lastCardCount = cards.length;
-                    consecutiveNoNewItems = 0;
-                }
+                const cards = getPostCards();
 
                 let newItemsFound = 0;
                 for (let i = 0; i < cards.length && results.length < targetCount; i++) {
@@ -2885,15 +2975,17 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     }
                 }
 
+                const currentScrollHeight = document.documentElement.scrollHeight || 0;
+                const pageExpanded = currentScrollHeight > lastScrollHeight + 80;
+                lastScrollHeight = Math.max(lastScrollHeight, currentScrollHeight);
+                consecutiveNoNewItems = (newItemsFound > 0 || pageExpanded)
+                    ? 0
+                    : consecutiveNoNewItems + 1;
+                console.log(`[帖子采集] ${results.length}/${targetCount}, 本轮新增 ${newItemsFound}, 页面扩展 ${pageExpanded}, 无新增 ${consecutiveNoNewItems}/${maxConsecutiveNoNew}`);
+
                 if (results.length >= targetCount) {
                     isCompleted = true;
                     resolve(JSON.stringify(results.slice(0, targetCount)));
-                    return;
-                }
-
-                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {
-                    isCompleted = true;
-                    resolve(JSON.stringify(results));
                     return;
                 }
 
@@ -2909,10 +3001,30 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     await new Promise(resolve => setTimeout(resolve, randomDelay(50, 150)));
                 }
 
-                const readPause = randomDelay(1000, 3000);
-                await new Promise(resolve => setTimeout(resolve, readPause));
+                // Facebook 搜索的下一批不是固定延迟。滚动后最多观察 15 秒，等卡片或页面高度
+                // 实际变化后再进入下一轮；连续无新增达到阈值才结束，避免慢加载结果页提前停止。
+                let cardsAfterScroll = cards.length;
+                let heightAfterScroll = currentScrollHeight;
+                const loadDeadline = Date.now() + 15000;
+                while (Date.now() < loadDeadline) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    cardsAfterScroll = getPostCards().length;
+                    heightAfterScroll = document.documentElement.scrollHeight || 0;
+                    if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80) break;
+                }
 
                 scrollCount++;
+                if (cardsAfterScroll > cards.length || heightAfterScroll > currentScrollHeight + 80) {
+                    consecutiveNoNewItems = 0;
+                    lastScrollHeight = Math.max(lastScrollHeight, heightAfterScroll);
+                    console.log(`[帖子采集] 滚动后检测到页面追加，继续等待下一轮解析: cards=${cardsAfterScroll}`);
+                }
+
+                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {
+                    isCompleted = true;
+                    resolve(JSON.stringify(results));
+                    return;
+                }
                 setTimeout(() => doScroll(), randomDelay(2000, 3500));
             } catch (e) {
                 console.error('[采集错误]', e);
@@ -2923,11 +3035,11 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         doScroll();
 ");
 
-            // 超时保护（5分钟）
+            // 大任务按批次已经持续落库，允许长时间滚动；没有任何数据时仍由前端无响应保护兜底。
             js.AppendLine("        setTimeout(() => {");
             js.AppendLine("            if (results.length > 0) resolve(JSON.stringify(results));");
             js.AppendLine("            else reject(new Error('Collection timeout with no data'));");
-            js.AppendLine("        }, 300000);");
+            js.AppendLine($"        }}, {Math.Min(Math.Max(expectedCount * 1000, 300000), 1800000)});");
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString());
         }

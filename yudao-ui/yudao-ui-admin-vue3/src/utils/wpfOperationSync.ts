@@ -12,7 +12,7 @@ import {
   markAiAgentCollectFinished,
   startAiAgentCollectDetail
 } from '@/utils/wpfAiAgentTaskPoller'
-import { closeBrowser, onCollectionComplete } from '@/utils/wpfBridge'
+import { closeBrowser, onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'
 import { onCollectionError } from '@/utils/wpfBridge'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectApi } from '@/api/facebook/collect'
@@ -22,6 +22,8 @@ const handledDmDetailIds = new Set<string>()
 const handledGroupPublishDetailIds = new Set<string>()
 const handledRepostDetailIds = new Set<string>()
 const handledPublishPostDetailIds = new Set<string>()
+const collectBatchChains = new Map<string, Promise<void>>()
+const savedCollectBatchCounts = new Map<string, number>()
 let initialized = false
 
 function parseResultList(raw: unknown): any[] {
@@ -96,6 +98,22 @@ export function setupWpfOperationSync() {
         await finishQueuedAccountTaskAndStartNext(accountId, detailId)
       }
     }
+  })
+
+  onCollectionBatch((data) => {
+    if (!isAiAgentClaimedDetail(data.detailId) || !isCollectTaskType(data.taskType)) return
+    const detailId = String(data.detailId || '')
+    const results = parseResultList(data.results)
+    if (!detailId || results.length === 0) return
+    const previous = collectBatchChains.get(detailId) || Promise.resolve()
+    const chain = previous.then(async () => {
+      await saveCollectedItems(detailId, Number(data.taskType || 1), results)
+      savedCollectBatchCounts.set(detailId, (savedCollectBatchCounts.get(detailId) || 0) + results.length)
+      // 有持续数据回传说明脚本仍在正常工作，延长本明细的无响应保护时间。
+      registerQueuedDetailTimeout(String(data.accountId || ''), detailId, 'collect')
+    })
+    collectBatchChains.set(detailId, chain)
+    void chain.catch((error) => console.error('[AI获客采集批次] 上报失败:', error))
   })
 
   onCollectionError(async (data) => {
@@ -176,40 +194,12 @@ async function saveCollectResult(data: any) {
   }
 
   const taskType = Number(data.taskType || 1)
-  const results = parseResultList(data.results)
+  await (collectBatchChains.get(detailId) || Promise.resolve())
+  const reportedCount = savedCollectBatchCounts.get(detailId) || 0
+  const results = parseResultList(data.results).slice(reportedCount)
   handledCollectDetailIds.add(detailId)
   try {
-    if (taskType === 2) {
-      await FbCollectPostApi.batchSaveFbCollectPost({
-        detailId: detailId as any,
-        results: results.map((item: any) => ({
-          ...item,
-          reshareCount:
-            typeof item.reshareCount === 'string' ? parseMetricNumber(item.reshareCount) : item.reshareCount,
-          commentCount:
-            typeof item.commentCount === 'string' ? parseMetricNumber(item.commentCount) : item.commentCount,
-          reactionCount:
-            typeof item.reactionCount === 'string' ? parseMetricNumber(item.reactionCount) : item.reactionCount
-        }))
-      })
-    } else if (taskType === 4) {
-      await FbCollectGroupApi.batchSaveFbCollectGroup({
-        detailId: detailId as any,
-        results: results.map((item: any) => ({
-          ...item,
-          memberQuantity:
-            typeof item.memberQuantity === 'string' ? parseMetricNumber(item.memberQuantity) : item.memberQuantity
-        }))
-      })
-    } else {
-      await FbCollectUserApi.batchSaveFbCollectUser({
-        detailId: detailId as any,
-        results: results.map((item: any) => ({
-          ...item,
-          followers: typeof item.followers === 'string' ? parseMetricNumber(item.followers) : item.followers
-        }))
-      })
-    }
+    await saveCollectedItems(detailId, taskType, results)
     markAiAgentCollectFinished(data.accountId, detailId)
     const nextDetail = await claimNextAiAgentDetail()
     if (data.accountId && (!nextDetail || String(nextDetail.fbAccount) !== String(data.accountId))) {
@@ -220,9 +210,22 @@ async function saveCollectResult(data: any) {
     }
     window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))
     window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId, taskType } }))
+    collectBatchChains.delete(detailId)
+    savedCollectBatchCounts.delete(detailId)
   } catch (error) {
     handledCollectDetailIds.delete(detailId)
     console.error('[AI获客采集结果] 上报失败:', error)
+  }
+}
+
+async function saveCollectedItems(detailId: string, taskType: number, results: any[]) {
+  if (results.length === 0) return
+  if (taskType === 2) {
+    await FbCollectPostApi.batchSaveFbCollectPost({ detailId: detailId as any, results: results.map((item: any) => ({ ...item, reshareCount: typeof item.reshareCount === 'string' ? parseMetricNumber(item.reshareCount) : item.reshareCount, commentCount: typeof item.commentCount === 'string' ? parseMetricNumber(item.commentCount) : item.commentCount, reactionCount: typeof item.reactionCount === 'string' ? parseMetricNumber(item.reactionCount) : item.reactionCount })) })
+  } else if (taskType === 4) {
+    await FbCollectGroupApi.batchSaveFbCollectGroup({ detailId: detailId as any, results: results.map((item: any) => ({ ...item, memberQuantity: typeof item.memberQuantity === 'string' ? parseMetricNumber(item.memberQuantity) : item.memberQuantity })) })
+  } else {
+    await FbCollectUserApi.batchSaveFbCollectUser({ detailId: detailId as any, results: results.map((item: any) => ({ ...item, followers: typeof item.followers === 'string' ? parseMetricNumber(item.followers) : item.followers })) })
   }
 }
 

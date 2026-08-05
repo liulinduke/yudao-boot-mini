@@ -170,6 +170,27 @@ namespace SocialMatrix.WpfHost.Helpers
             return $@"(function() {{
     return new Promise((resolve, reject) => {{
         const results = [];
+        // 采集脚本可能运行很久。每满 50 条即通过 CefSharp 回传，不等待整轮滚动结束。
+        // 最终 resolve 前再发送不足一批的尾数据；页面不支持消息桥接时仍保持原有完整回传。
+        const batchSize = 50;
+        let reportedCount = 0;
+        const reportCollectionBatch = () => {{
+            const batch = results.slice(reportedCount);
+            if (!batch.length || !window.CefSharp || typeof window.CefSharp.PostMessage !== 'function') return;
+            reportedCount += batch.length;
+            window.CefSharp.PostMessage(JSON.stringify({{ type: 'collection-batch', results: batch }}));
+        }};
+        const nativeResolve = resolve;
+        resolve = (payload) => {{
+            reportCollectionBatch();
+            nativeResolve(payload);
+        }};
+        const originalPush = results.push.bind(results);
+        results.push = (...items) => {{
+            const length = originalPush(...items);
+            if (results.length - reportedCount >= batchSize) reportCollectionBatch();
+            return length;
+        }};
 {body}
     }});
 }})();";

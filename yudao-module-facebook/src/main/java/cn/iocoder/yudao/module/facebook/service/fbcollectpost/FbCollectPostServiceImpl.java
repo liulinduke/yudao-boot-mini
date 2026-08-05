@@ -166,7 +166,12 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         
         // 3. 同时递增主表总采集数量(并发安全)
         countService.incrementTaskTotalCount(detail.getTaskId(), count);
-        
+
+        // AI 帖子获客会分批回传。统计必须以当前已落库的帖子为准，不能只等任务最终结束，
+        // 否则首批为空或后续批次晚到时，发现客户数会错误地停在 0。
+        SpringUtils.getBean(FbAiAgentService.class)
+                .refreshDiscoveryStatsByCollectTaskId(detail.getTaskId());
+
         // 4. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
         updateDetailAndMainTableAsync(detailId);
         

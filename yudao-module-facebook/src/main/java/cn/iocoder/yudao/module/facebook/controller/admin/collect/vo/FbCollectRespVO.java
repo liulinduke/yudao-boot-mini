@@ -23,6 +23,9 @@ public class FbCollectRespVO {
     @ExcelProperty("FB账号")
     private String fbAccount;
 
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode;
+
     @Schema(description = "任务类型 (pages/posts/users)", example = "2")
     @ExcelProperty(value = "任务类型 (pages/posts/users)", converter = DictConvert.class)
     @DictFormat("fb_search_type") // TODO 代码优化：建议设置到对应的 DictTypeConstants 枚举类中

@@ -33,6 +33,9 @@ public class FbOperationTaskRespVO {
     @Schema(description = "账号ID列表（逗号分隔）", example = "1,2,3")
     private String accountIds;
 
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode;
+
     @Schema(description = "动作配置（JSON格式）")
     private String actionConfig;
 

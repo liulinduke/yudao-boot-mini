@@ -155,6 +155,19 @@ export function onCollectionComplete(callback: (data: any) => void): void {
   }
 }
 
+export function onCollectionBatch(callback: (data: any) => void): void {
+  window.addEventListener('fb:collection:batch', (event: any) => {
+    const detail = event.detail || {}
+    callback({
+      detailId: detail.detailId,
+      accountId: detail.accountId,
+      taskType: detail.taskType,
+      results: detail.data ?? [],
+      timestamp: detail.timestamp
+    })
+  })
+}
+
 export function onCollectionError(callback: (data: { accountId?: string; detailId?: string; errorMessage?: string }) => void): void {
   window.addEventListener('fb:collection:error', (event: any) => callback(event.detail || {}))
 }

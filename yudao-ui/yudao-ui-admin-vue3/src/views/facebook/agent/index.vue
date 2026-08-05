@@ -400,12 +400,20 @@
 
         <template v-else>
           <el-form-item label="业务员人设" prop="personaType">
-            <el-select v-model="wizardForm.personaType" class="!w-300px">
-              <el-option label="专业外贸销售（推荐）" value="professional_sales" />
-              <el-option label="顾问式销售" value="consultant_sales" />
-              <el-option label="朋友式开发" value="friendly_sales" />
-              <el-option label="强成交型销售" value="closer_sales" />
+            <el-select v-model="wizardForm.personaType" class="!w-300px" popper-class="persona-select-dropdown">
+              <el-option
+                v-for="item in personaOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              >
+                <div class="persona-option">
+                  <span>{{ item.label }}</span>
+                  <span>{{ item.description }}</span>
+                </div>
+              </el-option>
             </el-select>
+            <div class="form-tip">{{ selectedPersonaOption?.description }}</div>
           </el-form-item>
         </template>
       </el-form>
@@ -789,6 +797,33 @@ const intentLevelOptions = [
   { level: 'C', value: 70, thresholdLabel: 'C及以上（普通线索）', desc: '普通线索，可关注' },
   { level: 'D', value: 50, thresholdLabel: 'D及以上（全部线索）', desc: '无价值，不建议联系' }
 ]
+
+const personaOptions = [
+  {
+    label: '专业外贸销售（推荐）',
+    value: 'professional_sales',
+    description: '专业、清晰地介绍产品与合作价值，适合大多数外贸获客场景。'
+  },
+  {
+    label: '顾问式销售',
+    value: 'consultant_sales',
+    description: '先了解客户需求，再提供建议和方案，沟通更克制、信任感更强。'
+  },
+  {
+    label: '朋友式开发',
+    value: 'friendly_sales',
+    description: '语气自然友好，先建立轻松对话，适合首次接触和社媒互动。'
+  },
+  {
+    label: '强成交型销售',
+    value: 'closer_sales',
+    description: '突出优势、行动建议和时效性，适合高意向客户的明确推进。'
+  }
+]
+
+const selectedPersonaOption = computed(() =>
+  personaOptions.find((item) => item.value === wizardForm.personaType) || personaOptions[0]
+)
 
 const intentLevelTip = 'AI返回A/B/C/D，A：高意向，建议立即联系;B：推荐联系;C：普通线索，可关注;D：无价值，不建议联系。触达等级选B，表示触达A+B；选C，表示触达A+B+C。'
 
@@ -1644,6 +1679,27 @@ onBeforeUnmount(() => {
     color: var(--el-text-color-secondary);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .persona-option {
+    display: grid;
+    gap: 2px;
+    padding: 4px 0;
+    line-height: 18px;
+  }
+
+  .persona-option span:last-child {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    white-space: normal;
+  }
+
+  :global(.persona-select-dropdown .el-select-dropdown__item) {
+    height: auto;
+    min-height: 48px;
+    line-height: normal;
+    padding-top: 4px;
+    padding-bottom: 4px;
   }
 
   .form-label-tip,

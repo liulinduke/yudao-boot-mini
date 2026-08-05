@@ -2,7 +2,7 @@ import { FbAiAgentApi, type FbAiAgentDispatchDetail } from '@/api/facebook/aiage
 import { FbCollectApi } from '@/api/facebook/collect'
 import { DmTaskApi } from '@/api/facebook/dmtask'
 import { markOperationDetailFailed } from '@/api/facebook/operation'
-import { startBrowserCollect } from '@/utils/wpfBridge'
+import { closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
 
 let polling = false
 const claimedDetailIds = new Set<string>()
@@ -11,7 +11,9 @@ const detailTimeouts = new Map<string, number>()
 const finishedDetailIds = new Set<string>()
 const queuedDetailSources = new Map<string, string>()
 const detailRunningAccounts = new Map<string, string>()
-const DETAIL_TIMEOUT_MS = 3 * 60 * 1000
+// WPF 帖子搜索会按页面加载进度继续滚动，脚本自身的保护上限是 5 分钟。
+// 队列超时必须比脚本上限长，避免真实结果回传时已被本地 finished 标记丢弃。
+const DETAIL_TIMEOUT_MS = 6 * 60 * 1000
 const FINISHED_DETAIL_KEEP_MS = 10 * 60 * 1000
 
 const getBridge = () => window.chrome?.webview?.hostObjects?.sync?.wpfBridge
@@ -256,26 +258,30 @@ async function timeoutQueuedDetail(accountId: string, detailId: string, sourceTy
       await DmTaskApi.reportDetail({
         detailId,
         status: 2,
-        errorMsg: '私信发送超过3分钟未回传'
+        errorMsg: '私信发送超过6分钟未回传'
       })
       window.dispatchEvent(new CustomEvent('fb:dm:result:saved', { detail: { detailId } }))
     } else if (sourceType === 'operation') {
       await markOperationDetailFailed({
         detailId,
-        errorMsg: '运营执行超过3分钟未回传'
+        errorMsg: '运营执行超过6分钟未回传'
       })
       window.dispatchEvent(new CustomEvent('fb:repost:result:saved', { detail: { detailId } }))
     } else {
       await FbCollectApi.markDetailFailed({
         detailId,
-        errorMessage: '采集执行超过3分钟未回传'
+        errorMessage: '采集执行超过6分钟未回传'
       })
       window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
     }
   } catch (error) {
     console.error('队列任务超时失败上报失败', error)
   } finally {
-    await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+    const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+    const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
+    if (!nextDetail || nextAccountId !== accountId) {
+      closeBrowser(accountId)
+    }
   }
 }
 

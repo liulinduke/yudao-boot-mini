@@ -52,4 +52,9 @@ public interface FbAiAgentService {
 
     void continueAfterCollectTaskFinished(Long collectTaskId);
 
+    /**
+     * 根据已落库的采集结果刷新对应 AI 发现记录的统计值。
+     */
+    void refreshDiscoveryStatsByCollectTaskId(Long collectTaskId);
+
 }

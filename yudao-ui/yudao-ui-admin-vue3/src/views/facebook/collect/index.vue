@@ -205,7 +205,7 @@ import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
 import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
-import { onCollectionComplete, closeBrowser } from '@/utils/wpfBridge'
+import { onCollectionBatch, onCollectionComplete, closeBrowser } from '@/utils/wpfBridge'
 import {
   claimNextAiAgentDetail,
   markAiAgentCollectFinished,
@@ -403,6 +403,8 @@ const collectTypeOptions = computed(() => {
 })
 const loading = ref(true)
 const list = ref<FbCollect[]>([])
+const collectBatchChains = new Map<string, Promise<void>>()
+const savedCollectBatchCounts = new Map<string, number>()
 const total = ref(0)
 const queryParams = reactive({
   pageNo: 1,
@@ -581,6 +583,21 @@ onMounted(() => {
   getList()
   window.addEventListener('fb:collect:saved', getList)
 
+  // WPF 长任务每 50 条回传一次。这里按明细串行落库，最终完成事件只处理尾批。
+  onCollectionBatch((data) => {
+    if (isAiAgentClaimedDetail(data.detailId)) return
+    const detailId = String(data.detailId || '')
+    const results = Array.isArray(data.results) ? data.results : []
+    if (!detailId || results.length === 0) return
+    const previous = collectBatchChains.get(detailId) || Promise.resolve()
+    const chain = previous.then(async () => {
+      await saveCollectBatch(detailId, Number(data.taskType || 1), results)
+      savedCollectBatchCounts.set(detailId, (savedCollectBatchCounts.get(detailId) || 0) + results.length)
+    })
+    collectBatchChains.set(detailId, chain)
+    void chain.catch((error) => console.error('保存采集批次失败:', error))
+  })
+
   // 注册采集完成事件监听
   onCollectionComplete(async (data) => {
     if (isAiAgentClaimedDetail(data.detailId)) {
@@ -589,10 +606,12 @@ onMounted(() => {
     console.log('收到采集完成事件:', data)
 
     try {
-      const results = data.results || []
       const detailId = data.detailId // WPF返回明细ID(不是taskId)
       const accountId = data.accountId // WPF返回的accountId
       const taskType = data.taskType // 任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)
+      await (collectBatchChains.get(String(detailId || '')) || Promise.resolve())
+      const savedBatchCount = savedCollectBatchCounts.get(String(detailId || '')) || 0
+      const results = (data.results || []).slice(savedBatchCount)
       console.log(
         `📊 采集数据: ${results.length} 条, 明细ID: ${detailId}, 账号ID: ${accountId}, 任务类型: ${taskType}`
       )
@@ -703,6 +722,8 @@ onMounted(() => {
       }
 
       await continueNextCollectDetailOrClose(accountId, detailId)
+      collectBatchChains.delete(String(detailId || ''))
+      savedCollectBatchCounts.delete(String(detailId || ''))
 
       // 刷新列表
       await getList()
@@ -712,6 +733,36 @@ onMounted(() => {
     }
   })
 })
+
+async function saveCollectBatch(detailId: string, taskType: number, results: any[]) {
+  if (taskType === 2) {
+    await FbCollectPostApi.batchSaveFbCollectPost({
+      detailId: detailId as any,
+      results: results.map((item: any) => ({
+        ...item,
+        reshareCount: typeof item.reshareCount === 'string' ? parseFollowers(item.reshareCount) : item.reshareCount,
+        commentCount: typeof item.commentCount === 'string' ? parseFollowers(item.commentCount) : item.commentCount,
+        reactionCount: typeof item.reactionCount === 'string' ? parseFollowers(item.reactionCount) : item.reactionCount
+      }))
+    })
+  } else if (taskType === 4) {
+    await FbCollectGroupApi.batchSaveFbCollectGroup({
+      detailId: detailId as any,
+      results: results.map((item: any) => ({
+        ...item,
+        memberQuantity: typeof item.memberQuantity === 'string' ? parseMemberQuantity(item.memberQuantity) : item.memberQuantity
+      }))
+    })
+  } else if (taskType !== 9) {
+    await FbCollectUserApi.batchSaveFbCollectUser({
+      detailId: detailId as any,
+      results: results.map((item: any) => ({
+        ...item,
+        followers: typeof item.followers === 'string' ? parseFollowers(item.followers) : item.followers
+      }))
+    })
+  }
+}
 
 onBeforeUnmount(() => {
   window.removeEventListener('fb:collect:saved', getList)

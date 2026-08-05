@@ -73,6 +73,9 @@ public class FbAiAgentConfigRespVO {
     @Schema(description = "账号ID列表，逗号分隔")
     private String accountIds;
 
+    @Schema(description = "账号分配模式：AUTO程序自动选择，MANUAL手动选择")
+    private String accountSelectionMode;
+
     @Schema(description = "监控群组ID列表，逗号分隔")
     private String monitorGroupIds;
 

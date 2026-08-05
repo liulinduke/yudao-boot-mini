@@ -392,9 +392,16 @@ namespace SocialMatrix.WpfHost
                 }));
             };
 
+            browserMatrixWindow.OnCollectionBatch += (dId, accId, jsonData, taskType) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() => ReturnCollectionBatchToVue(dId, accId, jsonData, taskType)));
+            };
+
             // 登录页/Cookie 失效由 Vue relay 持久化到账号登录状态，WPF 不直接改业务数据。
             browserMatrixWindow.OnCollectionError += (accId, errorMessage) =>
             {
+                // 错误通知可能紧接着关闭浏览器状态；必须在调度前固定明细 ID。
+                var detailId = browserMatrixWindow.GetActiveDetailId(accId);
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_messageMonitorByAccount.TryGetValue(accId, out var monitorId))
@@ -404,7 +411,6 @@ namespace SocialMatrix.WpfHost
                         _messageMonitorByAccount.Remove(accId);
                         return;
                     }
-                    var detailId = browserMatrixWindow.GetActiveDetailId(accId);
                     ReturnCollectionErrorToVue(accId, detailId, errorMessage);
                     if (IsNetworkLoadError(errorMessage))
                     {
@@ -461,6 +467,23 @@ namespace SocialMatrix.WpfHost
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 数据回传失败: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"堆栈跟踪: {ex.StackTrace}");
+            }
+        }
+
+        private void ReturnCollectionBatchToVue(string detailId, string accountId, string jsonData, int taskType)
+        {
+            try
+            {
+                if (VueWebView.CoreWebView2 == null) return;
+                var script = $@"window.dispatchEvent(new CustomEvent('fb:collection:batch', {{ detail: {{
+                    detailId: '{detailId}', accountId: '{accountId}', data: {jsonData}, taskType: {taskType},
+                    timestamp: new Date().toISOString() }} }}));";
+                VueWebView.CoreWebView2.ExecuteScriptAsync(script);
+                System.Diagnostics.Debug.WriteLine($"📤 已回传采集批次: 明细ID={detailId}, 数量={JArray.Parse(jsonData).Count}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 采集批次回传失败: {ex.Message}");
             }
         }
 

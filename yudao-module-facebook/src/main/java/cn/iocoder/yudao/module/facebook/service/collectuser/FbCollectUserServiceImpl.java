@@ -197,6 +197,9 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         
         // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);
+
+        // AI 主页、深度采集及评论采集同样可能分批回传，发现记录按已入库用户实时校正。
+        aiAgentService.refreshDiscoveryStatsByCollectTaskId(detail.getTaskId());
         
         // 3. 更新数据库和主表。AI Agent 只在整个采集任务完成后继续下一步，避免每条深度采集都触发一次分析/触达。
         boolean taskFinished = updateDetailAndMainTableAsync(detailId);

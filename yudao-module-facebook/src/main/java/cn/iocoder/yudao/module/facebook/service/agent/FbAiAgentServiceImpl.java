@@ -223,6 +223,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     @Override
     public PageResult<FbAiAgentDiscoveryLogDO> getDiscoveryLogPage(FbAiAgentDiscoveryLogPageReqVO pageReqVO) {
+        // 发现数以资源表实际已保存的数据为准，兼容历史分批回传未及时刷新的记录。
+        if (pageReqVO.getAgentConfigId() != null) {
+            refreshDiscoveryStats(pageReqVO.getAgentConfigId());
+        }
         return discoveryLogMapper.selectPage(pageReqVO);
     }
 
@@ -841,6 +845,19 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return new AgentDueResult(true, "已到计划执行时间");
     }
 
+    @Override
+    public void refreshDiscoveryStatsByCollectTaskId(Long collectTaskId) {
+        if (collectTaskId == null) {
+            return;
+        }
+        FbAiAgentDiscoveryLogDO logDO = discoveryLogMapper.selectOne(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                .eq(FbAiAgentDiscoveryLogDO::getCollectTaskId, collectTaskId)
+                .last("LIMIT 1"));
+        if (logDO != null && logDO.getAgentConfigId() != null) {
+            refreshDiscoveryStats(logDO.getAgentConfigId());
+        }
+    }
+
     private int resolveExecuteIntervalDays(FbAiAgentConfigDO config) {
         return parseIntervalDays(config.getExecuteFrequency());
     }
@@ -1363,8 +1380,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(accounts)) {
             return Collections.emptyMap();
         }
-        return accounts.stream()
-                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a, LinkedHashMap::new));
+        Map<Long, String> fbAccountById = accounts.stream()
+                .collect(Collectors.toMap(FbAccountDO::getId, FbAccountDO::getFbAccount, (a, b) -> a));
+        // selectBatchIds 不保证返回顺序。必须沿用智能分配服务已经排好的账号顺序，
+        // 否则创建明细时取前 N 个账号会退化为数据库默认排序。
+        Map<Long, String> orderedAccounts = new LinkedHashMap<>();
+        for (Long accountId : accountIdLongs) {
+            String fbAccount = fbAccountById.get(accountId);
+            if (fbAccount != null) {
+                orderedAccounts.put(accountId, fbAccount);
+            }
+        }
+        return orderedAccounts;
     }
 
     private FbCollectDO createCollectTask(Integer taskType, String searchUrl, Integer searchType, String remark,
