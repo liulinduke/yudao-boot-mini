@@ -38,12 +38,12 @@ namespace SocialMatrix.WpfHost.Services
 
         public static ChromiumWebBrowser Create(string accountId, long? deviceId, out IRequestContext requestContext)
         {
-            var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BrowserCache", $"account_{accountId}");
+            var cachePath = BrowserCachePaths.ForAccount(accountId);
             Directory.CreateDirectory(cachePath);
             requestContext = new RequestContext(new RequestContextSettings
             {
                 CachePath = cachePath,
-                PersistSessionCookies = false
+                PersistSessionCookies = true
             });
 
             var browser = new ChromiumWebBrowser("about:blank")
