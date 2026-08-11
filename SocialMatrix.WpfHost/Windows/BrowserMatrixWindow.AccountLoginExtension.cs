@@ -230,7 +230,9 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
             System.Diagnostics.Debug.WriteLine($"🔍 账号 {account.AccountId} Cookie 后页面状态: {pageState}");
-            if (pageState == FacebookPageState.Unknown)
+            // Facebook 已保存账号选择页也可能位于 /login，但没有邮箱/密码输入框，
+            // 需要先点击 Continue，再等待后续 2FA DOM；普通登录页没有 Continue，继续走密码登录。
+            if (pageState == FacebookPageState.Unknown || pageState == FacebookPageState.LoginPage)
             {
                 var continueClicked = await ClickFacebookContinueAsync(browser);
                 if (continueClicked)
@@ -244,9 +246,95 @@ namespace SocialMatrix.WpfHost.Windows
                     {
                         System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {account.AccountId} 点击 Continue 后页面等待异常: {ex.Message}");
                     }
-                    await Task.Delay(1800);
-
-                    var continueAuthState = await DetectFacebookAuthStateAsync(browser);
+                    var continueHome = false;
+                    var homeScriptSuccess = false;
+                    object? homeScriptResult = null;
+                    for (var attempt = 0; attempt < 20; attempt++)
+                    {
+                        try
+                        {
+                            if (browser.IsDisposed || !browser.CanExecuteJavascriptInMainFrame)
+                            {
+                                await Task.Delay(500);
+                                continue;
+                            }
+                            var continueHomeResult = await RunOnBrowserUiThreadAsync(browser, () => browser.EvaluateScriptAsync(@"
+                                (() => {
+                                    if (document.readyState !== 'complete') return false;
+                                    const hasHomeDom = !!document.querySelector(
+                                        '[role=""feed""], [data-pagelet=""MainFeed""], [role=""main""]');
+                                    const hasCredentialForm = !!document.querySelector(
+                                        'input[name=""email""], input[name=""pass""], input[type=""password""]');
+                                    return hasHomeDom && !hasCredentialForm;
+                                })();"));
+                            homeScriptSuccess = continueHomeResult.Success;
+                            homeScriptResult = continueHomeResult.Result;
+                            if (continueHomeResult.Success && continueHomeResult.Result is bool isHome && isHome)
+                            {
+                                continueHome = true;
+                                break;
+                            }
+                            if (await IsFacebookHomeFromDomSourceAsync(browser))
+                            {
+                                continueHome = true;
+                                homeScriptSuccess = true;
+                                homeScriptResult = "dom-source";
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {account.AccountId} Continue 后首页 DOM 检测异常: {ex.Message}");
+                        }
+                        await Task.Delay(500);
+                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        $"🔍 账号 {account.AccountId} Continue 后首页 DOM 检测: success={homeScriptSuccess}, result={homeScriptResult}");
+                    if (continueHome)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"✅ 账号 {account.AccountId} Continue 后页面加载完成，首页 DOM 已确认");
+                        await DismissPostLoginOverlayAsync(browser);
+                        var cookieJson = await ExportFacebookCookiesAsync(browser);
+                        if (!string.IsNullOrWhiteSpace(cookieJson))
+                        {
+                            return new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true, CookieJson: cookieJson);
+                        }
+                        return new AccountLoginResult(account.Id, account.AccountId, "failed", "cookie", "首页已加载但 Cookie 未能保存");
+                    }
+                    var continueAuthState = "unknown";
+                    for (var attempt = 0; attempt < 30; attempt++)
+                    {
+                        await Task.Delay(500);
+                        continueAuthState = await DetectFacebookAuthStateAsync(browser);
+                        if (continueAuthState == "home"
+                            || continueAuthState == "two_factor"
+                            || continueAuthState == "remember_browser"
+                            || continueAuthState == "disabled"
+                            || continueAuthState == "checkpoint"
+                            || continueAuthState == "phone_verify"
+                            || continueAuthState == "email_verify"
+                            || continueAuthState == "identity_verify"
+                            || continueAuthState == "recover_code"
+                            || continueAuthState == "password_incorrect")
+                        {
+                            break;
+                        }
+                    }
+                    if (continueAuthState == "unknown")
+                    {
+                        for (var attempt = 0; attempt < 20; attempt++)
+                        {
+                            var continuePageState = await DetectFacebookPageStateAsync(browser, account.AccountId);
+                            if (continuePageState == FacebookPageState.Authenticated)
+                            {
+                                continueAuthState = "home";
+                                System.Diagnostics.Debug.WriteLine($"✅ 账号 {account.AccountId} Continue 后已通过首页 DOM 确认登录成功");
+                                break;
+                            }
+                            await Task.Delay(500);
+                        }
+                    }
+                    System.Diagnostics.Debug.WriteLine($"🔍 账号 {account.AccountId} Continue 后页面状态: {continueAuthState}");
                     if (continueAuthState == "home")
                     {
                         await DismissPostLoginOverlayAsync(browser);
@@ -291,6 +379,10 @@ namespace SocialMatrix.WpfHost.Windows
                         }
                     }
                     pageState = await DetectFacebookPageStateAsync(browser, account.AccountId);
+                    if (pageState == FacebookPageState.Unknown || pageState == FacebookPageState.PageLoading)
+                    {
+                        pageState = await DetectFacebookPageStateWithRetryAsync(browser, account.AccountId);
+                    }
                 }
             }
             if (pageState == FacebookPageState.NetworkError
@@ -326,10 +418,8 @@ namespace SocialMatrix.WpfHost.Windows
             }
 
             await ClearFacebookCookiesAsync(browser);
-            System.Diagnostics.Debug.WriteLine($"🔑 账号 {account.AccountId} Cookie 不可用，开始账号密码登录");
-            await NavigateBrowserToUrlAsync(browser, account.AccountId, "https://www.facebook.com/login", 30000);
-            await WaitForPageLoad(browser, 30000);
-            await Task.Delay(1000);
+            System.Diagnostics.Debug.WriteLine(
+                $"🔑 账号 {account.AccountId} Cookie 不可用，使用 Facebook 当前登录页进行账号密码登录: {browser.Address}");
 
             var loginResult = await browser.EvaluateScriptAsync(BuildCredentialLoginScript(account.AccountId, account.Password));
             if (!loginResult.Success || !(loginResult.Result is bool loginStarted) || !loginStarted)
@@ -371,23 +461,25 @@ namespace SocialMatrix.WpfHost.Windows
                     new Promise(async function(resolve) {{
                         try {{
                             {BuildLoginHumanHelpers()}
-                            const norm = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                            const isContinue = (el) => {{
-                                if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
-                                const text = norm(el.innerText || el.textContent || el.getAttribute('aria-label'));
-                                return text === 'continue' || text.startsWith('continue ') || text === '继续' || text.startsWith('继续 ');
-                            }};
+                            const visibleInputs = [...document.querySelectorAll('input')].filter(isVisible);
+                            const hasCredentialInputs = visibleInputs.some(el =>
+                                el.type === 'password' || el.name === 'pass' || el.name === 'email' ||
+                                el.type === 'email' || el.autocomplete === 'current-password' ||
+                                el.autocomplete === 'username');
+                            if (hasCredentialInputs) {{ resolve(false); return; }}
+
                             const candidates = [...document.querySelectorAll('[role=""button""], button')]
-                                .filter(isContinue)
-                                .sort((a, b) => {{
-                                    const aa = a.getAttribute('aria-label') || '';
-                                    const bb = b.getAttribute('aria-label') || '';
-                                    const aSpecific = /continue\s+.+/i.test(aa) ? 0 : 1;
-                                    const bSpecific = /continue\s+.+/i.test(bb) ? 0 : 1;
-                                    return aSpecific - bSpecific;
-                                }});
-                            if (!candidates.length) {{ resolve(false); return; }}
-                            await humanClick(candidates[0]);
+                                .filter(el => {{
+                                    if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                                    const rect = el.getBoundingClientRect();
+                                    return rect.width >= 300 && rect.height >= 35 &&
+                                        el.getAttribute('tabindex') !== '-1';
+                                }})
+                                .map(el => ({{ el, rect: el.getBoundingClientRect() }}))
+                                .sort((a, b) => (a.rect.top - b.rect.top) || (a.rect.left - b.rect.left));
+                            // 保存账号选择页至少有两个同级大按钮，第一项是当前账号的继续操作。
+                            if (candidates.length < 2) {{ resolve(false); return; }}
+                            await humanClick(candidates[0].el);
                             resolve(true);
                         }} catch (e) {{
                             console.warn('[登录] 点击 Continue 失败:', e);
@@ -486,7 +578,32 @@ namespace SocialMatrix.WpfHost.Windows
 
             if (authState == "remember_browser")
             {
-                await browser.EvaluateScriptAsync(BuildRememberBrowserScript());
+                var trusted = false;
+                for (var attempt = 0; attempt < 30; attempt++)
+                {
+                    var closeResult = await browser.EvaluateScriptAsync(BuildCloseBlockingDialogScript());
+                    if (closeResult.Success && closeResult.Result is bool dialogClosed && dialogClosed)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"📌 账号 {account.AccountId} 已关闭 2FA 后阻塞弹框");
+                        await Task.Delay(700);
+                        continue;
+                    }
+
+                    var trustResult = await browser.EvaluateScriptAsync(BuildTrustDeviceSubmitScript());
+                    if (trustResult.Success && trustResult.Result is bool trustClicked && trustClicked)
+                    {
+                        trusted = true;
+                        System.Diagnostics.Debug.WriteLine($"📌 账号 {account.AccountId} 已点击 Trust this device 主操作");
+                        break;
+                    }
+
+                    await Task.Delay(500);
+                }
+
+                if (!trusted)
+                {
+                    return new AccountLoginResult(account.Id, account.AccountId, "failed", "credential", "Trust device prompt did not load");
+                }
                 try
                 {
                     await WaitForPageLoad(browser, 30000);
@@ -516,6 +633,29 @@ namespace SocialMatrix.WpfHost.Windows
                 authState == "disabled" ? "account_disabled" : "failed",
                 "credential",
                 MapAuthStateToReason(authState));
+            }
+
+        private async Task<bool> IsFacebookHomeFromDomSourceAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                var source = await browser.GetSourceAsync();
+                if (string.IsNullOrWhiteSpace(source)) return false;
+
+                var html = source.ToLowerInvariant();
+                var hasHomeDom = html.Contains("role=\"feed\"", StringComparison.Ordinal)
+                    || html.Contains("data-pagelet=\"mainfeed\"", StringComparison.Ordinal)
+                    || html.Contains("role=\"main\"", StringComparison.Ordinal);
+                var hasCredentialForm = html.Contains("name=\"email\"", StringComparison.Ordinal)
+                    || html.Contains("name=\"pass\"", StringComparison.Ordinal)
+                    || html.Contains("type=\"password\"", StringComparison.Ordinal);
+                return hasHomeDom && !hasCredentialForm;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 读取 Facebook DOM Source 失败: {ex.Message}");
+                return false;
+            }
         }
 
         private async Task<bool> SubmitContinuePasswordAsync(ChromiumWebBrowser browser, string? password)
@@ -611,7 +751,7 @@ namespace SocialMatrix.WpfHost.Windows
                     if (hasText(['mobile number', 'phone number', 'sent to your phone', 'text message'])) return 'phone_verify';
                     if (hasText(['confirm your identity', 'verify your identity', 'identity confirmation'])) return 'identity_verify';
                     if (hasText(['another device', 'original device', 'device you used before', 'recover code'])) return 'recover_code';
-                    if (document.querySelector('[role=""feed""], [data-pagelet=""MainFeed""], nav[aria-label=""Primary""], a[aria-label=""Home""], a[aria-label=""首页""]')) return 'home';
+                    if (document.querySelector('[role=""feed""], [data-pagelet=""MainFeed""], [role=""main""]')) return 'home';
                     if (hasSelector([
                         'input[name=""email""]',
                         'input#email',
@@ -649,14 +789,18 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     return "home";
                 }
+                if (pageState == FacebookPageState.VerificationRequired)
+                {
+                    return "two_factor";
+                }
                 if (pageState == FacebookPageState.AccountDisabled)
                 {
                     return "disabled";
                 }
                 var homeDomResult = await browser.EvaluateScriptAsync(@"
                     document.readyState === 'complete' && !!document.querySelector(
-                        '[role=""feed""], [role=""main""], [data-pagelet=""MainFeed""], ' +
-                        'nav[aria-label=""Primary""], [aria-label=""Your profile""], [aria-label=""Home""]');
+                        '[role=""feed""], [data-pagelet=""MainFeed""], ' +
+                        '[role=""main""]');
                 ");
                 if (homeDomResult.Success && homeDomResult.Result is bool homeReady && homeReady)
                 {
@@ -680,7 +824,7 @@ namespace SocialMatrix.WpfHost.Windows
                         if (document.readyState !== 'complete') return false;
                         return !!document.querySelector(
                             '[role=""feed""], [role=""main""], [data-pagelet=""MainFeed""], ' +
-                            'nav[aria-label=""Primary""], [aria-label=""Your profile""], [aria-label=""Home""]');
+                            '[role=""main""]');
                     })();
                 ");
                 if (result.Success && result.Result is bool ready && ready)
@@ -1070,6 +1214,83 @@ namespace SocialMatrix.WpfHost.Windows
                     console.error('[登录] 模拟人2FA脚本失败:', error);
                     resolve(false);
                 }});
+                }});
+            ";
+        }
+
+        private static string BuildCloseBlockingDialogScript()
+        {
+            return $@"
+                new Promise(async function(resolve) {{
+                try {{
+                    {BuildLoginHumanHelpers()}
+                    const visible = (el) => {{
+                        if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        return rect.width >= 16 && rect.height >= 16 && rect.top >= 0 &&
+                            style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                    }};
+                    const dialogs = [...document.querySelectorAll('[role=""dialog""][aria-modal=""true""], [aria-modal=""true""]')]
+                        .filter(visible)
+                        .map(el => ({{ el, rect: el.getBoundingClientRect() }}));
+                    if (!dialogs.length) {{ resolve(false); return; }}
+                    const dialog = dialogs[dialogs.length - 1].el;
+                    const dialogRect = dialog.getBoundingClientRect();
+                    const closeButton = [...dialog.querySelectorAll('[role=""button""], button')]
+                        .filter(visible)
+                        .map(el => ({{ el, rect: el.getBoundingClientRect() }}))
+                        .filter(item =>
+                            item.rect.width <= 56 && item.rect.height <= 56 &&
+                            item.rect.top <= dialogRect.top + 80 &&
+                            item.rect.left >= dialogRect.right - 96
+                        )
+                        .sort((a, b) => b.rect.left - a.rect.left)[0]?.el;
+                    if (!closeButton) {{ resolve(false); return; }}
+                    await humanClick(closeButton);
+                    resolve(true);
+                }} catch (error) {{
+                    console.warn('[登录] 关闭阻塞弹框失败:', error);
+                    resolve(false);
+                }}
+                }});
+            ";
+        }
+
+        private static string BuildTrustDeviceSubmitScript()
+        {
+            return $@"
+                new Promise(async function(resolve) {{
+                try {{
+                    {BuildLoginHumanHelpers()}
+                    const visible = (el) => {{
+                        if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true') return false;
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        return rect.width >= 16 && rect.height >= 16 && rect.top >= 0 &&
+                            style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                    }};
+                    if ([...document.querySelectorAll('[role=""dialog""][aria-modal=""true""], [aria-modal=""true""]')].some(visible)) {{
+                        resolve(false);
+                        return;
+                    }}
+                    const actions = [...document.querySelectorAll('[role=""button""], button')]
+                        .filter(visible)
+                        .map(el => ({{ el, rect: el.getBoundingClientRect() }}))
+                        .filter(item => item.rect.width >= 300 && item.rect.height >= 35 && item.el.getAttribute('tabindex') !== '-1')
+                        .sort((a, b) => (a.rect.top - b.rect.top) || (a.rect.left - b.rect.left));
+                    const primary = actions.find((item, index) => {{
+                        const next = actions[index + 1];
+                        return next && Math.abs(item.rect.left - next.rect.left) <= 8 &&
+                            next.rect.top > item.rect.top && next.rect.top - item.rect.top <= 96;
+                    }});
+                    if (!primary) {{ resolve(false); return; }}
+                    await humanClick(primary.el);
+                    resolve(true);
+                }} catch (error) {{
+                    console.warn('[登录] 点击信任设备失败:', error);
+                    resolve(false);
+                }}
                 }});
             ";
         }
