@@ -1075,16 +1075,11 @@ const loadUserList = async (taskId: number) => {
         })
       } else {
         // 个人主页采集、帖子评论点赞采集等其他类型 - 查询 fb_collect_user 表
-        const sourceUserIds =
-          taskType === 12
-            ? detailList.value
-                .map((item: any) => item.sourceUserId)
-                .filter((id: any) => id !== undefined && id !== null && id !== '')
-            : []
         response = await FbCollectUserApi.getFbCollectUserPage({
           pageNo,
           pageSize,
-          ...(sourceUserIds.length ? { ids: sourceUserIds } : { taskId })
+          // 深度采集会复用已有潜客记录并更新 taskId，统一按当前任务查询才能显示本次结果。
+          taskId
         })
       }
 

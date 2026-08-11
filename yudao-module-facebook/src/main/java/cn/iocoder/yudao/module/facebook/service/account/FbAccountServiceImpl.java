@@ -23,6 +23,9 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountActionStatDO;
 import cn.iocoder.yudao.module.facebook.enums.OperationTypeEnum;
 import cn.iocoder.yudao.module.facebook.service.dailylimit.FacebookDailyLimitService;
+import cn.iocoder.yudao.module.system.dal.dataobject.SysProxyDO;
+import cn.iocoder.yudao.module.system.service.SysProxyService;
+import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
@@ -46,6 +49,9 @@ public class FbAccountServiceImpl implements FbAccountService {
 
     @Resource
     private FacebookDailyLimitService dailyLimitService;
+
+    @Resource
+    private SysProxyService sysProxyService;
 
     @Override
     public Long createFbAccount(FbAccountSaveReqVO createReqVO) {
@@ -100,6 +106,50 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Override
     public FbAccountDO getFbAccount(Long id) {
         return fbAccountMapper.selectById(id);
+    }
+
+    @Override
+    public FbAccountRuntimeProxyRespVO getRuntimeProxy(String accountId) {
+        if (StrUtil.isBlank(accountId)) {
+            throw new IllegalArgumentException("账号不能为空");
+        }
+        FbAccountDO account = null;
+        try {
+            account = fbAccountMapper.selectById(Long.valueOf(accountId));
+        } catch (NumberFormatException ignored) {
+            // 任务有时携带 Facebook 账号字符串，继续按 fb_account 查询。
+        }
+        if (account == null) {
+            account = fbAccountMapper.selectOne(new LambdaQueryWrapperX<FbAccountDO>()
+                    .eq(FbAccountDO::getFbAccount, accountId));
+        }
+        if (account == null) {
+            throw new IllegalStateException("FB账号不存在: " + accountId);
+        }
+        if (account.getProxyId() == null) {
+            return null;
+        }
+
+        SysProxyDO proxy = sysProxyService.getProxyDO(account.getProxyId());
+        if (proxy == null) {
+            throw new IllegalStateException("账号绑定的代理不存在: " + account.getProxyId());
+        }
+        if (!Integer.valueOf(1).equals(proxy.getStatus())) {
+            throw new IllegalStateException("账号绑定的代理已禁用: " + account.getProxyId());
+        }
+        if (proxy.getProxyType() == null || proxy.getProxyType() < 1 || proxy.getProxyType() > 3
+                || StrUtil.isBlank(proxy.getHost()) || proxy.getPort() == null
+                || proxy.getPort() < 1 || proxy.getPort() > 65535) {
+            throw new IllegalStateException("账号绑定的代理配置不完整: " + account.getProxyId());
+        }
+
+        FbAccountRuntimeProxyRespVO result = new FbAccountRuntimeProxyRespVO();
+        result.setProxyType(proxy.getProxyType());
+        result.setHost(proxy.getHost().trim());
+        result.setPort(proxy.getPort());
+        result.setUsername(StrUtil.isBlank(proxy.getUsername()) ? null : proxy.getUsername());
+        result.setPassword(StrUtil.isBlank(proxy.getPassword()) ? null : proxy.getPassword());
+        return result;
     }
 
     @Override
@@ -223,10 +273,6 @@ public class FbAccountServiceImpl implements FbAccountService {
         for (FbAccountProfileUploadReqVO.Item item : reqVO.getItems()) {
             FbAccountDO updateObj = new FbAccountDO();
             updateObj.setId(item.getAccountId());
-            updateObj.setAvatarUrl(item.getAvatarUrl());
-            updateObj.setCoverUrl(item.getCoverUrl());
-            updateObj.setProfileNickname(item.getNickname());
-            updateObj.setProfileSignature(item.getSignature());
             updateObj.setProfileUpdateStatus("PENDING");
             updateObj.setProfileUpdateError(null);
             fbAccountMapper.updateById(updateObj);
@@ -241,10 +287,13 @@ public class FbAccountServiceImpl implements FbAccountService {
         updateObj.setProfileUpdateStatus(reqVO.getStatus());
         updateObj.setProfileUpdateTime(java.time.LocalDateTime.now());
         updateObj.setProfileUpdateError(reqVO.getErrorMessage());
-        if (reqVO.getAvatarUrl() != null) updateObj.setAvatarUrl(reqVO.getAvatarUrl());
-        if (reqVO.getCoverUrl() != null) updateObj.setCoverUrl(reqVO.getCoverUrl());
-        if (reqVO.getNickname() != null) updateObj.setProfileNickname(reqVO.getNickname());
-        if (reqVO.getSignature() != null) updateObj.setProfileSignature(reqVO.getSignature());
+        // 待上传资料只存在于 WPF 任务配置中，只有 Facebook 实际执行成功后才覆盖当前资料。
+        if ("SUCCESS".equalsIgnoreCase(reqVO.getStatus())) {
+            if (reqVO.getAvatarUrl() != null) updateObj.setAvatarUrl(reqVO.getAvatarUrl());
+            if (reqVO.getCoverUrl() != null) updateObj.setCoverUrl(reqVO.getCoverUrl());
+            if (reqVO.getNickname() != null) updateObj.setProfileNickname(reqVO.getNickname());
+            if (reqVO.getSignature() != null) updateObj.setProfileSignature(reqVO.getSignature());
+        }
         fbAccountMapper.updateById(updateObj);
     }
 
@@ -262,17 +311,9 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void importFbAccount(FbAccountImportReqVO importReqVO) {
-        String data = importReqVO.getData();
-        String[] lines = data.split("\n");
         LocalDateTime now = LocalDateTime.now();
 
-        for (String line : lines) {
-            line = line.trim();
-            if (StrUtil.isEmpty(line)) {
-                continue;
-            }
-
-            String[] parts = line.split("----");
+        for (String[] parts : parseAccountImportRecords(importReqVO.getData())) {
             if (parts.length < 2) {
                 continue;
             }
@@ -280,6 +321,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             String userName = parts[0].trim();
             String password = parts[1].trim();
             String securityKey = parts.length > 2 ? parts[2].trim() : null;
+            String cookie = parts.length > 3 ? parts[3].trim() : null;
 
             if (StrUtil.isEmpty(userName) || StrUtil.isEmpty(password)) {
                 continue;
@@ -294,6 +336,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             account.setStatus(true);
             account.setCreateTime(now);
             account.setUpdateTime(now);
+            account.setCookie(cookie);
             ensureDeviceId(account);
             handleEmptyCookie(account);
 
@@ -414,6 +457,33 @@ public class FbAccountServiceImpl implements FbAccountService {
         if (StrUtil.isEmpty(account.getCookie())) {
             account.setCookie("[]");
         }
+    }
+
+    /**
+     * 解析账号导入数据。新格式为：账号|密码|2FA|Cookie|Token|邮箱；Token 和邮箱不入库。
+     * 同时兼容旧格式：账号----密码----2FA，以及多条记录连续粘贴在同一行的情况。
+     */
+    private List<String[]> parseAccountImportRecords(String data) {
+        List<String[]> records = new ArrayList<>();
+        if (StrUtil.isBlank(data)) {
+            return records;
+        }
+
+        // 下一条记录以数字账号开头，供应商数据常表现为“| 615...|”。
+        String normalized = data.replaceAll("\\|\\s*(?=\\d{10,}\\s*\\|)", "\\n");
+        for (String line : normalized.split("\\R")) {
+            String trimmedLine = line.trim();
+            if (StrUtil.isEmpty(trimmedLine)) {
+                continue;
+            }
+
+            if (trimmedLine.contains("----")) {
+                records.add(trimmedLine.split("----", -1));
+            } else if (trimmedLine.contains("|")) {
+                records.add(trimmedLine.split("\\|", -1));
+            }
+        }
+        return records;
     }
 
     /**
