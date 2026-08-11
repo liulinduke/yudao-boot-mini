@@ -1,9 +1,9 @@
 <template>
   <ContentWrap>
-    <div class="flex gap-4" style="height: calc(100vh - 200px)">
+    <div class="flex gap-4">
       <!-- 左侧：账号分组 -->
       <div class="w-250px flex-shrink-0">
-        <el-card class="h-full" body-style="padding: 10px;">
+        <el-card body-style="padding: 10px;">
           <template #header>
             <div class="flex justify-between items-center">
               <span class="font-bold">账号分组</span>
@@ -13,7 +13,7 @@
             </div>
           </template>
 
-          <el-scrollbar height="calc(100% - 50px)">
+          <el-scrollbar>
             <div
               class="group-item p-2 rounded cursor-pointer mb-2 transition-all"
               :class="{
@@ -67,7 +67,7 @@
       </div>
 
       <!-- 右侧：账号列表 -->
-      <div class="flex-1 min-w-0 flex flex-col">
+      <div class="flex-1 min-h-0 min-w-0 flex flex-col">
         <!-- 搜索工作栏 -->
         <el-form
           class="-mb-15px"
@@ -209,8 +209,8 @@
         </div>
 
         <!-- 列表 -->
-        <div class="flex-1 min-w-0 mt-4 overflow-hidden">
-          <div class="fb-account-table-scroll">
+        <div class="flex flex-col flex-1 min-h-0 min-w-0 mt-4 overflow-hidden">
+          <div class="fb-account-table-scroll flex-1 min-h-0 overflow-auto">
             <el-table
               row-key="id"
               v-loading="loading"
@@ -317,12 +317,14 @@
             </el-table>
           </div>
           <!-- 分页 -->
-          <Pagination
-            :total="total"
-            v-model:page="queryParams.pageNo"
-            v-model:limit="queryParams.pageSize"
-            @pagination="getList"
-          />
+          <div class="flex-shrink-0">
+            <Pagination
+              :total="total"
+              v-model:page="queryParams.pageNo"
+              v-model:limit="queryParams.pageSize"
+              @pagination="getList"
+            />
+          </div>
         </div>
       </div>
     </div>

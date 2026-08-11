@@ -308,16 +308,16 @@ export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) =>
     )
     let started = 0
     const startedAccounts = new Set<string>()
-    ;(details || []).forEach((detail) => {
+    for (const detail of details || []) {
       const account = String(detail.fbAccount || '')
       if (!account || runningAccounts.has(account) || startedAccounts.has(account)) {
-        return
+        continue
       }
       if (await startAiAgentCollectDetail(detail)) {
         startedAccounts.add(account)
         started++
       }
-    })
+    }
     return started
   } catch (error) {
     console.warn('领取AI获客采集明细失败', error)

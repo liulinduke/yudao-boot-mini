@@ -88,7 +88,6 @@ import * as OperationApi from '@/api/facebook/operation'
 import { FbAccountApi, filterSelectableFbAccounts } from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import FbAccountSelector from '../components/FbAccountSelector.vue'
-import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 defineOptions({ name: 'PublishPostForm' })
 
@@ -287,7 +286,9 @@ const submitForm = async () => {
           }
           
           // @ts-ignore
-          const proxyConfigJson = await getFbAccountProxyJson(accountId)
+          const proxyConfigJson = accountInfo.runtimeProxy
+            ? JSON.stringify(accountInfo.runtimeProxy)
+            : undefined
           window.chrome.webview.hostObjects.sync.wpfBridge.StartPublishPostTask(
             String(taskId),
             String(accountId),

@@ -7,37 +7,39 @@
             type="textarea"
             v-model="formData.data"
             :rows="12"
-            placeholder="支持每行一个账号，也支持多个账号连续粘贴：账号|密码|2FA|Cookie|Token|邮箱"
+            placeholder="请粘贴账号数据"
             class="font-mono text-sm"
           />
         </el-form-item>
         <el-form-item>
           <el-text type="info" size="small">
             <template #default>
-              账号格式：<code>Facebook用户名----Facebook密码</code>（兼容旧格式）
-            </template>
+              格式一：<code>Facebook用户名----Facebook密码</code>（一行一个账号）</template
+            >
           </el-text>
         </el-form-item>
         <el-form-item>
           <el-text type="info" size="small">
             <template #default>
-              或：<code>账号|密码|2FA|Cookie|Token|邮箱</code>（只保存前四项）
-            </template>
+              格式二：<code>Facebook用户名----Facebook密码----双重验证安全码</code>（一行一个账号）</template
+            >
+          </el-text>
+        </el-form-item>
+        <el-form-item>
+          <el-text type="info" size="small">
+            <template #default>
+              格式三：<code>账号|密码|2FA|Cookie|Token|邮箱</code>（多个账号可连续粘贴在同一行）</template
+            >
           </el-text>
         </el-form-item>
       </el-form>
     </div>
     <div v-else>
-      <el-table
-        :data="previewList"
-        :max-height="300"
-        border
-        :show-overflow-tooltip="true"
-      >
+      <el-table :data="previewList" :max-height="300" border :show-overflow-tooltip="true">
         <el-table-column label="序号" prop="no" width="60" />
-        <el-table-column label="Facebook账号" prop="userName" />
+        <el-table-column label="Facebook账号" prop="userName" width="120" />
         <el-table-column label="密码" prop="password" />
-        <el-table-column label="双重验证安全码" prop="securityKey" />
+        <el-table-column label="双重验证安全码" prop="securityKey" width="140" />
         <el-table-column label="Cookie" width="100">
           <template #default="scope">
             <el-tag v-if="scope.row.cookie" type="success" size="small">已提供</el-tag>
@@ -55,11 +57,7 @@
 
       <el-form :model="importSettings" label-width="100px" class="mt-4">
         <el-form-item label="设置分组">
-          <el-select
-            v-model="importSettings.groupId"
-            placeholder="请选择分组"
-            class="w-200px"
-          >
+          <el-select v-model="importSettings.groupId" placeholder="请选择分组" class="w-200px">
             <el-option :value="null" label="不分组" />
             <el-option
               v-for="group in groupList"
@@ -70,11 +68,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="设置代理">
-          <el-select
-            v-model="importSettings.proxyId"
-            placeholder="请选择代理"
-            class="w-200px"
-          >
+          <el-select v-model="importSettings.proxyId" placeholder="请选择代理" class="w-200px">
             <el-option :value="null" label="不设置代理" />
             <el-option
               v-for="proxy in proxyList"
@@ -103,7 +97,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { Dialog } from '@/components/Dialog'
-import { FbAccountApi, FbAccountImportReqVO, FbAccountImportPreviewVO } from '@/api/facebook/account'
+import {
+  FbAccountApi,
+  FbAccountImportReqVO,
+  FbAccountImportPreviewVO
+} from '@/api/facebook/account'
 import { AccountGroupApi } from '@/api/facebook/accountgroup'
 import { SysProxyApi, SysProxyRespVO } from '@/api/system/proxy'
 import { useMessage } from '@/hooks/web/useMessage'
@@ -115,11 +113,11 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('导入账号')
 const tableView = ref(false)
 const formData = reactive({
-  data: '',
+  data: ''
 })
 const importSettings = reactive({
   groupId: null as number | null,
-  proxyId: null as number | null,
+  proxyId: null as number | null
 })
 
 const groupList = ref<any[]>([])
@@ -203,7 +201,7 @@ const handleNext = () => {
       password,
       securityKey,
       cookie: record.cookie,
-      error,
+      error
     })
     lineNum++
   }
@@ -212,7 +210,7 @@ const handleNext = () => {
 }
 
 const handleImport = async () => {
-  const validItems = previewList.value.filter(item => !item.error)
+  const validItems = previewList.value.filter((item) => !item.error)
   if (validItems.length === 0) {
     message.warning('没有有效的账号数据')
     return
@@ -220,9 +218,10 @@ const handleImport = async () => {
 
   try {
     const data: FbAccountImportReqVO = {
-      data: formData.data,
+      // 连续粘贴的 | 格式先按账号边界拆成多行，避免后端只收到第一条记录。
+      data: normalizePipeRecords(formData.data),
       groupId: importSettings.groupId,
-      proxyId: importSettings.proxyId,
+      proxyId: importSettings.proxyId
     }
     await FbAccountApi.importFbAccount(data)
     message.success('导入成功')

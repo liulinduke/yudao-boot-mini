@@ -36,7 +36,10 @@ export const FbAccountApi = {
   },
 
   deleteFbAccountList: (ids: number[]) => {
-    return request.delete({ url: '/facebook/fb-account/delete-list', params: { ids } })
+    return request.delete({
+      url: '/facebook/fb-account/delete-list',
+      params: { ids: ids.join(',') }
+    })
   },
 
   exportFbAccount: (params: FbAccountPageReqVO) => {
@@ -163,6 +166,7 @@ export interface FbAccount {
   proxy?: string
   proxyId?: number
   proxyName?: string
+  runtimeProxy?: FbProxyConfig | null
   language?: number
   languageCode?: string
   creationDate?: string

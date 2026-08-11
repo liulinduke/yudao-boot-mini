@@ -589,6 +589,10 @@ namespace SocialMatrix.WpfHost.Windows
                     if (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase)) return;
                     if (_browserInitialized.ContainsKey(accountId) && _browserInitialized[accountId]) return;
 
+                    // CEF 偶尔会先发出加载结束事件，但页面仍是空 DOM；此时不能标记为已初始化，
+                    // 否则首次加载兜底逻辑会被跳过。
+                    if (await IsBrowserBlankPageAsync(browser)) return;
+
                     _browserInitialized[accountId] = true;
 
                     try
@@ -634,7 +638,9 @@ namespace SocialMatrix.WpfHost.Windows
                         {
                             readySignal.TrySetResult(pageState);
                         }
-                        if (!string.IsNullOrEmpty(cookie))
+                        // 账号管理登录没有采集 URL，登录状态由 LoginAccountWithBrowserAsync
+                        // 统一判断；不要在首页 DOM 尚未完成时用通用采集回调误报 Unknown。
+                        if (!string.IsNullOrEmpty(cookie) && !string.IsNullOrEmpty(searchUrl))
                         {
                             if (pageState != FacebookPageState.Authenticated)
                             {
@@ -754,6 +760,7 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     if (IsInitialLoadBrowserActive(browser, accountId))
                     {
+                        _browserInitialized[accountId] = false;
                         browser.Load(initialUrl);
                     }
                     return Task.CompletedTask;
@@ -1021,7 +1028,6 @@ namespace SocialMatrix.WpfHost.Windows
         try { return visible(document.querySelector(selector)); } catch { return false; }
     });
 
-    if (document.readyState !== 'complete') return 'PAGE_LOADING';
     if (url.includes('/disabled_account') || url.includes('/account_disabled') ||
         bodyText.includes('account has been disabled') || bodyText.includes('account has been suspended') ||
         bodyText.includes('violated our community standards') || bodyText.includes('您的账号已被禁用')) {
@@ -1033,13 +1039,43 @@ namespace SocialMatrix.WpfHost.Windows
         return 'VERIFICATION_REQUIRED';
     }
 
+    const hasAuthCookie = /(?:^|;\s*)c_user=\d+/.test(document.cookie || '');
     const hasLoginForm = has([
         'form[action*=""/login""]', '#login_form', '[data-testid=""royal_login_form""]',
         '[data-testid=""login_form""]', 'input[name=""email""]', 'input[name=""pass""]',
         'input[type=""email""]', 'input[type=""password""]',
+        'input[autocomplete=""username""]', 'input[autocomplete=""current-password""]',
+        'input[aria-label*=""password"" i]', 'input[placeholder*=""password"" i]',
         'button[type=""submit""][name=""login""]', '[aria-label*=""Log In"" i]', '[aria-label*=""登录""]'
     ]);
-    if (hasLoginForm && (url.includes('/login') || url.includes('login.php') || !has(['[role=""feed""]', '[data-pagelet=""MainFeed""]']))) {
+    const hasPasswordInput = has([
+        'input[type=""password""]', 'input[name=""pass""]',
+        'input[autocomplete=""current-password""]',
+        'input[aria-label*=""password"" i]', 'input[placeholder*=""password"" i]'
+    ]);
+    const hasLoginButton = has([
+        '#loginbutton', 'button[name=""login""]', 'button[type=""submit""]',
+        'input[type=""submit""]', '[role=""button""][aria-label*=""Log In"" i]',
+        '[role=""button""][aria-label*=""登录""]',
+        '[aria-label=""Log in"" i]', '[aria-label=""登录""]'
+    ]);
+    const hasEmailInput = has([
+        'input[name=""email""]', 'input[type=""email""]',
+        'input[autocomplete=""username""]'
+    ]);
+    const hasCredentialPair = hasEmailInput && hasPasswordInput;
+    const hasLoginCopy = bodyText.includes('log in to facebook') ||
+        bodyText.includes('email address or mobile number') ||
+        bodyText.includes('登录 facebook');
+    // Facebook 新版登录页经常使用 / 而不是 /login，且按钮是带 Log in aria-label 的 DIV。
+    if ((hasCredentialPair && (hasLoginButton || hasLoginCopy)) ||
+        (hasLoginForm && (url.includes('/login') || url.includes('login.php') || !has(['[role=""feed""]', '[data-pagelet=""MainFeed""]'])))) {
+        return 'LOGIN_PAGE';
+    }
+    if ((url.includes('/login') || url.includes('login.php')) && !hasAuthCookie) {
+        return 'LOGIN_PAGE';
+    }
+    if (hasPasswordInput && hasLoginButton && !hasAuthCookie) {
         return 'LOGIN_PAGE';
     }
 
@@ -1049,7 +1085,6 @@ namespace SocialMatrix.WpfHost.Windows
 
     // Facebook 主页面由 React 异步渲染，弹窗、语言或新版 DOM 变化时可能暂时没有上述 feed 特征。
     // c_user 只能作为登录兜底，登录表单和明确异常页面仍优先返回，不会掩盖 Cookie 失效。
-    const hasAuthCookie = /(?:^|;\s*)c_user=\d+/.test(document.cookie || '');
     const hasAuthenticatedChrome = has([
         '[role=""main""]', '[aria-label*=""Your profile"" i]', '[aria-label*=""你的主页"" i]',
         'a[href*=""/profile.php""]', 'a[href*=""/friends""]', '[data-pagelet*=""Feed"" i]'
@@ -1057,6 +1092,7 @@ namespace SocialMatrix.WpfHost.Windows
     if (hasAuthCookie && (hasAuthenticatedChrome || bodyText.length > 80)) {
         return 'AUTHENTICATED';
     }
+    if (document.readyState !== 'complete') return 'PAGE_LOADING';
     return 'UNKNOWN';
 })();");
 
@@ -1065,9 +1101,19 @@ namespace SocialMatrix.WpfHost.Windows
                     return FacebookPageState.Unknown;
                 }
 
-                return Enum.TryParse<FacebookPageState>(result.Result.ToString(), true, out var state)
-                    ? state
-                    : FacebookPageState.Unknown;
+                // 页面脚本使用大写下划线格式（LOGIN_PAGE），而 C# 枚举使用 PascalCase（LoginPage）。
+                // 直接 Enum.TryParse 会因下划线不一致失败，最终把明确状态误报为 Unknown。
+                var rawState = result.Result.ToString() ?? "";
+                var normalizedState = rawState.Replace("_", "", StringComparison.Ordinal);
+                foreach (var candidate in Enum.GetValues<FacebookPageState>())
+                {
+                    if (string.Equals(normalizedState, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return candidate;
+                    }
+                }
+
+                return FacebookPageState.Unknown;
             }
             catch (Exception ex)
             {

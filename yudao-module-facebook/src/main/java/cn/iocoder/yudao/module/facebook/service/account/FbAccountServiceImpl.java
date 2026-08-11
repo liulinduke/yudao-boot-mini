@@ -336,7 +336,7 @@ public class FbAccountServiceImpl implements FbAccountService {
             account.setStatus(true);
             account.setCreateTime(now);
             account.setUpdateTime(now);
-            account.setCookie(cookie);
+            account.setCookie(normalizeCookieForStorage(cookie));
             ensureDeviceId(account);
             handleEmptyCookie(account);
 
@@ -364,7 +364,7 @@ public class FbAccountServiceImpl implements FbAccountService {
 
             FbAccountDO account = new FbAccountDO();
             account.setFbAccount(userId);
-            account.setCookie(line);
+            account.setCookie(normalizeCookieForStorage(line));
             account.setGroupId(importReqVO.getGroupId());
             account.setProxyId(importReqVO.getProxyId());
             account.setStatus(true);
@@ -454,9 +454,55 @@ public class FbAccountServiceImpl implements FbAccountService {
     }
 
     private void handleEmptyCookie(FbAccountDO account) {
-        if (StrUtil.isEmpty(account.getCookie())) {
-            account.setCookie("[]");
+        account.setCookie(normalizeCookieForStorage(account.getCookie()));
+    }
+
+    /** 数据库 cookie 字段是 JSON；兼容供应商常见的 name=value;name2=value2 文本格式。 */
+    private String normalizeCookieForStorage(String cookie) {
+        if (StrUtil.isBlank(cookie)) {
+            return "[]";
         }
+        String value = cookie.trim();
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            JsonNode json = mapper.readTree(value);
+            if (json != null && json.isArray()) {
+                return json.toString();
+            }
+            if (json != null && json.isObject()) {
+                // 单个 Cookie 对象也转成 CefSharp 使用的数组格式。
+                if (json.has("name") && json.has("value")) {
+                    return mapper.createArrayNode().add(json).toString();
+                }
+                var array = mapper.createArrayNode();
+                json.fields().forEachRemaining(entry -> array.addObject()
+                        .put("name", entry.getKey())
+                        .put("value", entry.getValue().asText())
+                        .put("domain", ".facebook.com")
+                        .put("path", "/")
+                        .put("secure", true));
+                return array.toString();
+            }
+        } catch (Exception ignored) {
+            // 原始 Cookie 文本，继续转换。
+        }
+
+        var array = mapper.createArrayNode();
+        for (String part : value.split(";")) {
+            int separator = part.indexOf('=');
+            if (separator <= 0) continue;
+            String name = part.substring(0, separator).trim();
+            String cookieValue = part.substring(separator + 1).trim();
+            if (StrUtil.isBlank(name)) continue;
+            array.addObject()
+                    .put("name", name)
+                    .put("value", cookieValue)
+                    .put("domain", ".facebook.com")
+                    .put("path", "/")
+                    .put("secure", true)
+                    .put("httpOnly", false);
+        }
+        return array.toString();
     }
 
     /**

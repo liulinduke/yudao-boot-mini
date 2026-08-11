@@ -98,6 +98,12 @@ public class FbAccountRespVO {
     @ExcelProperty("代理ID")
     private Long proxyId;
 
+    /** 代理名称，仅用于列表展示。 */
+    private String proxyName;
+
+    /** 当前账号启动 WPF 浏览器所需的运行时代理配置，仅账号详情接口填充。 */
+    private FbAccountRuntimeProxyRespVO runtimeProxy;
+
     @Schema(description = "语言设置：1-英文，2-中文", example = "1")
     @ExcelProperty("语言设置")
     private Integer language;

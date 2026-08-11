@@ -28,6 +28,8 @@ import static cn.iocoder.yudao.framework.apilog.core.enums.OperateTypeEnum.*;
 import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.account.FbAccountDO;
 import cn.iocoder.yudao.module.facebook.service.account.FbAccountService;
+import cn.iocoder.yudao.module.system.dal.dataobject.SysProxyDO;
+import cn.iocoder.yudao.module.system.service.SysProxyService;
 
 @Tag(name = "管理后台 - FB账号")
 @RestController
@@ -37,6 +39,9 @@ public class FbAccountController {
 
     @Resource
     private FbAccountService fbAccountService;
+
+    @Resource
+    private SysProxyService sysProxyService;
 
     @PostMapping("/create")
     @Operation(summary = "创建FB账号")
@@ -77,7 +82,10 @@ public class FbAccountController {
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:query')")
     public CommonResult<FbAccountRespVO> getFbAccount(@RequestParam("id") Long id) {
         FbAccountDO fbAccount = fbAccountService.getFbAccount(id);
-        return success(BeanUtils.toBean(fbAccount, FbAccountRespVO.class));
+        FbAccountRespVO result = BeanUtils.toBean(fbAccount, FbAccountRespVO.class);
+        fillProxyNames(Collections.singletonList(result));
+        result.setRuntimeProxy(fbAccountService.getRuntimeProxy(String.valueOf(id)));
+        return success(result);
     }
 
     @GetMapping("/page")
@@ -85,7 +93,22 @@ public class FbAccountController {
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:query')")
     public CommonResult<PageResult<FbAccountRespVO>> getFbAccountPage(@Valid FbAccountPageReqVO pageReqVO) {
         PageResult<FbAccountDO> pageResult = fbAccountService.getFbAccountPage(pageReqVO);
-        return success(BeanUtils.toBean(pageResult, FbAccountRespVO.class));
+        PageResult<FbAccountRespVO> result = BeanUtils.toBean(pageResult, FbAccountRespVO.class);
+        fillProxyNames(result.getList());
+        return success(result);
+    }
+
+    private void fillProxyNames(List<FbAccountRespVO> accounts) {
+        if (accounts == null || accounts.isEmpty()) return;
+        Map<Long, String> proxyNames = new HashMap<>();
+        for (SysProxyDO proxy : sysProxyService.getAllProxyList()) {
+            proxyNames.put(proxy.getId(), proxy.getProxyName());
+        }
+        for (FbAccountRespVO account : accounts) {
+            if (account.getProxyId() != null) {
+                account.setProxyName(proxyNames.get(account.getProxyId()));
+            }
+        }
     }
 
     @GetMapping("/export-excel")
