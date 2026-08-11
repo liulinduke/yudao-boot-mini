@@ -2,7 +2,7 @@
   <Dialog v-model="dialogVisible" title="Facebook资料上传" width="760px">
     <el-form label-width="110px" v-loading="loading">
       <el-alert
-        title="资料会直接修改 Facebook 主页，提交后立即按账号串行执行。"
+        title="任务提交后在后台执行：不同账号并行，同一账号串行；关闭此弹框不影响任务。"
         type="warning"
         :closable="false"
         show-icon
@@ -37,10 +37,16 @@
       </el-form-item>
       <el-form-item v-if="runningItems.length" label="执行进度">
         <div class="w-full">
+          <div class="mb-2 text-sm text-gray-500">
+            已完成 {{ completedCount }} / {{ runningItems.length }}
+            · 成功 {{ successCount }}
+            · 失败 {{ failedCount }}
+            · 等待或执行中 {{ runningItems.length - completedCount }}
+          </div>
           <div v-for="item in runningItems" :key="item.accountId" class="flex items-center mb-1 text-sm">
             <span class="w-180px truncate">{{ item.name }}</span>
             <el-tag :type="item.status === 'SUCCESS' ? 'success' : item.status === 'FAILED' ? 'danger' : 'info'" size="small">
-              {{ item.status === 'SUCCESS' ? '完成' : item.status === 'FAILED' ? '失败' : '执行中' }}
+              {{ item.status === 'SUCCESS' ? '完成' : item.status === 'FAILED' ? '失败' : item.status === 'RUNNING' ? '执行中' : '等待中' }}
             </el-tag>
             <span v-if="item.error" class="ml-2 text-red-500 truncate">{{ item.error }}</span>
           </div>
@@ -49,17 +55,20 @@
     </el-form>
     <template #footer>
       <el-button @click="dialogVisible = false" :disabled="loading">关闭</el-button>
-      <el-button type="primary" @click="submit" :loading="loading">立即上传</el-button>
+      <el-button type="primary" @click="submit" :disabled="submitted || loading" :loading="loading">
+        {{ submitted ? '已提交' : '立即上传' }}
+      </el-button>
     </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { Dialog } from '@/components/Dialog'
 import { UploadImgs } from '@/components/UploadFile'
 import { FbAccountApi, type FbAccount } from '@/api/facebook/account'
 import { onProfileUpdateComplete } from '@/utils/wpfBridge'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 const message = useMessage()
 const emit = defineEmits(['success'])
@@ -67,7 +76,24 @@ const dialogVisible = ref(false)
 const loading = ref(false)
 const selectedAccounts = ref<FbAccount[]>([])
 const form = reactive({ avatarUrls: [] as string[], coverUrls: [] as string[], nicknames: '', signatures: '' })
-const runningItems = ref<Array<{ accountId: string; name: string; status: string; error?: string }>>([])
+type ProfileWorkItem = {
+  accountId: string
+  name: string
+  cookie: string
+  deviceId: string
+  config: string
+  status: 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  error?: string
+}
+
+const runningItems = ref<ProfileWorkItem[]>([])
+const pendingItems = ref<ProfileWorkItem[]>([])
+const activeProfileAccounts = new Set<string>()
+const submitted = ref(false)
+let retryTimer: number | undefined
+const completedCount = computed(() => runningItems.value.filter((item) => item.status === 'SUCCESS' || item.status === 'FAILED').length)
+const successCount = computed(() => runningItems.value.filter((item) => item.status === 'SUCCESS').length)
+const failedCount = computed(() => runningItems.value.filter((item) => item.status === 'FAILED').length)
 
 const lines = (value: string) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
 const shuffle = <T,>(items: T[]) => {
@@ -121,15 +147,82 @@ const validateNickname = (value: string) => {
 }
 
 const open = (accounts: FbAccount[]) => {
+  if (pendingItems.value.length || activeProfileAccounts.size) {
+    message.warning('上一批资料上传仍在后台执行，请先等待完成')
+    return
+  }
   selectedAccounts.value = accounts
   form.avatarUrls = []
   form.coverUrls = []
   form.nicknames = ''
   form.signatures = ''
   runningItems.value = []
+  pendingItems.value = []
+  submitted.value = false
   dialogVisible.value = true
 }
 defineExpose({ open })
+
+const reportProfileResult = async (item: ProfileWorkItem, success: boolean, errorMessage?: string) => {
+  try {
+    await FbAccountApi.reportFbAccountProfile({
+      accountId: item.accountId,
+      status: success ? 'SUCCESS' : 'FAILED',
+      errorMessage,
+      avatarUrl: success ? JSON.parse(item.config).avatarUrl : undefined,
+      coverUrl: success ? JSON.parse(item.config).coverUrl : undefined,
+      nickname: success ? JSON.parse(item.config).nickname : undefined,
+      signature: success ? JSON.parse(item.config).signature : undefined
+    })
+    if (success) emit('success')
+  } catch (error) {
+    console.error('保存资料上传结果失败:', error)
+  }
+}
+
+const scheduleQueueRetry = () => {
+  if (retryTimer !== undefined || !pendingItems.value.length) return
+  retryTimer = window.setTimeout(() => {
+    retryTimer = undefined
+    void dispatchProfileQueue()
+  }, 1000)
+}
+
+const dispatchProfileQueue = async () => {
+  const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
+  if (!bridge?.StartProfileUpdateTask || !bridge?.GetAvailableBrowserSlots) {
+    message.error('WPF资料上传桥接未就绪')
+    return
+  }
+
+  while (pendingItems.value.length) {
+    const slots = Number(bridge.GetAvailableBrowserSlots()) || 0
+    if (slots <= 0) {
+      scheduleQueueRetry()
+      return
+    }
+
+    const item = pendingItems.value.shift()!
+    item.status = 'RUNNING'
+    activeProfileAccounts.add(item.accountId)
+    try {
+      const proxyConfigJson = await getFbAccountProxyJson(item.accountId)
+      bridge.StartProfileUpdateTask(
+        `profile_${Date.now()}_${item.accountId}`,
+        item.accountId,
+        item.cookie,
+        item.deviceId,
+        item.config,
+        proxyConfigJson
+      )
+    } catch (error: any) {
+      activeProfileAccounts.delete(item.accountId)
+      item.status = 'FAILED'
+      item.error = error?.message || '启动资料上传失败'
+      await reportProfileResult(item, false, item.error)
+    }
+  }
+}
 
 const submit = async () => {
   const nicknames = lines(form.nicknames)
@@ -159,47 +252,48 @@ const submit = async () => {
     signature: signatureList.length ? signatureList[index % signatureList.length] : undefined
   }))
   loading.value = true
-  runningItems.value = items.map((item, index) => ({ accountId: item.accountId, name: accounts[index].fbAccount || item.accountId, status: 'RUNNING' }))
+  submitted.value = false
+  const workItems: ProfileWorkItem[] = items.map((item, index) => ({
+    accountId: item.accountId,
+    name: accounts[index].fbAccount || item.accountId,
+    cookie: accounts[index].cookie || '',
+    deviceId: String(accounts[index].deviceId || ''),
+    config: JSON.stringify({ avatarUrl: item.avatarUrl || '', coverUrl: item.coverUrl || '', nickname: item.nickname || '', signature: item.signature || '' }),
+    status: 'QUEUED'
+  }))
+  runningItems.value = workItems
+  pendingItems.value = [...workItems]
   try {
     await FbAccountApi.uploadFbAccountProfile({ items })
-    const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
-    if (!bridge?.StartProfileUpdateTask) throw new Error('WPF资料上传桥接未就绪')
-    items.forEach((item) => {
-      const account = accounts.find((candidate) => String(candidate.id) === item.accountId)!
-      bridge.StartProfileUpdateTask(
-        `profile_${Date.now()}_${item.accountId}`,
-        item.accountId,
-        account.cookie || '',
-        String(account.deviceId || ''),
-        JSON.stringify({ avatarUrl: item.avatarUrl || '', coverUrl: item.coverUrl || '', nickname: item.nickname || '', signature: item.signature || '' })
-      )
-    })
+    submitted.value = true
+    loading.value = false
     message.success(`已提交${items.length}个账号的资料上传任务`)
     emit('success')
+    void dispatchProfileQueue()
   } catch (error: any) {
     message.error(error?.message || '资料上传任务启动失败')
     loading.value = false
+    pendingItems.value = []
+    submitted.value = false
+    runningItems.value = []
   }
 }
 
 onProfileUpdateComplete(async (result) => {
-  const item = runningItems.value.find((entry) => entry.accountId === String(result.accountId))
+  // WPF 历史版本把资料结果放在 data 内，新版本直接放在事件顶层，统一展开处理。
+  const payload = result?.data && typeof result.data === 'object'
+    ? { ...result.data, accountId: result.accountId || result.data.accountId, detailId: result.detailId }
+    : result
+  const accountId = String(payload.accountId || '')
+  const item = runningItems.value.find((entry) => entry.accountId === accountId)
   if (!item) return
-  item.status = result.success ? 'SUCCESS' : 'FAILED'
-  item.error = result.errorMessage
-  try {
-    await FbAccountApi.reportFbAccountProfile({
-      accountId: String(result.accountId),
-      status: result.success ? 'SUCCESS' : 'FAILED',
-      errorMessage: result.errorMessage,
-      avatarUrl: result.avatarUrl,
-      coverUrl: result.coverUrl,
-      nickname: result.nickname,
-      signature: result.signature
-    })
-  } catch (error) {
-    console.error('保存资料上传结果失败:', error)
+  item.status = payload.success ? 'SUCCESS' : 'FAILED'
+  item.error = payload.errorMessage
+  activeProfileAccounts.delete(accountId)
+  await reportProfileResult(item, !!payload.success, payload.errorMessage)
+  if (pendingItems.value.length) void dispatchProfileQueue()
+  if (runningItems.value.every((entry) => entry.status === 'SUCCESS' || entry.status === 'FAILED')) {
+    message.success(`资料上传完成：成功 ${successCount.value} 个，失败 ${failedCount.value} 个`)
   }
-  if (runningItems.value.every((entry) => entry.status === 'SUCCESS' || entry.status === 'FAILED')) loading.value = false
 })
 </script>

@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using SocialMatrix.WpfHost.Services;
 using SocialMatrix.WpfHost.Windows;
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -31,12 +32,29 @@ namespace SocialMatrix.WpfHost
         private Rect _normalWindowBounds;
         private bool _titleBarMouseDown;
         private Point _titleBarMouseDownPoint;
+        private readonly AppUpdateService _appUpdateService = new();
+        private readonly LocalVueServer _localVueServer = new();
+        private bool _updateCheckStarted;
 
         public MainWindow()
         {
             InitializeComponent();
             MaximizeToWorkArea();
             InitializeVueWebView();
+            ContentRendered += MainWindow_ContentRendered;
+            Closed += (_, _) => _localVueServer.Dispose();
+        }
+
+        private async void MainWindow_ContentRendered(object? sender, EventArgs e)
+        {
+            if (_updateCheckStarted)
+            {
+                return;
+            }
+
+            _updateCheckStarted = true;
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            await _appUpdateService.CheckAndApplyAsync(() => _browserMatrixWindows.Count == 0);
         }
 
         private void WindowHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -178,8 +196,27 @@ namespace SocialMatrix.WpfHost
         {
             try
             {
-                // 确保 WebView2 运行时已安装
-                await VueWebView.EnsureCoreWebView2Async();
+                // 当前服务器暂时只有 HTTP，WPF 页面使用虚拟 HTTPS 主机时需要允许
+                // 访问 HTTP API。域名配置 HTTPS 后应移除该兼容参数。
+                // The embedded Vue page is hosted at https://app.local while the
+                // production API and local file storage currently use HTTP/IP.
+                // Permit those HTTP resources so avatars and file previews work
+                // in the desktop client as they do in the normal browser.
+                var webViewOptions = new CoreWebView2EnvironmentOptions(
+                    "--allow-running-insecure-content --disable-web-security");
+                // Keep WebView2 localStorage/cookies outside the Velopack version
+                // directory. Otherwise every update can create a new profile and
+                // discard the system login token.
+                var webViewUserDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "EyochSocial",
+                    "WebView2");
+                Directory.CreateDirectory(webViewUserDataFolder);
+                var webViewEnvironment = await CoreWebView2Environment.CreateAsync(
+                    null,
+                    webViewUserDataFolder,
+                    webViewOptions);
+                await VueWebView.EnsureCoreWebView2Async(webViewEnvironment);
 
                 VueWebView.CoreWebView2.NavigationCompleted += (_, _) =>
                 {
@@ -228,9 +265,14 @@ namespace SocialMatrix.WpfHost
                 var indexPath = System.IO.Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory,
                     "wwwroot", "index.html");
+                var wwwRoot = System.IO.Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "wwwroot");
                 if (System.IO.File.Exists(indexPath))
                 {
-                    VueWebView.Source = new Uri(indexPath);
+                    // 通过本地 HTTP 服务加载 Vue，允许页面连接服务器的 ws:// WebSocket。
+                    var localVueUrl = await _localVueServer.StartAsync(wwwRoot);
+                    VueWebView.Source = new Uri(localVueUrl, "index.html");
                 }
 #endif
 
@@ -242,6 +284,64 @@ namespace SocialMatrix.WpfHost
                 MessageBox.Show($"WebView2 初始化失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        private const string WpfFileProxyScript = @"
+(() => {
+  const filePrefix = 'http://';
+  const filePath = '/admin-api/infra/file/';
+  const transparentImage = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  const isFileUrl = (value) => typeof value === 'string'
+    && value.startsWith(filePrefix) && value.includes(filePath);
+  const originalSetAttribute = Element.prototype.setAttribute;
+  const loadFile = (node, name, value) => {
+    const bridge = window.chrome && window.chrome.webview && window.chrome.webview.hostObjects
+      ? window.chrome.webview.hostObjects.wpfBridge : null;
+    if (!bridge) return;
+    originalSetAttribute.call(node, name, name === 'src' ? transparentImage : '#');
+    Promise.resolve(bridge.GetFileDataUrl(value)).then((dataUrl) => {
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+        originalSetAttribute.call(node, name, dataUrl);
+      }
+    }).catch(() => {});
+  };
+  Element.prototype.setAttribute = function(name, value) {
+    const lowerName = String(name).toLowerCase();
+    if ((lowerName === 'src' || lowerName === 'href') && isFileUrl(value)) {
+      loadFile(this, lowerName, value);
+      return;
+    }
+    return originalSetAttribute.call(this, name, value);
+  };
+  const patchProperty = (prototype, property) => {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+    if (!descriptor || !descriptor.set || !descriptor.get) return;
+    Object.defineProperty(prototype, property, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get: descriptor.get,
+      set(value) {
+        if (isFileUrl(value)) loadFile(this, 'src', value);
+        else descriptor.set.call(this, value);
+      }
+    });
+  };
+  patchProperty(HTMLImageElement.prototype, 'src');
+  if (typeof HTMLSourceElement !== 'undefined') patchProperty(HTMLSourceElement.prototype, 'src');
+  const rewrite = (root) => {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('img[src],a[href],link[href],source[src]').forEach((node) => {
+      const attr = node.hasAttribute('src') ? 'src' : 'href';
+      const value = node.getAttribute(attr);
+      if (isFileUrl(value)) loadFile(node, attr, value);
+    });
+  };
+  new MutationObserver((records) => records.forEach((record) => {
+    record.addedNodes.forEach((node) => {
+      if (node.nodeType === 1) rewrite(node);
+    });
+  })).observe(document.documentElement, { childList: true, subtree: true });
+  rewrite(document);
+})();";
 
         public void SendMessageRelayCommand(JObject command)
         {
@@ -267,12 +367,13 @@ namespace SocialMatrix.WpfHost
         }
 
         public void StartMessageMonitorTask(string monitorId, string accountId, string cookie,
-            string deviceId, string mode, string detailId)
+            string deviceId, string mode, string detailId, string? proxyConfigJson = null)
         {
             _messageMonitorByAccount[accountId] = monitorId;
             CreateBrowserForAccount(detailId, accountId, cookie, "https://www.facebook.com/", 0, 19,
                 JsonConvert.SerializeObject(new { monitorId, mode }), true,
-                long.TryParse(deviceId, out var parsedDeviceId) ? parsedDeviceId : null);
+                long.TryParse(deviceId, out var parsedDeviceId) ? parsedDeviceId : null,
+                proxyConfigJson: proxyConfigJson);
         }
 
         /// <summary>
@@ -295,7 +396,7 @@ namespace SocialMatrix.WpfHost
         /// </summary>
         public void CreateBrowserForAccount(string detailId, string accountId, string? cookie = null,
             string? searchUrl = null, int expectedCount = 100, int taskType = 1, string? config = null, bool isOperation = false, long? deviceId = null,
-            string? password = null, string? tfa = null, string? loginAccountId = null)
+            string? password = null, string? tfa = null, string? loginAccountId = null, string? proxyConfigJson = null)
         {
             // 记录配置信息
             if (!string.IsNullOrEmpty(config))
@@ -315,7 +416,7 @@ namespace SocialMatrix.WpfHost
             // 在统一矩阵窗口的账号 Tab 中创建浏览器并启动自动化任务
             browserMatrixWindow.CreateBrowser(accountId, "https://www.facebook.com",
                 cookie, searchUrl, expectedCount, deviceId: deviceId, taskType: taskType, config: config, detailId: detailId, isOperation: isOperation,
-                password: password, tfa: tfa, loginAccountId: loginAccountId);
+                password: password, tfa: tfa, loginAccountId: loginAccountId, proxyConfigJson: proxyConfigJson);
 
             
             UpdateStatus($"已为账号 {accountId} 启动自动化采集 (明细ID: {detailId}, 类型: {taskType})");
@@ -402,6 +503,7 @@ namespace SocialMatrix.WpfHost
             {
                 // 错误通知可能紧接着关闭浏览器状态；必须在调度前固定明细 ID。
                 var detailId = browserMatrixWindow.GetActiveDetailId(accId);
+                var taskType = browserMatrixWindow.GetActiveTaskType(accId);
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_messageMonitorByAccount.TryGetValue(accId, out var monitorId))
@@ -411,7 +513,7 @@ namespace SocialMatrix.WpfHost
                         _messageMonitorByAccount.Remove(accId);
                         return;
                     }
-                    ReturnCollectionErrorToVue(accId, detailId, errorMessage);
+                    ReturnCollectionErrorToVue(accId, detailId, errorMessage, taskType);
                     if (IsNetworkLoadError(errorMessage)
                         && !BrowserMatrixWindow.KeepBrowserAfterTaskForDebug)
                     {
@@ -488,7 +590,7 @@ namespace SocialMatrix.WpfHost
             }
         }
 
-        private void ReturnCollectionErrorToVue(string accountId, string? detailId, string errorMessage)
+        private void ReturnCollectionErrorToVue(string accountId, string? detailId, string errorMessage, int taskType = 0)
         {
             try
             {
@@ -497,10 +599,13 @@ namespace SocialMatrix.WpfHost
                 {
                     accountId,
                     detailId,
+                    success = false,
                     errorMessage,
+                    taskType,
                     timestamp = DateTime.UtcNow
                 });
-                var script = $"window.dispatchEvent(new CustomEvent('fb:collection:error', {{ detail: {detail} }}));";
+                var eventName = taskType == 18 ? "fb:profile:update:complete" : "fb:collection:error";
+                var script = $"window.dispatchEvent(new CustomEvent('{eventName}', {{ detail: {detail} }}));";
                 VueWebView.CoreWebView2.ExecuteScriptAsync(script);
             }
             catch (Exception ex)
@@ -533,6 +638,16 @@ namespace SocialMatrix.WpfHost
         /// </summary>
         public void CloseBrowserForAccount(string accountId)
         {
+            // 调试保留模式下，拦截 Vue/队列的自动关闭请求，避免旧前端构建或超时兜底绕过
+            // BrowserMatrixWindow 任务 finally 的保留判断。Tab 头部的手动关闭仍直接调用
+            // BrowserMatrixWindow.CloseBrowser，不经过这里，因此不影响用户主动排查。
+            if (BrowserMatrixWindow.KeepBrowserAfterTaskForDebug)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"🧪 调试保留模式：忽略前端自动关闭账号 {accountId} 的浏览器");
+                return;
+            }
+
             if (_browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow))
             {
                 browserMatrixWindow.CloseBrowser(accountId);

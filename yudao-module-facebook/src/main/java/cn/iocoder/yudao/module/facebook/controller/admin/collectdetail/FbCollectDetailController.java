@@ -86,6 +86,9 @@ public class FbCollectDetailController {
     @PreAuthorize("@ss.hasPermission('facebook:fb-collect:update')")
     public CommonResult<Boolean> markDetailFailed(@RequestParam("detailId") String detailId,
                                                   @RequestParam(value = "errorMessage", required = false) String errorMessage) {
+        if (detailId == null || !detailId.matches("\\d+")) {
+            return success(false);
+        }
         fbCollectDetailService.markDetailFailed(Long.parseLong(detailId), errorMessage);
         return success(true);
     }

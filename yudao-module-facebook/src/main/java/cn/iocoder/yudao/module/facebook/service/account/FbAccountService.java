@@ -51,6 +51,9 @@ public interface FbAccountService {
      */
     FbAccountDO getFbAccount(Long id);
 
+    /** 获取账号当前绑定的运行时代理，未绑定时返回 null。 */
+    FbAccountRuntimeProxyRespVO getRuntimeProxy(String accountId);
+
     /**
      * 获得FB账号分页
      *

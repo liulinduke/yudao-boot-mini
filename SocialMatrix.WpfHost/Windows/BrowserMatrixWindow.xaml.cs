@@ -80,6 +80,11 @@ namespace SocialMatrix.WpfHost.Windows
             return _activeAccountTasks.TryGetValue(accountId, out var detailId) ? detailId : null;
         }
 
+        public int GetActiveTaskType(string accountId)
+        {
+            return _accountTaskTypes.TryGetValue(accountId, out var taskType) ? taskType : 0;
+        }
+
         // 最大并发数配置（从后端读取，默认19 - 8GB内存推荐值）
         private static int _maxConcurrentBrowsers = 19;
         public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
@@ -280,7 +285,7 @@ namespace SocialMatrix.WpfHost.Windows
         /// </summary>
         public void CreateBrowser(string accountId, string initialUrl = "https://www.facebook.com",
             string? cookie = null, string? searchUrl = null, int expectedCount = 100, long? deviceId = null, int taskType = 1, string? config = null, string? detailId = null, bool isOperation = false,
-            string? password = null, string? tfa = null, string? loginAccountId = null)
+            string? password = null, string? tfa = null, string? loginAccountId = null, string? proxyConfigJson = null)
         {
             var taskLockAcquired = false;
             if (!string.IsNullOrWhiteSpace(detailId) && !string.IsNullOrWhiteSpace(searchUrl))
@@ -407,7 +412,7 @@ namespace SocialMatrix.WpfHost.Windows
             IRequestContext requestContext;
             try
             {
-                browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, out requestContext);
+                browser = FbFingerprintBrowserFactory.Create(accountId, deviceId, proxyConfigJson, out requestContext);
             }
             catch (Exception ex)
             {

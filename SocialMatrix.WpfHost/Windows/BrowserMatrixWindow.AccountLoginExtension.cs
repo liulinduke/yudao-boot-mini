@@ -12,7 +12,7 @@ namespace SocialMatrix.WpfHost.Windows
 {
     public partial class BrowserMatrixWindow
     {
-        public record AccountLoginRequest(long Id, string AccountId, string? Password, string? Tfa, string? Cookie);
+        public record AccountLoginRequest(long Id, string AccountId, string? Password, string? Tfa, string? Cookie, string? ProxyConfigJson = null);
         public record AccountLoginResult(
             long AccountDbId,
             string AccountId,
@@ -142,7 +142,8 @@ namespace SocialMatrix.WpfHost.Windows
                     0,
                     taskType: 1,
                     detailId: detailId,
-                    isOperation: false);
+                    isOperation: false,
+                    proxyConfigJson: account.ProxyConfigJson);
             });
 
             await Task.Delay(2500);

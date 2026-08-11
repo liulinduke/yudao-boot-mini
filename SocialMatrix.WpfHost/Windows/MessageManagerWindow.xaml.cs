@@ -623,7 +623,7 @@ namespace SocialMatrix.WpfHost.Windows
                     account.State = "等待浏览器槽位";
                     return false;
                 }
-                var browser = FbFingerprintBrowserFactory.Create(accountKey, deviceId, out var context);
+                var browser = FbFingerprintBrowserFactory.Create(accountKey, deviceId, null, out var context);
                 session = new BrowserSession { AccountId = accountKey, Browser = browser, RequestContext = context };
                 browser.FrameLoadEnd += (_, args) =>
                 {

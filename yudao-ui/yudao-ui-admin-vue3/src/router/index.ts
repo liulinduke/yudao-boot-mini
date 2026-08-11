@@ -1,11 +1,15 @@
 import type { App } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
 import remainingRouter from './modules/remaining'
 
 // 创建路由实例
 const router = createRouter({
-  history: createWebHistory(import.meta.env.VITE_BASE_PATH), // createWebHashHistory URL带#，createWebHistory URL不带#
+  // WPF 从虚拟主机的 index.html 加载，使用 Hash 路由避免 /index.html 被当成业务路径。
+  history:
+    import.meta.env.MODE === 'wpf'
+      ? createWebHashHistory()
+      : createWebHistory(import.meta.env.VITE_BASE_PATH),
   strict: true,
   routes: remainingRouter as RouteRecordRaw[],
   scrollBehavior: () => {

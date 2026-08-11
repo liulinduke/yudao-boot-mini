@@ -3,6 +3,7 @@ import { FbCollectApi } from '@/api/facebook/collect'
 import { DmTaskApi } from '@/api/facebook/dmtask'
 import { markOperationDetailFailed } from '@/api/facebook/operation'
 import { closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 let polling = false
 const claimedDetailIds = new Set<string>()
@@ -31,7 +32,7 @@ const getAvailableSlots = () => {
   return 1
 }
 
-export const startAiAgentCollectDetail = (
+export const startAiAgentCollectDetail = async (
   detail: FbAiAgentDispatchDetail,
   options: { force?: boolean } = {}
 ) => {
@@ -56,6 +57,7 @@ export const startAiAgentCollectDetail = (
         queuedDetailSources.delete(detailId)
         return false
       }
+      const proxyConfigJson = await getFbAccountProxyJson(account)
       bridge.StartDmTask(
         String(detail.taskId || ''),
         String(detail.detailId),
@@ -64,7 +66,8 @@ export const startAiAgentCollectDetail = (
         detail.targetUserId,
         detail.scriptContent,
         detail.password,
-        detail.tfa
+        detail.tfa,
+        proxyConfigJson
       )
       registerQueuedDetailTimeout(account, detail.detailId, 'dm')
       return true
@@ -89,6 +92,7 @@ export const startAiAgentCollectDetail = (
           queuedDetailSources.delete(detailId)
           return false
         }
+        const proxyConfigJson = await getFbAccountProxyJson(browserAccount)
         bridge.StartGroupPublishTask(
           String(detail.taskId || ''),
           browserAccount,
@@ -97,7 +101,8 @@ export const startAiAgentCollectDetail = (
           String(detail.detailId),
           detail.password,
           detail.tfa,
-          detail.fbAccount
+          detail.fbAccount,
+          proxyConfigJson
         )
         registerQueuedDetailTimeout(account, detail.detailId, 'operation')
         return true
@@ -308,7 +313,7 @@ export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) =>
       if (!account || runningAccounts.has(account) || startedAccounts.has(account)) {
         return
       }
-      if (startAiAgentCollectDetail(detail)) {
+      if (await startAiAgentCollectDetail(detail)) {
         startedAccounts.add(account)
         started++
       }

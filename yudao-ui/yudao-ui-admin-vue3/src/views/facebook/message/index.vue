@@ -142,6 +142,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from '@/hooks/web/useMessage'
 import { FbAccountApi, type FbAccount } from '@/api/facebook/account'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 import { FbMessageApi, type FbMessage, type FbMessageConversation, type FbMessageMonitorAccount } from '@/api/facebook/message'
 import ScriptSelector from '@/views/facebook/operation/dmtask/ScriptSelector.vue'
 import dayjs from 'dayjs'
@@ -420,7 +421,10 @@ const claimMonitor = async () => {
   const result = await FbMessageApi.claimMonitor(3)
   for (const item of result || []) {
     const bridge = getBridge()
-    if (bridge?.StartMessageMonitor) bridge.StartMessageMonitor(String(item.monitorId), String(item.accountId), item.cookie || '', String(item.deviceId || ''), item.url, item.mode)
+    if (bridge?.StartMessageMonitor) {
+      const proxyConfigJson = await getFbAccountProxyJson(item.accountId)
+      bridge.StartMessageMonitor(String(item.monitorId), String(item.accountId), item.cookie || '', String(item.deviceId || ''), item.url, item.mode, proxyConfigJson)
+    }
     if (item.mode === 'scheduled') {
       const monitorKey = String(item.monitorId)
       activeMonitorIds.set(monitorKey, String(item.accountId))

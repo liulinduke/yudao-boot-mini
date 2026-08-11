@@ -119,6 +119,8 @@ export function setupWpfOperationSync() {
   onCollectionError(async (data) => {
     const reason = String(data.errorMessage || '')
     const detailId = String(data.detailId || '')
+    // 资料上传使用 profile_profile_* 业务明细，不属于采集明细，不能提交到 collect-detail/fail。
+    if (/^profile_/i.test(detailId)) return
     const accountId = String(data.accountId || '')
     if (detailId && accountId && !/账号正在执行任务|当前明细/.test(reason)) {
       try {
@@ -202,9 +204,6 @@ async function saveCollectResult(data: any) {
     await saveCollectedItems(detailId, taskType, results)
     markAiAgentCollectFinished(data.accountId, detailId)
     const nextDetail = await claimNextAiAgentDetail()
-    if (data.accountId && (!nextDetail || String(nextDetail.fbAccount) !== String(data.accountId))) {
-      closeBrowser(String(data.accountId))
-    }
     if (nextDetail) {
       startAiAgentCollectDetail(nextDetail)
     }

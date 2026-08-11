@@ -14,14 +14,25 @@ const request = (option: any) => {
     }
   })
 }
+
+// The response interceptor normally unwraps the Axios response to the
+// backend CommonResult object. Keep compatibility with callers and adapters
+// that still return the raw Axios response.
+const unwrapResponse = <T = any>(response: any): T => {
+  if (response && Object.prototype.hasOwnProperty.call(response, 'data')) {
+    return response.data as T
+  }
+  return response as T
+}
+
 export default {
   get: async <T = any>(option: any) => {
     const res = await request({ method: 'GET', ...option })
-    return res.data as unknown as T
+    return unwrapResponse<T>(res)
   },
   post: async <T = any>(option: any) => {
     const res = await request({ method: 'POST', ...option })
-    return res.data as unknown as T
+    return unwrapResponse<T>(res)
   },
   postOriginal: async (option: any) => {
     const res = await request({ method: 'POST', ...option })
@@ -29,11 +40,11 @@ export default {
   },
   delete: async <T = any>(option: any) => {
     const res = await request({ method: 'DELETE', ...option })
-    return res.data as unknown as T
+    return unwrapResponse<T>(res)
   },
   put: async <T = any>(option: any) => {
     const res = await request({ method: 'PUT', ...option })
-    return res.data as unknown as T
+    return unwrapResponse<T>(res)
   },
   download: async <T = any>(option: any) => {
     const res = await request({ method: 'GET', responseType: 'blob', ...option })

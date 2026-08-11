@@ -36,15 +36,28 @@ namespace SocialMatrix.WpfHost.Services
             };
         }
 
-        public static ChromiumWebBrowser Create(string accountId, long? deviceId, out IRequestContext requestContext)
+        public static ChromiumWebBrowser Create(string accountId, long? deviceId, string? proxyConfigJson, out IRequestContext requestContext)
         {
             var cachePath = BrowserCachePaths.ForAccount(accountId);
             Directory.CreateDirectory(cachePath);
+            FbProxyConfig? proxy = null;
+            if (!string.IsNullOrWhiteSpace(proxyConfigJson))
+            {
+                proxy = JsonConvert.DeserializeObject<FbProxyConfig>(proxyConfigJson);
+                if (proxy == null) throw new InvalidOperationException("代理配置解析失败");
+                proxy.Validate();
+            }
+            var requestContextHandler = new CefSharp.Handler.RequestContextHandler();
+            if (proxy != null)
+            {
+                var scheme = proxy.ProxyType == 3 ? "socks5" : (proxy.ProxyType == 2 ? "https" : "http");
+                requestContextHandler.SetProxyOnContextInitialized(scheme, proxy.Host, proxy.Port);
+            }
             requestContext = new RequestContext(new RequestContextSettings
             {
                 CachePath = cachePath,
                 PersistSessionCookies = true
-            });
+            }, requestContextHandler);
 
             var browser = new ChromiumWebBrowser("about:blank")
             {
@@ -52,6 +65,7 @@ namespace SocialMatrix.WpfHost.Services
                 Background = System.Windows.Media.Brushes.White,
                 Tag = accountId
             };
+            FingerprintInjector.RegisterProxy(browser, proxy);
             FingerprintInjector.ApplyResourceFilter(browser, _config.DisableImages, _config.DisableVideos);
             System.Diagnostics.Debug.WriteLine($"🔒 指纹浏览器创建: account={accountId}, cache={cachePath}, deviceId={deviceId}");
             return browser;

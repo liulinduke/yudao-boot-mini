@@ -7,21 +7,21 @@
             type="textarea"
             v-model="formData.data"
             :rows="12"
-            placeholder="请输入账号数据，每行一个账号"
+            placeholder="支持每行一个账号，也支持多个账号连续粘贴：账号|密码|2FA|Cookie|Token|邮箱"
             class="font-mono text-sm"
           />
         </el-form-item>
         <el-form-item>
           <el-text type="info" size="small">
             <template #default>
-              账号格式：<code>Facebook用户名----Facebook密码</code>
+              账号格式：<code>Facebook用户名----Facebook密码</code>（兼容旧格式）
             </template>
           </el-text>
         </el-form-item>
         <el-form-item>
           <el-text type="info" size="small">
             <template #default>
-              或：<code>Facebook用户名----Facebook密码----双重验证安全码</code>
+              或：<code>账号|密码|2FA|Cookie|Token|邮箱</code>（只保存前四项）
             </template>
           </el-text>
         </el-form-item>
@@ -38,6 +38,12 @@
         <el-table-column label="Facebook账号" prop="userName" />
         <el-table-column label="密码" prop="password" />
         <el-table-column label="双重验证安全码" prop="securityKey" />
+        <el-table-column label="Cookie" width="100">
+          <template #default="scope">
+            <el-tag v-if="scope.row.cookie" type="success" size="small">已提供</el-tag>
+            <span v-else class="text-gray-400">未提供</span>
+          </template>
+        </el-table-column>
         <el-table-column label="错误" prop="error" width="150">
           <template #default="scope">
             <el-tag v-if="scope.row.error" type="danger" size="small">
@@ -149,6 +155,27 @@ const loadProxies = async () => {
   }
 }
 
+const normalizePipeRecords = (data: string) => {
+  // 供应商可能把多条记录连续放在一行，下一条记录通常以数字账号开头。
+  return data.replace(/\|\s*(?=\d{10,}\s*\|)/g, '\n')
+}
+
+const parseImportRecords = (data: string) => {
+  const lines = normalizePipeRecords(data).split(/\r?\n/)
+  return lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.includes('----') ? line.split('----') : line.split('|')
+      return {
+        userName: parts[0]?.trim() || '',
+        password: parts[1]?.trim() || '',
+        securityKey: parts[2]?.trim() || '',
+        cookie: parts[3]?.trim() || ''
+      }
+    })
+}
+
 const handleNext = () => {
   if (!formData.data.trim()) {
     message.warning('请输入账号数据')
@@ -156,17 +183,12 @@ const handleNext = () => {
   }
 
   previewList.value = []
-  const lines = formData.data.split('\n')
   let lineNum = 1
 
-  for (const line of lines) {
-    const trimmedLine = line.trim()
-    if (!trimmedLine) continue
-
-    const parts = trimmedLine.split('----')
-    const userName = parts.length > 0 ? parts[0].trim() : ''
-    const password = parts.length > 1 ? parts[1].trim() : ''
-    const securityKey = parts.length > 2 ? parts[2].trim() : ''
+  for (const record of parseImportRecords(formData.data)) {
+    const userName = record.userName
+    const password = record.password
+    const securityKey = record.securityKey
 
     let error = ''
     if (!userName) {
@@ -180,6 +202,7 @@ const handleNext = () => {
       userName,
       password,
       securityKey,
+      cookie: record.cookie,
       error,
     })
     lineNum++

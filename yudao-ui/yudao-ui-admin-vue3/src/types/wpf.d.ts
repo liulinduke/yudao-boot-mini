@@ -21,7 +21,8 @@ declare global {
                 deviceId?: string,
                 password?: string,
                 tfa?: string,
-                fbAccount?: string
+                fbAccount?: string,
+                proxyConfigJson?: string
               ) => void
               OpenMessageManagerWindow?: () => void
               StopBrowser?: (accountId: string) => void
@@ -30,7 +31,7 @@ declare global {
               OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
               OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void
               SetMessageBrowserBounds?: (left: number, top: number, width: number, height: number) => void
-              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string) => void
+              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string, proxyConfigJson?: string) => void
               CloseMessageBrowser?: () => void
               CloseMessageBrowserAccount?: (accountId: string) => void
               HideMessageBrowser?: () => void
@@ -42,7 +43,8 @@ declare global {
                 targetUserId: string,
                 scriptContent: string,
                 password?: string,
-                tfa?: string
+                tfa?: string,
+                proxyConfigJson?: string
               ) => void
               StartGroupPublishTask?: (
                 taskId: string,
@@ -52,7 +54,8 @@ declare global {
                 detailId?: string,
                 password?: string,
                 tfa?: string,
-                fbAccount?: string
+                fbAccount?: string,
+                proxyConfigJson?: string
               ) => void
               StartAccountLoginBatch: (
                 accountsJson: string

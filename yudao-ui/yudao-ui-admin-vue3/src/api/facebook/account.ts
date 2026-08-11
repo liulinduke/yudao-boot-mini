@@ -16,6 +16,13 @@ export const FbAccountApi = {
     return request.get({ url: '/facebook/fb-account/get', params: { id } })
   },
 
+  getRuntimeProxy: (accountId: string | number) => {
+    return request.get<FbProxyConfig | null>({
+      url: '/facebook/fb-account/runtime-proxy',
+      params: { accountId: String(accountId) }
+    })
+  },
+
   createFbAccount: (data: FbAccount) => {
     return request.post({ url: '/facebook/fb-account/create', data })
   },
@@ -74,6 +81,14 @@ export const FbAccountApi = {
   reportFbAccountProfile: (data: FbAccountProfileReportReqVO) => {
     return request.post({ url: '/facebook/fb-account/profile/report', data })
   },
+}
+
+export interface FbProxyConfig {
+  proxyType: 1 | 2 | 3
+  host: string
+  port: number
+  username?: string
+  password?: string
 }
 
 export interface FbAccountPageReqVO {
@@ -246,6 +261,7 @@ export interface FbAccountImportPreviewVO {
   userName?: string
   password?: string
   securityKey?: string
+  cookie?: string
   error?: string
 }
 

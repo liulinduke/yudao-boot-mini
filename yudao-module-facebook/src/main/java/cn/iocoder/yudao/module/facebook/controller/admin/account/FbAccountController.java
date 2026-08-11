@@ -119,6 +119,13 @@ public class FbAccountController {
         return success(true);
     }
 
+    @GetMapping("/runtime-proxy")
+    @Operation(summary = "获取 FB 账号运行时代理配置")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-account:query')")
+    public CommonResult<FbAccountRuntimeProxyRespVO> getRuntimeProxy(@RequestParam("accountId") String accountId) {
+        return success(fbAccountService.getRuntimeProxy(accountId));
+    }
+
     @GetMapping("/selector-options")
     @Operation(summary = "获取FB任务账号候选及使用统计")
     @PreAuthorize("@ss.hasPermission('facebook:fb-account:query')")

@@ -89,6 +89,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { DmTaskApi } from '@/api/facebook/dmtask'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 import DmTaskForm from './DmTaskForm.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 
@@ -179,6 +180,7 @@ const handleStart = async (id: number) => {
         })
         
         // @ts-ignore
+        const proxyConfigJson = await getFbAccountProxyJson(detail.accountId)
         window.chrome.webview.hostObjects.sync.wpfBridge.StartDmTask(
           String(id),
           String(detail.id),
@@ -187,7 +189,8 @@ const handleStart = async (id: number) => {
           detail.targetUserId,
           detail.scriptContent,
           detail.password,
-          detail.tfa
+          detail.tfa,
+          proxyConfigJson
         )
         
         if (i < taskDetail.details.length - 1) {

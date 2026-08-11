@@ -3,7 +3,9 @@ using CefSharp.Wpf;
 using System;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using SocialMatrix.WpfHost.Helpers;
+using Velopack;
 
 namespace SocialMatrix.WpfHost
 {
@@ -14,7 +16,9 @@ namespace SocialMatrix.WpfHost
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            VelopackApp.Build().Run();
             base.OnStartup(e);
+            DispatcherUnhandledException += HandleDispatcherUnhandledException;
 
             // 初始化 CefSharp - 启用持久化会话支持
             BrowserCachePaths.MigrateLegacyCache();
@@ -37,6 +41,17 @@ namespace SocialMatrix.WpfHost
             if (Cef.IsInitialized != true)
             {
                 Cef.Initialize(settings);
+            }
+        }
+
+        private static void HandleDispatcherUnhandledException(object sender,
+            DispatcherUnhandledExceptionEventArgs e)
+        {
+            var stack = e.Exception.ToString();
+            if (stack.Contains("CoreWebView2PrivateHostObjectHelper", StringComparison.Ordinal))
+            {
+                System.Diagnostics.Debug.WriteLine($"已忽略 WebView2 HostObject 异常: {e.Exception.Message}");
+                e.Handled = true;
             }
         }
 

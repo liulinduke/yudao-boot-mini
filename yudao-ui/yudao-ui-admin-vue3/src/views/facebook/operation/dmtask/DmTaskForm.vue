@@ -142,6 +142,7 @@ import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import UserSelector from '../../collect/components/UserSelector.vue'
 import ScriptSelector from './ScriptSelector.vue'
 import { useMessage } from '@/hooks/web/useMessage'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 const message = useMessage()
 const dialogVisible = ref(false)
@@ -375,6 +376,7 @@ const startDmTaskInWpf = async (taskId: string) => {
     const accountInfo = accounts.value.find((acc) => String(acc.id) === String(detail.accountId))
     const cookie = detail.cookie || accountInfo?.cookie || ''
 
+    const proxyConfigJson = await getFbAccountProxyJson(detail.accountId)
     bridge.StartDmTask(
       taskId,
       String(detail.id),
@@ -383,7 +385,8 @@ const startDmTaskInWpf = async (taskId: string) => {
       detail.targetUserId,
       detail.scriptContent || '',
       detail.password,
-      detail.tfa
+      detail.tfa,
+      proxyConfigJson
     )
     sentCount++
     console.log(

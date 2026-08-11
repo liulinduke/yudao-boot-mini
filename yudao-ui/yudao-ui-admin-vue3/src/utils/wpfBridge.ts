@@ -1,6 +1,7 @@
 /**
  * WPF CefSharp 桥接工具
  */
+import { getFbAccountProxyJson } from './fbAccountProxy'
 
 declare global {
   interface Window {
@@ -21,7 +22,8 @@ declare global {
                 deviceId?: string,
                 password?: string,
                 tfa?: string,
-                fbAccount?: string
+                fbAccount?: string,
+                proxyConfigJson?: string
               ) => void
               StartPublishPostTask?: (
                 taskId: string,
@@ -30,7 +32,8 @@ declare global {
                 actionConfigJson: string,
                 password?: string,
                 tfa?: string,
-                detailId?: string
+                detailId?: string,
+                proxyConfigJson?: string
               ) => void
               StopBrowser?: (accountId: string) => void
               GetAvailableBrowserSlots?: () => number
@@ -39,7 +42,7 @@ declare global {
               OpenMessageBrowser?: (accountId: string, cookie: string, deviceId: string, url: string) => void
               OpenMessageConversation?: (accountId: string, targetUserId: string, url: string) => void
               SetMessageBrowserBounds?: (left: number, top: number, width: number, height: number) => void
-              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string) => void
+              StartMessageMonitor?: (monitorId: string, accountId: string, cookie: string, deviceId: string, url: string, mode: string, proxyConfigJson?: string) => void
               CloseMessageBrowser?: () => void
               CloseMessageBrowserAccount?: (accountId: string) => void
               HideMessageBrowser?: () => void
@@ -51,7 +54,8 @@ declare global {
                 targetUserId: string,
                 scriptContent: string,
                 password?: string,
-                tfa?: string
+                tfa?: string,
+                proxyConfigJson?: string
               ) => void
               StartGroupPublishTask?: (
                 taskId: string,
@@ -61,7 +65,8 @@ declare global {
                 detailId?: string,
                 password?: string,
                 tfa?: string,
-                fbAccount?: string
+                fbAccount?: string,
+                proxyConfigJson?: string
               ) => void
               StartAccountLoginBatch: (accountsJson: string) => void
               StartProfileUpdateTask?: (
@@ -69,7 +74,8 @@ declare global {
                 accountId: string,
                 cookie: string,
                 deviceId: string,
-                profileConfigJson: string
+                profileConfigJson: string,
+                proxyConfigJson?: string
               ) => void
             }
           }
@@ -86,6 +92,7 @@ export interface FbAccountLoginBridgePayload {
   password?: string
   tfa?: string
   cookie?: string | null
+  proxyConfigJson?: string
 }
 
 export interface FbAccountLoginBridgeResult {
@@ -99,7 +106,7 @@ export interface FbAccountLoginBridgeResult {
   windowClosed?: boolean
 }
 
-export function startBrowserCollect(
+export async function startBrowserCollect(
   taskId: string,
   accountId: string,
   cookie: string | null,
@@ -111,19 +118,17 @@ export function startBrowserCollect(
   deviceId?: string,
   password?: string,
   tfa?: string,
-  fbAccount?: string
-): void {
+  fbAccount?: string,
+  proxyConfigJson?: string
+): Promise<void> {
   try {
     if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
       const bridge = window.chrome.webview.hostObjects.sync.wpfBridge
+      const resolvedProxy = proxyConfigJson ?? await getFbAccountProxyJson(accountId)
       if (config) {
-        try {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId, password, tfa, fbAccount)
-        } catch (e) {
-          bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation)
-        }
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, config, isOperation, deviceId, password, tfa, fbAccount, resolvedProxy)
       } else {
-        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId, password, tfa, fbAccount)
+        bridge.StartBrowser(taskId, accountId, cookie, url, expectedCount, taskType, null, isOperation, deviceId, password, tfa, fbAccount, resolvedProxy)
       }
     } else {
       console.warn('WPF 桥接未就绪，请在 WPF 环境中运行')

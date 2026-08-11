@@ -1,5 +1,5 @@
 <template>
-  <div class="message-manager-launcher" />
+  <div class="message-manager-launcher"></div>
 </template>
 
 <script setup lang="ts">

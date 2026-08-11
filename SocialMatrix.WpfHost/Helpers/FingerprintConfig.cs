@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using CefSharp;
 using CefSharp.Handler;
 using CefSharp.Wpf;
+using SocialMatrix.WpfHost.Services;
 
 namespace SocialMatrix.WpfHost.Helpers
 {
@@ -112,6 +114,15 @@ namespace SocialMatrix.WpfHost.Helpers
     /// </summary>
     public static class FingerprintInjector
     {
+        private static readonly ConditionalWeakTable<ChromiumWebBrowser, FbProxyConfig> BrowserProxies = new();
+
+        public static void RegisterProxy(ChromiumWebBrowser browser, FbProxyConfig? proxy)
+        {
+            if (browser == null || proxy == null) return;
+            BrowserProxies.Remove(browser);
+            BrowserProxies.Add(browser, proxy);
+            System.Diagnostics.Debug.WriteLine($"🔗 账号浏览器代理已配置: type={proxy.ProxyType}, host={proxy.Host}, port={proxy.Port}");
+        }
         /// <summary>
         /// 在首次导航前设置图片/视频拦截（必须在 browser.Load 之前调用）
         /// </summary>
@@ -121,7 +132,8 @@ namespace SocialMatrix.WpfHost.Helpers
 
             // Always replace the handler, including the all-enabled case. An existing
             // account tab may still hold the previous image-blocking handler.
-            browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos);
+            BrowserProxies.TryGetValue(browser, out var proxy);
+            browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos, proxy);
             System.Diagnostics.Debug.WriteLine($"✅ 资源拦截策略已更新: DisableImages={disableImages}, DisableVideos={disableVideos}");
         }
 
@@ -368,9 +380,12 @@ namespace SocialMatrix.WpfHost.Helpers
     {
         private readonly ResourceRequestHandler _resourceHandler;
         
-        public ResourceFilterRequestHandler(bool disableImages, bool disableVideos)
+        private readonly FbProxyConfig? _proxy;
+
+        public ResourceFilterRequestHandler(bool disableImages, bool disableVideos, FbProxyConfig? proxy = null)
         {
             _resourceHandler = new ResourceRequestHandler(disableImages, disableVideos);
+            _proxy = proxy;
         }
         
         // IRequestHandler 方法实现 - 大部分使用默认行为
@@ -384,7 +399,17 @@ namespace SocialMatrix.WpfHost.Helpers
         public void OnRenderProcessTerminated(IWebBrowser browserControl, IBrowser browser, CefTerminationStatus status, int errorCode, string errorMessage) { }
         public void OnQuotaRequest(IWebBrowser browserControl, IBrowser browser, string originUrl, long newSize, IRequestCallback callback) { callback.Dispose(); }
         public void OnLogin(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isRetry, string suggestedUserName, string suggestedPassword, IAuthCallback callback) { callback.Dispose(); }
-        public bool GetAuthCredentials(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isProxy, string host, int port, string realm, string scheme, IAuthCallback callback) { callback.Dispose(); return false; }
+        public bool GetAuthCredentials(IWebBrowser browserControl, IBrowser browser, string originUrl, bool isProxy, string host, int port, string realm, string scheme, IAuthCallback callback)
+        {
+            if (isProxy && _proxy != null && !string.IsNullOrWhiteSpace(_proxy.Username)
+                && string.Equals(host, _proxy.Host, StringComparison.OrdinalIgnoreCase) && port == _proxy.Port)
+            {
+                callback.Continue(_proxy.Username, _proxy.Password ?? "");
+                return true;
+            }
+            callback.Dispose();
+            return false;
+        }
         public bool OnProtocolExecution(IWebBrowser browserControl, IBrowser browser, string url) => false;
         public void OnConsoleMessage(IWebBrowser browserControl, IBrowser browser, ConsoleMessageEventArgs consoleMessageArgs) 
         {

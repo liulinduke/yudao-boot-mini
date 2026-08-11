@@ -1,0 +1,80 @@
+server:
+  port: 48080
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.qdrant.autoconfigure.QdrantVectorStoreAutoConfiguration
+      - org.springframework.ai.vectorstore.milvus.autoconfigure.MilvusVectorStoreAutoConfiguration
+  datasource:
+    dynamic:
+      primary: master
+      datasource:
+        master:
+          url: ${MASTER_DATASOURCE_URL}
+          username: ${MASTER_DATASOURCE_USERNAME}
+          password: ${MASTER_DATASOURCE_PASSWORD}
+        slave:
+          lazy: true
+          url: ${SLAVE_DATASOURCE_URL:${MASTER_DATASOURCE_URL}}
+          username: ${SLAVE_DATASOURCE_USERNAME:${MASTER_DATASOURCE_USERNAME}}
+          password: ${SLAVE_DATASOURCE_PASSWORD:${MASTER_DATASOURCE_PASSWORD}}
+  data:
+    redis:
+      host: ${REDIS_HOST:yudao-redis}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD}
+      repositories:
+        enabled: false
+  quartz:
+    auto-startup: true
+    scheduler-name: schedulerName
+    job-store-type: jdbc
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: schedulerName
+            instanceId: AUTO
+          jobStore:
+            tablePrefix: qrtz_
+            isClustered: true
+            clusterCheckinInterval: 15000
+            misfireThreshold: 60000
+    jdbc:
+      initialize-schema: NEVER
+
+# WeChat modules require non-null credentials during Spring startup. Keep them
+# disabled by default in this Facebook-focused deployment; inject real values
+# through environment variables only when WeChat features are enabled.
+wx:
+  mp:
+    app-id: ${WX_MP_APP_ID:disabled}
+    secret: ${WX_MP_SECRET:disabled}
+  miniapp:
+    appid: ${WX_MINIAPP_APP_ID:disabled}
+    secret: ${WX_MINIAPP_SECRET:disabled}
+
+yudao:
+  web:
+    admin-ui:
+      url: http://1.14.181.156
+  captcha:
+    enable: true
+  security:
+    mock-enable: false
+  access-log:
+    enable: true
+
+logging:
+  file:
+    name: /root/logs/yudao-server.log
+  level:
+    root: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

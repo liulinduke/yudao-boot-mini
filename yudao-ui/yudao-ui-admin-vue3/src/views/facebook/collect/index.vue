@@ -205,7 +205,7 @@ import { FbCollectPostApi } from '@/api/facebook/fbcollectpost'
 import FbCollectForm from './FbCollectForm.vue'
 import FunctionCard from './components/FunctionCard.vue'
 import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
-import { onCollectionBatch, onCollectionComplete, closeBrowser } from '@/utils/wpfBridge'
+import { onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'
 import {
   claimNextAiAgentDetail,
   markAiAgentCollectFinished,
@@ -570,11 +570,9 @@ const continueNextCollectDetailOrClose = async (
       message.info(`账号 ${fbAccount} 继续执行账号队列下一条任务`)
       return
     }
-    closeBrowser(fbAccount)
-    message.info(`账号 ${fbAccount} 本轮采集已结束，浏览器已关闭`)
+    message.info(`账号 ${fbAccount} 本轮采集已结束`)
   } catch (error) {
-    console.warn('查询下一条采集明细失败，关闭浏览器', error)
-    closeBrowser(fbAccount)
+    console.warn('查询下一条采集明细失败，交由 WPF 按全局配置处理浏览器', error)
   }
 }
 

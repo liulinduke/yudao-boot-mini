@@ -7,6 +7,7 @@ import { propTypes } from '@/utils/propTypes'
 import { useWebSocket } from '@vueuse/core'
 import { getRefreshToken } from '@/utils/auth'
 import { claimAndStartPendingAiAgentDetails } from '@/utils/wpfAiAgentTaskPoller'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 defineOptions({ name: 'Message' })
 
@@ -29,12 +30,52 @@ let claimingMessageMonitors = false
 const activeMessageMonitorTimers = new Map<string, number>()
 const finishedMessageMonitors = new Set<string>()
 
-// 主界面常驻 WebSocket：后台只通知“有 AI 获客任务”，不在消息中携带任务明细。
-const websocketServer = (import.meta.env.VITE_BASE_URL + '/infra/ws').replace('http', 'ws') +
-  '?token=' + getRefreshToken()
-const { data: websocketData } = useWebSocket(websocketServer, {
+// 主界面常驻 WebSocket：等待登录令牌就绪后再连接，避免组件初始化早于登录完成。
+// Refresh Token 变化时重建连接，覆盖登录、续期和重新登录场景。
+const websocketServer = ref<string | undefined>()
+const websocketToken = ref('')
+const buildWebsocketServer = (token: string) => {
+  if (!token) return undefined
+  return `${(import.meta.env.VITE_BASE_URL + '/infra/ws').replace(/^http/, 'ws')}?token=${encodeURIComponent(token)}`
+}
+
+const {
+  data: websocketData,
+  status: websocketStatus,
+  close: closeWebsocket,
+  open: openWebsocket
+} = useWebSocket(websocketServer, {
+  immediate: false,
   autoReconnect: true,
-  heartbeat: true
+  heartbeat: true,
+  onConnected: () => console.info('[WebSocket] 主界面连接成功'),
+  onDisconnected: () => console.warn('[WebSocket] 主界面连接已断开'),
+  onError: () => console.warn('[WebSocket] 主界面连接失败')
+})
+
+const syncWebsocket = () => {
+  const token = String(getRefreshToken() || '')
+  if (!token) {
+    if (websocketToken.value) {
+      websocketToken.value = ''
+      websocketServer.value = undefined
+      closeWebsocket()
+    }
+    return
+  }
+  if (token === websocketToken.value && websocketStatus.value !== 'CLOSED') return
+
+  const changed = token !== websocketToken.value
+  websocketToken.value = token
+  websocketServer.value = buildWebsocketServer(token)
+  if (changed && websocketStatus.value !== 'CLOSED') closeWebsocket()
+  openWebsocket()
+}
+
+let websocketTokenTimer: number | undefined
+onMounted(() => {
+  syncWebsocket()
+  websocketTokenTimer = window.setInterval(syncWebsocket, 500)
 })
 
 watch(websocketData, (raw) => {
@@ -66,13 +107,15 @@ const claimAndStartMessageMonitors = async () => {
       const monitorId = String(item.monitorId)
       const accountId = String(item.accountId)
       finishedMessageMonitors.delete(monitorId)
+      const proxyConfigJson = await getFbAccountProxyJson(accountId)
       bridge.StartMessageMonitor(
         monitorId,
         accountId,
         item.cookie || '',
         String(item.deviceId || ''),
         item.url || 'https://www.facebook.com/',
-        item.mode || 'scheduled'
+        item.mode || 'scheduled',
+        proxyConfigJson
       )
 
       const timeout = window.setTimeout(() => {
@@ -230,6 +273,8 @@ onBeforeUnmount(() => {
   activeMessageMonitorTimers.forEach((timer) => window.clearTimeout(timer))
   activeMessageMonitorTimers.clear()
   finishedMessageMonitors.clear()
+  if (websocketTokenTimer) window.clearInterval(websocketTokenTimer)
+  closeWebsocket()
 })
 </script>
 <template>

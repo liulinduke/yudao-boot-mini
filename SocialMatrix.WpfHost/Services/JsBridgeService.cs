@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,10 +22,46 @@ namespace SocialMatrix.WpfHost.Services
     {
         private readonly MainWindow _mainWindow;
         private readonly ConcurrentDictionary<string, byte> _directPublishAccounts = new();
+        private static readonly HttpClient FileClient = new()
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
 
         public JsBridgeService(MainWindow mainWindow)
         {
             _mainWindow = mainWindow;
+        }
+
+        /// <summary>
+        /// 将 HTTP 文件资源转换为 data URL，供 HTTPS 的 WPF Vue 页面显示。
+        /// </summary>
+        public string GetFileDataUrl(string fileUrl)
+        {
+            try
+            {
+                if (!Uri.TryCreate(fileUrl, UriKind.Absolute, out var uri)
+                    || !uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                    || !uri.AbsolutePath.StartsWith("/admin-api/infra/file/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return string.Empty;
+                }
+
+                using var response = FileClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
+                    .GetAwaiter().GetResult();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return string.Empty;
+                }
+
+                var content = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                var mediaType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+                return $"data:{mediaType};base64,{Convert.ToBase64String(content)}";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"文件转 data URL 失败: {ex.Message}");
+                return string.Empty;
+            }
         }
 
         /// <summary>
@@ -38,7 +75,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="taskType">任务类型(1主页/2帖子/3用户/4群组/5活动/6评论)</param>
         /// <param name="config">配置JSON字符串（可选）</param>
         /// <param name="isOperation">是否为运营任务（true=运营任务如加组/私信/转帖，false=采集任务）</param>
-        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null, string password = null, string tfa = null, string fbAccount = null)
+        public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null, string password = null, string tfa = null, string fbAccount = null, string proxyConfigJson = null)
         {
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
@@ -59,7 +96,8 @@ namespace SocialMatrix.WpfHost.Services
                     deviceId: parsedDeviceId,
                     password: password,
                     tfa: tfa,
-                    loginAccountId: fbAccount);
+                    loginAccountId: fbAccount,
+                    proxyConfigJson: proxyConfigJson);
             });
         }
 
@@ -83,7 +121,7 @@ namespace SocialMatrix.WpfHost.Services
         /// 启动 Facebook 主页资料修改任务。浏览器仍由统一指纹浏览器矩阵承载。
         /// </summary>
         public void StartProfileUpdateTask(string taskId, string accountId, string cookie,
-            string deviceId, string profileConfigJson)
+            string deviceId, string profileConfigJson, string proxyConfigJson = null)
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
@@ -97,7 +135,8 @@ namespace SocialMatrix.WpfHost.Services
                     taskType: 18,
                     config: profileConfigJson,
                     isOperation: true,
-                    deviceId: parsedDeviceId);
+                    deviceId: parsedDeviceId,
+                    proxyConfigJson: proxyConfigJson);
             });
         }
 
@@ -127,10 +166,10 @@ namespace SocialMatrix.WpfHost.Services
         }
 
         public void StartMessageMonitor(string monitorId, string accountId, string cookie,
-            string deviceId, string url, string mode)
+            string deviceId, string url, string mode, string proxyConfigJson = null)
         {
             Application.Current.Dispatcher.Invoke(() => _mainWindow.StartMessageMonitorTask(
-                monitorId, accountId, cookie, deviceId, mode, $"message-monitor-{monitorId}"));
+                monitorId, accountId, cookie, deviceId, mode, $"message-monitor-{monitorId}", proxyConfigJson));
         }
 
         /// <summary>
@@ -283,7 +322,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="cookie">Cookie</param>
         /// <param name="fbUserId">目标用户FB ID</param>
         /// <param name="messageText">消息内容</param>
-        public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText, string password = null, string tfa = null)
+        public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText, string password = null, string tfa = null, string proxyConfigJson = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -323,7 +362,8 @@ namespace SocialMatrix.WpfHost.Services
                             isOperation: true,
                             password: password,
                             tfa: tfa,
-                            loginAccountId: accountId);
+                            loginAccountId: accountId,
+                            proxyConfigJson: proxyConfigJson);
                         System.Diagnostics.Debug.WriteLine($"✅ 私信任务已提交执行: TaskId={taskId}, DetailId={detailId}");
                     }
                     else
@@ -401,7 +441,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null, string detailId = null)
+        public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null, string detailId = null, string proxyConfigJson = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -449,7 +489,8 @@ namespace SocialMatrix.WpfHost.Services
                             taskType: 12,
                             password: password,
                             tfa: tfa,
-                            loginAccountId: accountId); // 发个人帖任务类型
+                            loginAccountId: accountId,
+                            proxyConfigJson: proxyConfigJson); // 发个人帖任务类型
 
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
 
@@ -514,7 +555,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="accountId">账号ID</param>
         /// <param name="cookie">Cookie</param>
         /// <param name="actionConfigJson">动作配置JSON</param>
-        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "", string password = null, string tfa = null, string fbAccount = null)
+        public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "", string password = null, string tfa = null, string fbAccount = null, string proxyConfigJson = null)
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
@@ -554,7 +595,8 @@ namespace SocialMatrix.WpfHost.Services
                             taskType: 13,
                             password: password,
                             tfa: tfa,
-                            loginAccountId: string.IsNullOrWhiteSpace(fbAccount) ? accountId : fbAccount); // 发群帖任务类型
+                            loginAccountId: string.IsNullOrWhiteSpace(fbAccount) ? accountId : fbAccount,
+                            proxyConfigJson: proxyConfigJson); // 发群帖任务类型
                         
                         browserMatrixWindow = mainWindow.GetBrowserMatrixWindowForAccount(accountId);
 

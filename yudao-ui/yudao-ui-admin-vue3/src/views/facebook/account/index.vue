@@ -375,6 +375,7 @@ import {
   type FbAccountLoginBridgePayload,
   type FbAccountLoginBridgeResult
 } from '@/utils/wpfBridge'
+import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 /** FB账号 列表 */
 defineOptions({ name: 'FbAccount' })
@@ -636,20 +637,21 @@ const persistSuccessfulAccountLogin = async (result: FbAccountLoginBridgeResult)
   persistedLoginAccountIds.add(accountDbId)
 }
 
-const handleBatchLogin = () => {
+const handleBatchLogin = async () => {
   const selectedAccounts = list.value.filter((item) => checkedIds.value.includes(item.id!))
   if (!selectedAccounts.length) {
     message.warning('请先选择账号')
     return
   }
 
-  const payload: FbAccountLoginBridgePayload[] = selectedAccounts.map((item) => ({
+  const payload: FbAccountLoginBridgePayload[] = await Promise.all(selectedAccounts.map(async (item) => ({
     id: item.id!,
     accountId: item.fbAccount || '',
     password: item.password,
     tfa: item.tfa,
-    cookie: item.cookie || null
-  }))
+    cookie: item.cookie || null,
+    proxyConfigJson: await getFbAccountProxyJson(item.id)
+  })))
 
   payload.forEach((item) => persistedLoginAccountIds.delete(String(item.id)))
 

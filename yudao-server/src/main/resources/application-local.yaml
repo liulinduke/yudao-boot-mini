@@ -230,7 +230,7 @@ wx:
 # 芋道配置项，设置当前项目所有自定义的配置
 yudao:
   captcha:
-    enable: false # 本地环境，暂时关闭图片验证码，方便登录等接口的测试；
+    enable: true # 本地开发环境也启用登录验证码，保持与生产环境一致；
   security:
     mock-enable: true
   pay:

@@ -250,7 +250,8 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
             return;
         }
         incoming.setId(existing.getId());
-        incoming.setTaskId(existing.getTaskId());
+        // 深度采集命中已有潜客时仍归属当前任务，否则本次任务按 taskId 查询不到更新后的记录。
+        // 记录本身继续复用旧主键，避免重复新增。
         if (StrUtil.isBlank(incoming.getFbUserId())) {
             incoming.setFbUserId(existing.getFbUserId());
         }

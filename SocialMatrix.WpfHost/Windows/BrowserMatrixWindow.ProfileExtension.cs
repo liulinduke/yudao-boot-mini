@@ -6,6 +6,7 @@ using SocialMatrix.WpfHost.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -52,7 +53,7 @@ namespace SocialMatrix.WpfHost.Windows
                     return ProfileResult(false, accountId, "未找到个人签名编辑框或保存按钮");
 
                 if (!string.IsNullOrWhiteSpace(nickname) &&
-                    !await UpdateProfileNameAsync(browser, accountId, nickname))
+                    !await UpdateProfileNameAsync(browser, ResolveFacebookProfileId(browser, accountId), nickname))
                     return ProfileResult(false, accountId, "未找到 Facebook 姓名编辑框或保存按钮");
 
                 await Task.Delay(1800);
@@ -141,6 +142,23 @@ namespace SocialMatrix.WpfHost.Windows
             return true;
         }
 
+        private static string ResolveFacebookProfileId(ChromiumWebBrowser browser, string fallbackAccountId)
+        {
+            if (Uri.TryCreate(browser.Address, UriKind.Absolute, out var uri))
+            {
+                var queryPart = uri.Query.TrimStart('?')
+                    .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault(part => part.StartsWith("id=", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(queryPart))
+                {
+                    var profileId = Uri.UnescapeDataString(queryPart[3..]);
+                    if (!string.IsNullOrWhiteSpace(profileId)) return profileId;
+                }
+            }
+
+            return fallbackAccountId;
+        }
+
         private static string ProfileResult(bool success, string accountId, string error,
             string? avatarUrl = null, string? coverUrl = null, string? nickname = null, string? signature = null)
         {
@@ -175,18 +193,23 @@ namespace SocialMatrix.WpfHost.Windows
 (async function() {{
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
-  const words = {JsonConvert.SerializeObject(avatar
-      ? new[] { "profile picture", "profile photo", "add profile", "change profile", "头像", "添加头像", "编辑头像" }
-      : new[] { "cover photo", "add cover", "change cover", "cover image", "封面", "添加封面", "编辑封面" })};
   const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.innerText || '')).trim().toLowerCase();
-  let button = [...document.querySelectorAll('[role=""button""],button,a,[tabindex=""0""]')].find(el => visible(el) && words.some(x => text(el).includes(x.toLowerCase())));
-  if (button) button.click();
-  await sleep(800);
+  const dialogs = () => [...document.querySelectorAll('[role=""dialog""]')].filter(visible);
+  const root = () => dialogs().pop() || document;
+  const exactLabels = {JsonConvert.SerializeObject(avatar
+      ? new[] { "add profile picture", "update profile picture", "添加头像", "编辑头像" }
+      : new[] { "add cover photo", "edit cover photo", "change cover photo", "添加封面", "编辑封面" })};
+  const candidates = () => [...root().querySelectorAll('[role=""button""],button,a,[tabindex=""0""]')].filter(visible);
+  let button = candidates().find(el => exactLabels.some(label => (el.getAttribute('aria-label') || '').trim().toLowerCase() === label));
+  if (!button) button = candidates().find(el => exactLabels.some(label => text(el).includes(label)));
+  if (!button) return false;
+  button.click();
+  await sleep(900);
   let input = [...document.querySelectorAll('input[type=""file""]')].find(visible) || document.querySelector('input[type=""file""]');
   if (!input) {{
-    const upload = [...document.querySelectorAll('[role=""button""],button,a,[tabindex=""0""]')].filter(visible).find(el => /upload photo|upload|上传照片|上传/.test(text(el)));
+    const upload = candidates().find(el => /upload photo|upload|上传照片|上传/.test(text(el)));
     if (upload) upload.click();
-    await sleep(700);
+    await sleep(900);
     input = [...document.querySelectorAll('input[type=""file""]')].find(visible) || document.querySelector('input[type=""file""]');
   }}
   if (!input) return false;
@@ -267,12 +290,14 @@ namespace SocialMatrix.WpfHost.Windows
         private static string BuildClickMediaSaveScript(bool avatar) => $@"
 (function() {{
   const visible = el => {{ const r = el?.getBoundingClientRect(); return !!el && r.width > 0 && r.height > 0; }};
+  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
   const dialogs = [...document.querySelectorAll('[role=""dialog""]')].filter(visible);
   const root = dialogs[dialogs.length - 1] || document;
-  const text = el => ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
-  const words = ['save','done','apply','continue','next','upload','confirm','保存','完成','应用','继续','下一步','上传','确定'];
-  const button = [...root.querySelectorAll('[role=""button""],button')].filter(visible).reverse().find(el => words.some(word => text(el).includes(word)));
-  if (button) {{ button.click(); return true; }}
+  const buttons = [...root.querySelectorAll('[role=""button""],button')].filter(visible);
+  const save = buttons.find(el => /save|done|apply|confirm|保存|完成|应用|确定/.test(text(el)));
+  if (save) {{ save.click(); return true; }}
+  const next = buttons.find(el => /continue|next|下一步|继续/.test(text(el)));
+  if (next) {{ next.click(); return true; }}
   return false;
 }})();";
 
