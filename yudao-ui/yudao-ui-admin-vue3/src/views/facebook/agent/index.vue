@@ -269,6 +269,11 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType)" label="关键词语言">
+            <el-select v-model="wizardState.targetLanguage" filterable allow-create default-first-option class="w-full">
+              <el-option label="English" value="English" />
+            </el-select>
+          </el-form-item>
         </template>
 
         <template v-else-if="wizardStep === 1">
@@ -734,6 +739,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
   executeFrequency: '1',
   executeTime: '09:00',
   targetCountries: '[]',
+  targetLanguages: '["English"]',
   autoCommentEnabled: true,
   autoDmEnabled: true,
   dailyCommentLimit: 50,
@@ -749,6 +755,7 @@ const wizardState = reactive({
   accountIdList: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
   targetCountryList: [] as string[],
+  targetLanguage: 'English',
   seedKeywordsText: '',
   keywordPoolList: [] as string[],
   newKeyword: '',
@@ -1091,6 +1098,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     executeFrequency: '1',
     executeTime: '09:00',
     targetCountries: '[]',
+    targetLanguages: '["English"]',
     autoCommentEnabled: true,
     autoDmEnabled: true,
     dailyCommentLimit: 50,
@@ -1116,6 +1124,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     .filter(Boolean)
   wizardState.accountSelectionMode = wizardForm.accountSelectionMode || 'MANUAL'
   wizardState.targetCountryList = parseJsonArray<string>(wizardForm.targetCountries)
+  wizardState.targetLanguage = parseJsonArray<string>(wizardForm.targetLanguages)[0] || 'English'
   wizardState.keywordPoolList = parseJsonArray<string>(wizardForm.keywordPool)
   wizardState.seedKeywordsText = parseJsonArray<string>(wizardForm.seedKeywords).join('\n')
   const delayRange = parseJsonArray<number>(wizardForm.replyDelayRange, [180, 600])
@@ -1183,6 +1192,7 @@ const buildSubmitData = (): FbAiAgentConfig => {
     accountIds: wizardState.accountIdList.join(','),
     accountSelectionMode: wizardState.accountSelectionMode,
     targetCountries: JSON.stringify(wizardState.targetCountryList),
+    targetLanguages: JSON.stringify([wizardState.targetLanguage.trim() || 'English']),
     seedKeywords: JSON.stringify(seedKeywords),
     keywordPool: JSON.stringify(wizardState.keywordPoolList),
     monitorGroupIds: monitorUrls.join(','),
@@ -1451,6 +1461,8 @@ const handleGenerateKeywords = async () => {
     const data = await FbAiAgentApi.generateKeywords({
       seedKeywords,
       targetCountries: wizardState.targetCountryList,
+      productDescription: wizardForm.exportProduct,
+      targetLanguage: wizardState.targetLanguage.trim() || 'English',
       expandCount: wizardForm.aiKeywordExpandCount
     })
     const merged = [...seedKeywords, ...(data.keywords || [])]

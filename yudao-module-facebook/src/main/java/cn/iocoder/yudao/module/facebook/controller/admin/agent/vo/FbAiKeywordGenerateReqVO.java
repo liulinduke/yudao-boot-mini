@@ -19,6 +19,9 @@ public class FbAiKeywordGenerateReqVO {
     @Schema(description = "行业/产品描述")
     private String productDescription;
 
+    @Schema(description = "关键词输出语言")
+    private String targetLanguage;
+
     @Schema(description = "扩展数量")
     @Min(value = 1, message = "扩展数量不能小于1")
     private Integer expandCount;

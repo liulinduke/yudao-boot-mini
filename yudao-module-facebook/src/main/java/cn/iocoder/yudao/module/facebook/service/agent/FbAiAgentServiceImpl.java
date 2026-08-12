@@ -93,6 +93,21 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private static final int POST_COMMENT_TASK_TYPE = 15;
     private static final int COLLECT_RUNNING_TIMEOUT_MINUTES = 3;
     private static final String DEFAULT_KEYWORD_WORKFLOW_CODE = "fb_ai_keyword_expand_v1";
+    private static final String DEFAULT_KEYWORD_LANGUAGE = "English";
+    private static final String KEYWORD_EXPANSION_PROMPT = """
+            Generate high-intent B2B Facebook search keywords.
+            Output language: {{targetLanguage}}.
+            Seed keywords: {{seedKeywords}}.
+            Export products: {{productDescription}}.
+            Maximum count: {{expandCount}}.
+            Output only valid JSON: {\"keywords\":[\"...\"]}. Do not output reasoning, explanations, Markdown, or text outside JSON.
+            Each keyword must be a natural 2-6 word phrase that a potential customer could use in a Facebook Page name, bio, job title, company description, or public post.
+            Prioritize combinations of a specific product or application with a natural buyer company type, job role, project, retrofit, procurement, contractor, importer, distributor, wholesale, tender, or engineering context.
+            At least 80 percent of keywords must contain both a product/application signal and a commercial-intent signal.
+            Do not mechanically append buyer, importer, wholesaler, distributor, purchaser, or purchasing manager to the same product. Use at most two role variants per product and diversify product segments, applications, project types, and commercial contexts.
+            Do not use supplier, manufacturer, factory, inquiry, quotes, contact, needed, documents, request, generic product-only terms, duplicate terms, or invented product specifications.
+            Return fewer keywords rather than low-quality generic keywords.
+            """;
     private static final String DEFAULT_LEAD_ANALYZE_WORKFLOW_CODE = "fb_ai_page_lead_scoring_v1";
     private static final String DEFAULT_GROUP_POST_ANALYZE_WORKFLOW_CODE = "fb_ai_group_post_analyze_v1";
     private static final String DEFAULT_POST_LEAD_ANALYZE_WORKFLOW_CODE = "fb_ai_post_lead_analyze_v1";
@@ -212,7 +227,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         params.put("seedKeywords", seeds);
         params.put("targetCountries", reqVO.getTargetCountries());
         params.put("productDescription", reqVO.getProductDescription());
+        params.put("targetLanguage", StrUtil.blankToDefault(reqVO.getTargetLanguage(), DEFAULT_KEYWORD_LANGUAGE));
         params.put("expandCount", count);
+        params.put("keywordExpansionPrompt", KEYWORD_EXPANSION_PROMPT);
         Object result = invokeDefaultAiWorkflow(DEFAULT_KEYWORD_WORKFLOW_CODE, params);
         List<String> keywords = parseKeywordWorkflowResult(result);
         if (CollUtil.isEmpty(keywords)) {

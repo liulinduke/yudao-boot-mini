@@ -122,6 +122,7 @@ export interface FbAiKeywordGenerateReq {
   seedKeywords?: string[]
   targetCountries?: string[]
   productDescription?: string
+  targetLanguage?: string
   expandCount?: number
 }
 
@@ -175,7 +176,11 @@ export const FbAiAgentApi = {
   },
 
   generateKeywords: async (data: FbAiKeywordGenerateReq) => {
-    return await request.post<FbAiKeywordGenerateResp>({ url: '/facebook/ai-agent/generate-keywords', data })
+    return await request.post<FbAiKeywordGenerateResp>({
+      url: '/facebook/ai-agent/generate-keywords',
+      data,
+      timeout: 60_000
+    })
   },
 
   getDiscoveryLogPage: async (params: any) => {
