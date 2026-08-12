@@ -1,6 +1,13 @@
 <template>
   <Dialog :title="dialogTitle" v-model="dialogVisible" width="700px">
     <div v-if="!tableView">
+      <el-alert
+        title="新账号需进行24–48小时养号，仅进行浏览等基础操作，避免修改资料和执行任务"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb-4"
+      />
       <el-form :model="formData" label-width="100px">
         <el-form-item label="Cookie数据" prop="data">
           <el-input

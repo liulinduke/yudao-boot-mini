@@ -92,7 +92,8 @@ namespace SocialMatrix.WpfHost.Windows
         private static DateTime _configLastFetchTime = DateTime.MinValue;
         private static readonly HashSet<BrowserMatrixWindow> _instances = new();
 
-        public bool IsWindowAvailable => IsVisible;
+        // IsVisible 在窗口进入关闭动画/清理阶段仍可能为 true，不能据此复用旧窗口。
+        public bool IsWindowAvailable => IsVisible && !_isClosing && IsLoaded;
 
         /// <summary>
         /// 指纹浏览器全局配置
@@ -172,6 +173,12 @@ namespace SocialMatrix.WpfHost.Windows
                 }
                 _instances.Remove(this);
                 CleanupAllResources();
+            };
+
+            // Closing 比 Closed 更早触发，避免新任务在资源清理期间拿到旧窗口。
+            this.Closing += (sender, e) =>
+            {
+                _isClosing = true;
             };
 
             // 预拉取全局配置，创建浏览器时可直接使用拦截设置
@@ -1038,6 +1045,11 @@ namespace SocialMatrix.WpfHost.Windows
         bodyText.includes('需要验证身份')) {
         return 'VERIFICATION_REQUIRED';
     }
+    // Facebook 2FA 页面可能仍保留 c_user Cookie，不能被首页 Cookie 兜底误判为已登录。
+    if (url.includes('/two_step_verification/two_factor') ||
+        url.includes('/two_factor/remember_browser')) {
+        return 'VERIFICATION_REQUIRED';
+    }
 
     const hasAuthCookie = /(?:^|;\s*)c_user=\d+/.test(document.cookie || '');
     const hasLoginForm = has([
@@ -1079,15 +1091,14 @@ namespace SocialMatrix.WpfHost.Windows
         return 'LOGIN_PAGE';
     }
 
-    if (has(['[role=""feed""]', '[data-pagelet=""MainFeed""]', '[aria-label=""Home""]', '[aria-label=""首页""]', 'nav[aria-label=""Primary""]'])) {
+    if (has(['[role=""feed""]', '[data-pagelet=""MainFeed""]', '[role=""main""]'])) {
         return 'AUTHENTICATED';
     }
 
     // Facebook 主页面由 React 异步渲染，弹窗、语言或新版 DOM 变化时可能暂时没有上述 feed 特征。
     // c_user 只能作为登录兜底，登录表单和明确异常页面仍优先返回，不会掩盖 Cookie 失效。
     const hasAuthenticatedChrome = has([
-        '[role=""main""]', '[aria-label*=""Your profile"" i]', '[aria-label*=""你的主页"" i]',
-        'a[href*=""/profile.php""]', 'a[href*=""/friends""]', '[data-pagelet*=""Feed"" i]'
+        '[role=""main""]', 'a[href*=""/profile.php""]', 'a[href*=""/friends""]', '[data-pagelet*=""Feed"" i]'
     ]);
     if (hasAuthCookie && (hasAuthenticatedChrome || bodyText.length > 80)) {
         return 'AUTHENTICATED';

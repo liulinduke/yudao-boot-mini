@@ -101,6 +101,22 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="账号状态" prop="loginStatus">
+            <el-select
+              v-model="queryParams.loginStatus"
+              placeholder="请选择账号状态"
+              clearable
+              class="!w-160px"
+            >
+              <el-option label="正常" value="SUCCESS" />
+              <el-option label="待检测" value="PENDING" />
+              <el-option label="Cookie失效" value="COOKIE_INVALID" />
+              <el-option label="需要验证" value="FAILED" />
+              <el-option label="账号异常" value="INVALID" />
+              <el-option label="账号被封" value="ABNORMAL" />
+              <el-option label="网络异常" value="NETWORK_ERROR" />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button @click="handleQuery"
               ><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button
@@ -225,7 +241,7 @@
               <el-table-column label="头像" align="center" width="80">
                 <template #default="scope">
                   <el-avatar :size="38" :src="scope.row.avatarUrl">
-                    {{ (scope.row.fbAccount || '?').slice(0, 1).toUpperCase() }}
+                    <Icon icon="ep:user" :size="20" />
                   </el-avatar>
                 </template>
               </el-table-column>
@@ -392,7 +408,8 @@ const queryParams = reactive({
   pageNo: 1,
   pageSize: 10,
   fbAccount: undefined,
-  proxyId: undefined as number | null | undefined
+  proxyId: undefined as number | null | undefined,
+  loginStatus: undefined as string | undefined
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
@@ -540,6 +557,7 @@ const handleQuery = () => {
 const resetQuery = () => {
   queryFormRef.value?.resetFields()
   queryParams.proxyId = undefined
+  queryParams.loginStatus = undefined
   handleQuery()
 }
 

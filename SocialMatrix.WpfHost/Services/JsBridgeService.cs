@@ -275,7 +275,8 @@ namespace SocialMatrix.WpfHost.Services
                         }
                     }
 
-                    mainWindow.CloseBrowserMatrixWindowIfEmpty();
+                    // 语言切换结束后不要关闭整个统一窗口。临时 Tab 即使被释放，
+                    // 后续帖子采集仍应复用这个窗口；窗口为空时由下一次任务自然创建 Tab。
                     System.Diagnostics.Debug.WriteLine($"📊 语言设置完成 - 总计:{accountItems.Count}, 成功:{successCount}, 失败:{failCount}");
                 }
                 catch (Exception ex)

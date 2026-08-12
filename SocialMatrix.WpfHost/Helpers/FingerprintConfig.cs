@@ -134,6 +134,7 @@ namespace SocialMatrix.WpfHost.Helpers
             // account tab may still hold the previous image-blocking handler.
             BrowserProxies.TryGetValue(browser, out var proxy);
             browser.RequestHandler = new ResourceFilterRequestHandler(disableImages, disableVideos, proxy);
+            browser.LifeSpanHandler = new PopupNavigationLifeSpanHandler();
             System.Diagnostics.Debug.WriteLine($"✅ 资源拦截策略已更新: DisableImages={disableImages}, DisableVideos={disableVideos}");
         }
 
@@ -372,6 +373,48 @@ namespace SocialMatrix.WpfHost.Helpers
             return sb.ToString();
         }
     }
+
+    /// <summary>
+    /// 阻止 CefSharp 创建未纳入 BrowserMatrixWindow 管理的原生弹窗。
+    /// Facebook 的链接既可能走 OnOpenUrlFromTab，也可能走 window.open。
+    /// </summary>
+    internal sealed class PopupNavigationLifeSpanHandler : CefSharp.Handler.LifeSpanHandler
+    {
+        protected override bool OnBeforePopup(
+            IWebBrowser chromiumWebBrowser,
+            IBrowser browser,
+            IFrame frame,
+            string targetUrl,
+            string targetFrameName,
+            WindowOpenDisposition targetDisposition,
+            bool userGesture,
+            IPopupFeatures popupFeatures,
+            IWindowInfo windowInfo,
+            IBrowserSettings browserSettings,
+            ref bool noJavascriptAccess,
+            out IWebBrowser? newBrowser)
+        {
+            newBrowser = null;
+            if (!string.IsNullOrWhiteSpace(targetUrl)
+                && !targetUrl.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
+                && !targetUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                && !targetUrl.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (browser.HasDocument)
+                    {
+                        browser.MainFrame.LoadUrl(targetUrl);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 拦截弹窗导航失败: {ex.Message}");
+                }
+            }
+            return true;
+        }
+    }
     
     /// <summary>
     /// 资源请求处理器 - 用于禁用图片/视频加载
@@ -390,7 +433,33 @@ namespace SocialMatrix.WpfHost.Helpers
         
         // IRequestHandler 方法实现 - 大部分使用默认行为
         public bool OnBeforeBrowse(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, bool userGesture, bool isRedirect) => false;
-        public bool OnOpenUrlFromTab(IWebBrowser browserControl, IBrowser browser, IFrame frame, string targetUrl, WindowOpenDisposition targetDisposition, bool userGesture) => false;
+        public bool OnOpenUrlFromTab(IWebBrowser browserControl, IBrowser browser, IFrame frame, string targetUrl, WindowOpenDisposition targetDisposition, bool userGesture)
+        {
+            // Facebook 页面大量使用 target=_blank/window.open。项目的浏览器由
+            // BrowserMatrixWindow 统一管理 Tab，不能让 CefSharp 创建脱离管理的原生弹窗。
+            // 复用当前账号 Tab 导航，避免弹窗生命周期与主窗口清理互相冲突。
+            if (string.IsNullOrWhiteSpace(targetUrl)
+                || targetUrl.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
+                || targetUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                || targetUrl.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            try
+            {
+                if (browser.HasDocument)
+                {
+                    browser.MainFrame.LoadUrl(targetUrl);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 拦截新窗口导航失败: {ex.Message}");
+                return true;
+            }
+        }
         public void OnDocumentAvailableInMainFrame(IWebBrowser browserControl, IBrowser browser) { }
         public bool OnCertificateError(IWebBrowser browserControl, IBrowser browser, CefErrorCode errorCode, string requestUrl, ISslInfo sslInfo, IRequestCallback callback) { callback.Dispose(); return false; }
         public bool OnSelectClientCertificate(IWebBrowser browserControl, IBrowser browser, bool isProxy, string host, int port, X509Certificate2Collection certificates, ISelectClientCertificateCallback callback) { callback.Dispose(); return false; }

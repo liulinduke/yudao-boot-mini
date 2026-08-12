@@ -16,6 +16,7 @@ import { closeBrowser, onCollectionBatch, onCollectionComplete } from '@/utils/w
 import { onCollectionError } from '@/utils/wpfBridge'
 import { FbAccountApi } from '@/api/facebook/account'
 import { FbCollectApi } from '@/api/facebook/collect'
+import { isWarmupDetail, reportWarmupDetail } from '@/utils/wpfWarmupTaskPoller'
 
 const handledCollectDetailIds = new Set<string>()
 const handledDmDetailIds = new Set<string>()
@@ -51,6 +52,16 @@ export function setupWpfOperationSync() {
   initialized = true
 
   onCollectionComplete(async (data) => {
+    if (Number(data.taskType) === 17 && isWarmupDetail(data.detailId)) {
+      try {
+        const result = typeof data.results === 'string' ? JSON.parse(data.results || '{}') : (data.results || {})
+        await reportWarmupDetail(String(data.detailId), result.success !== false, result.message)
+        window.dispatchEvent(new CustomEvent('fb:warmup:saved', { detail: { detailId: data.detailId } }))
+      } catch (error) {
+        console.error('[养号定时任务] 完成状态回报失败:', error)
+      }
+      return
+    }
     if (isAiAgentClaimedDetail(data.detailId) && isCollectTaskType(data.taskType)) {
       await saveCollectResult(data)
       return
@@ -119,6 +130,14 @@ export function setupWpfOperationSync() {
   onCollectionError(async (data) => {
     const reason = String(data.errorMessage || '')
     const detailId = String(data.detailId || '')
+    if (Number(data.taskType) === 17 && isWarmupDetail(detailId)) {
+      try {
+        await reportWarmupDetail(detailId, false, reason || '养号任务失败')
+      } catch (error) {
+        console.error('[养号定时任务] 失败状态回报失败:', error)
+      }
+      return
+    }
     // 资料上传使用 profile_profile_* 业务明细，不属于采集明细，不能提交到 collect-detail/fail。
     if (/^profile_/i.test(detailId)) return
     const accountId = String(data.accountId || '')

@@ -8,6 +8,7 @@ import { useWebSocket } from '@vueuse/core'
 import { getRefreshToken } from '@/utils/auth'
 import { claimAndStartPendingAiAgentDetails } from '@/utils/wpfAiAgentTaskPoller'
 import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
+import { claimAndStartPendingWarmupTasks } from '@/utils/wpfWarmupTaskPoller'
 
 defineOptions({ name: 'Message' })
 
@@ -75,6 +76,7 @@ const syncWebsocket = () => {
 let websocketTokenTimer: number | undefined
 onMounted(() => {
   syncWebsocket()
+  void claimAndStartPendingWarmupTasks()
   websocketTokenTimer = window.setInterval(syncWebsocket, 500)
 })
 
@@ -87,6 +89,9 @@ watch(websocketData, (raw) => {
     }
     if (message.type === 'fb-message-monitor-task-ready') {
       void claimAndStartMessageMonitors()
+    }
+    if (message.type === 'fb-warmup-task-ready') {
+      void claimAndStartPendingWarmupTasks()
     }
   } catch (error) {
     console.warn('处理 AI 获客任务 WebSocket 通知失败', error)
