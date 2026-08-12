@@ -18,24 +18,38 @@
             class="font-mono text-sm"
           />
         </el-form-item>
-        <el-form-item>
+        <el-form-item class="format-hint">
           <el-text type="info" size="small">
             <template #default>
               格式一：<code>Facebook用户名----Facebook密码</code>（一行一个账号）</template
             >
           </el-text>
         </el-form-item>
-        <el-form-item>
+        <el-form-item class="format-hint">
           <el-text type="info" size="small">
             <template #default>
               格式二：<code>Facebook用户名----Facebook密码----双重验证安全码</code>（一行一个账号）</template
             >
           </el-text>
         </el-form-item>
-        <el-form-item>
+        <el-form-item class="format-hint">
           <el-text type="info" size="small">
             <template #default>
-              格式三：<code>账号|密码|2FA|Cookie|Token|邮箱</code>（多个账号可连续粘贴在同一行）</template
+              格式三：<code>Facebook用户名----Facebook密码----Cookie JSON</code>（一行一个账号）</template
+            >
+          </el-text>
+        </el-form-item>
+        <el-form-item class="format-hint">
+          <el-text type="info" size="small">
+            <template #default>
+              格式四：<code>账号|密码|2FA|Cookie|Token|邮箱</code>（多个账号可连续粘贴在同一行）</template
+            >
+          </el-text>
+        </el-form-item>
+        <el-form-item class="format-hint">
+          <el-text type="info" size="small">
+            <template #default>
+              格式五：<code>Cookie JSON</code>（仅Cookie时一行一个，自动提取账号ID）</template
             >
           </el-text>
         </el-form-item>
@@ -171,12 +185,31 @@ const parseImportRecords = (data: string) => {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
+      const trimmedLine = line.trim()
+      if (trimmedLine.startsWith('[') || trimmedLine.startsWith('{')) {
+        try {
+          const json = JSON.parse(trimmedLine)
+          const cookies = Array.isArray(json) ? json : [json]
+          const cUser = cookies.find((item: any) => item?.name === 'c_user')
+          return {
+            userName: cUser?.value ? String(cUser.value) : '',
+            password: '',
+            securityKey: '',
+            cookie: trimmedLine
+          }
+        } catch {
+          // 交给预览校验显示缺少账号，避免导入无效 JSON。
+        }
+      }
       const parts = line.includes('----') ? line.split('----') : line.split('|')
+      const third = parts[2]?.trim() || ''
+      const thirdIsCookie = line.includes('----') &&
+        (third.startsWith('[') || third.startsWith('{'))
       return {
         userName: parts[0]?.trim() || '',
         password: parts[1]?.trim() || '',
-        securityKey: parts[2]?.trim() || '',
-        cookie: parts[3]?.trim() || ''
+        securityKey: thirdIsCookie ? '' : third,
+        cookie: thirdIsCookie ? third : parts[3]?.trim() || ''
       }
     })
 }
@@ -198,7 +231,7 @@ const handleNext = () => {
     let error = ''
     if (!userName) {
       error = '缺少用户名'
-    } else if (!password) {
+    } else if (!password && !record.cookie) {
       error = '缺少密码'
     }
 
@@ -244,3 +277,14 @@ onMounted(() => {
   loadProxies()
 })
 </script>
+
+<style scoped>
+.format-hint {
+  margin-bottom: 4px;
+}
+
+.format-hint :deep(.el-form-item__content) {
+  min-height: 20px;
+  line-height: 20px;
+}
+</style>

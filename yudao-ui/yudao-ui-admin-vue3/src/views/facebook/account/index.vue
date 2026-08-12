@@ -138,22 +138,9 @@
             <Icon icon="ep:plus" class="mr-5px" /> 新增
           </el-button> -->
 
-          <el-dropdown trigger="click" @command="handleImportCommand">
-            <el-button type="primary" plain>
-              <Icon icon="ep:download" class="mr-5px" /> 导入
-              <Icon icon="ep:arrow-down" />
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="import">
-                  <Icon icon="ep:user" class="mr-5px" /> 导入账号
-                </el-dropdown-item>
-                <el-dropdown-item command="cookie">
-                  <Icon icon="ep:key" class="mr-5px" /> 导入Cookie
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <el-button type="primary" plain @click="openImportDialog">
+            <Icon icon="ep:download" class="mr-5px" /> 导入账号
+          </el-button>
 
           <el-button
             type="success"
@@ -355,9 +342,6 @@
   <!-- 导入账号弹窗 -->
   <FbAccountImportDialog ref="importDialogRef" @success="getList" />
 
-  <!-- 导入Cookie弹窗 -->
-  <FbAccountCookieImportDialog ref="cookieImportDialogRef" @success="getList" />
-
   <!-- 批量修改代理弹窗 -->
   <FbAccountBatchUpdateProxyDialog ref="batchUpdateProxyDialogRef" @success="getList" />
   <!-- 批量修改分组弹窗 -->
@@ -377,7 +361,6 @@ import { SysProxyApi, SysProxyRespVO } from '@/api/system/proxy'
 import FbAccountForm from './FbAccountForm.vue'
 import AccountGroupForm from '../accountgroup/AccountGroupForm.vue'
 import FbAccountImportDialog from './FbAccountImportDialog.vue'
-import FbAccountCookieImportDialog from './FbAccountCookieImportDialog.vue'
 import FbAccountBatchUpdateProxyDialog from './FbAccountBatchUpdateProxyDialog.vue'
 import FbAccountBatchUpdateGroupDialog from './FbAccountBatchUpdateGroupDialog.vue'
 import FbAccountWarmupDialog from './FbAccountWarmupDialog.vue'
@@ -424,7 +407,6 @@ const proxyList = ref<SysProxyRespVO[]>([])
 
 // 导入相关
 const importDialogRef = ref()
-const cookieImportDialogRef = ref()
 
 // 批量修改代理相关
 const batchUpdateProxyDialogRef = ref()
@@ -737,23 +719,9 @@ const handleDeleteGroup = async (id: number) => {
   } catch {}
 }
 
-/** 处理导入命令 */
-const handleImportCommand = (command: string) => {
-  if (command === 'import') {
-    openImportDialog()
-  } else if (command === 'cookie') {
-    openCookieImportDialog()
-  }
-}
-
 /** 打开导入账号对话框 */
 const openImportDialog = () => {
   importDialogRef.value.open()
-}
-
-/** 打开导入Cookie对话框 */
-const openCookieImportDialog = () => {
-  cookieImportDialogRef.value.open()
 }
 
 /** 打开批量修改代理对话框 */

@@ -6,12 +6,41 @@
         WindowState="Maximized"
         WindowStartupLocation="CenterScreen">
     
+    <Window.Resources>
+        <Style x:Key="BrowserTabControlStyle" TargetType="{x:Type TabControl}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabControl}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="34" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="34" />
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="&lt;" Click="PreviousBrowserTab_Click"
+                                    ToolTip="上一个账号" FontSize="16" Padding="0" />
+                            <ScrollViewer x:Name="HeaderScrollViewer" Grid.Column="1"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          CanContentScroll="False">
+                                <TabPanel IsItemsHost="True" />
+                            </ScrollViewer>
+                            <Button Grid.Column="2" Content="&gt;" Click="NextBrowserTab_Click"
+                                    ToolTip="下一个账号" FontSize="16" Padding="0" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="34" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <TabControl x:Name="BrowserTabs" Grid.Row="0" Margin="0" Height="34" />
+        <TabControl x:Name="BrowserTabs" Grid.Row="0" Margin="0" Height="34"
+                    Style="{StaticResource BrowserTabControlStyle}" />
         <Grid x:Name="BrowserHostGrid" Grid.Row="1" />
     </Grid>
 </Window>

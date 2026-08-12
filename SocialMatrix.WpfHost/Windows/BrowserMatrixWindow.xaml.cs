@@ -150,7 +150,11 @@ namespace SocialMatrix.WpfHost.Windows
         {
             InitializeComponent();
             _instances.Add(this);
-            BrowserTabs.SelectionChanged += (_, _) => ShowSelectedBrowserTab();
+            BrowserTabs.SelectionChanged += (_, _) =>
+            {
+                ShowSelectedBrowserTab();
+                ScrollSelectedBrowserTabIntoView();
+            };
 
             // 监听窗口大小变化，重新计算布局
             this.SizeChanged += (sender, e) =>
@@ -622,7 +626,9 @@ namespace SocialMatrix.WpfHost.Windows
 
                         var pageState = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
                         if (pageState != FacebookPageState.Authenticated
-                            && (!string.IsNullOrWhiteSpace(password) || !string.IsNullOrWhiteSpace(tfa)))
+                            && (!string.IsNullOrWhiteSpace(cookie)
+                                || !string.IsNullOrWhiteSpace(password)
+                                || !string.IsNullOrWhiteSpace(tfa)))
                         {
                             var loginRequest = new AccountLoginRequest(
                                 long.TryParse(accountId, out var accountDbId) ? accountDbId : 0,
@@ -905,6 +911,36 @@ namespace SocialMatrix.WpfHost.Windows
                 pair.Value.Visibility = string.Equals(pair.Key, selectedAccountId, StringComparison.Ordinal)
                     ? Visibility.Visible
                     : Visibility.Hidden;
+            }
+        }
+
+        private void PreviousBrowserTab_Click(object sender, RoutedEventArgs e)
+        {
+            SelectBrowserTabByOffset(-1);
+        }
+
+        private void NextBrowserTab_Click(object sender, RoutedEventArgs e)
+        {
+            SelectBrowserTabByOffset(1);
+        }
+
+        private void SelectBrowserTabByOffset(int offset)
+        {
+            var count = BrowserTabs.Items.Count;
+            if (count == 0) return;
+
+            var currentIndex = BrowserTabs.SelectedIndex;
+            if (currentIndex < 0) currentIndex = 0;
+            var nextIndex = Math.Clamp(currentIndex + offset, 0, count - 1);
+            BrowserTabs.SelectedIndex = nextIndex;
+            ScrollSelectedBrowserTabIntoView();
+        }
+
+        private void ScrollSelectedBrowserTabIntoView()
+        {
+            if (BrowserTabs.SelectedItem is System.Windows.Controls.TabItem tab)
+            {
+                tab.BringIntoView();
             }
         }
 

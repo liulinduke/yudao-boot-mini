@@ -230,6 +230,69 @@ namespace SocialMatrix.WpfHost.Windows
                 }
             }
             System.Diagnostics.Debug.WriteLine($"🔍 账号 {account.AccountId} Cookie 后页面状态: {pageState}");
+
+            // 只在 Facebook 的隐私引导 URL 出现时才处理引导。
+            // 正常首页不扫描 Get started，避免无意义的 DOM 轮询。
+            var privacyConsentOpen = await IsFacebookPrivacyConsentPageAsync(browser);
+            var getStartedClicked = false;
+            for (var attempt = 0; privacyConsentOpen && attempt < 20 && !getStartedClicked; attempt++)
+            {
+                getStartedClicked = await ClickFacebookGetStartedAsync(browser);
+                if (!getStartedClicked)
+                {
+                    await Task.Delay(500);
+                }
+            }
+            if (privacyConsentOpen)
+            {
+                if (getStartedClicked)
+                {
+                    System.Diagnostics.Debug.WriteLine($"▶️ 账号 {account.AccountId} 检测到新手引导，已点击主操作按钮");
+                }
+                var privacyPageStillOpen = false;
+                for (var attempt = 0; attempt < 30; attempt++)
+                {
+                    await Task.Delay(500);
+                    // Get started 点击后可能仍停留在隐私方案页；继续处理 Free/Continue。
+                    if (await ClickFacebookGetStartedAsync(browser))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"▶️ 账号 {account.AccountId} 引导后继续处理 Free/Continue");
+                    }
+                    var privacyStillOpen = await browser.EvaluateScriptAsync(
+                        "location.pathname.includes('/privacy/consent/')");
+                    if (privacyStillOpen.Success && privacyStillOpen.Result is bool stillOpen && stillOpen)
+                    {
+                        privacyPageStillOpen = true;
+                        continue;
+                    }
+                    privacyPageStillOpen = false;
+                    var guideState = await DetectFacebookAuthStateAsync(browser);
+                    if (guideState == "home")
+                    {
+                        await DismissPostLoginOverlayAsync(browser);
+                        var cookieJson = await ExportFacebookCookiesAsync(browser);
+                        if (!string.IsNullOrWhiteSpace(cookieJson))
+                        {
+                            return new AccountLoginResult(account.Id, account.AccountId, "success", "cookie", null, true, CookieJson: cookieJson);
+                        }
+                        return new AccountLoginResult(account.Id, account.AccountId, "failed", "cookie", "引导页完成但 Cookie 未能保存");
+                    }
+                    if (guideState == "two_factor" || guideState == "checkpoint" || guideState == "disabled")
+                    {
+                        break;
+                    }
+                }
+                if (privacyPageStillOpen)
+                {
+                    return new AccountLoginResult(
+                        account.Id,
+                        account.AccountId,
+                        "failed",
+                        "cookie",
+                        "隐私方案页面未完成，Continue 仍未跳转");
+                }
+            }
+
             // Facebook 已保存账号选择页也可能位于 /login，但没有邮箱/密码输入框，
             // 需要先点击 Continue，再等待后续 2FA DOM；普通登录页没有 Continue，继续走密码登录。
             if (pageState == FacebookPageState.Unknown || pageState == FacebookPageState.LoginPage)
@@ -451,6 +514,360 @@ namespace SocialMatrix.WpfHost.Windows
                 authState == "disabled" ? "account_disabled" : "failed",
                 "credential",
                 MapAuthStateToReason(authState));
+        }
+
+        private static async Task<bool> IsFacebookPrivacyConsentPageAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                var result = await browser.EvaluateScriptAsync(
+                    "location.pathname.includes('/privacy/consent/')");
+                return result.Success && result.Result is bool isPrivacyConsent && isPrivacyConsent;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 隐私引导 URL 检测失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> ClickFacebookGetStartedAsync(ChromiumWebBrowser browser)
+        {
+            try
+            {
+                var result = await browser.EvaluateScriptAsync(@"
+                    (async () => {
+                        const visible = el => !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                        const enabled = el => visible(el) && el.getAttribute('aria-disabled') !== 'true' &&
+                            el.getAttribute('disabled') === null && el.getAttribute('tabindex') !== '-1';
+                        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+                        const humanClick = async el => {
+                            el.scrollIntoView({ block: 'center', inline: 'center' });
+                            await sleep(450 + Math.random() * 900);
+                            const rect = el.getBoundingClientRect();
+                            const options = { bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
+                            for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                                el.dispatchEvent(type.startsWith('pointer')
+                                    ? new PointerEvent(type, { ...options, pointerId: 1, pointerType: 'mouse', isPrimary: true })
+                                    : new MouseEvent(type, options));
+                                await sleep(35 + Math.random() * 80);
+                            }
+                            if (typeof el.click === 'function') el.click();
+                            await sleep(700 + Math.random() * 900);
+                        };
+
+                        // Facebook 新版隐私/订阅确认页：Continue 初始可能是 disabled，
+                        // 必须等待它变为可用，不能误点旁边的离开服务操作。
+                        if (location.pathname.includes('/privacy/consent/')) {
+                            const roots = [document];
+                            const all = root => {
+                                const items = [...root.querySelectorAll('*')];
+                                for (const item of items) if (item.shadowRoot) items.push(...all(item.shadowRoot));
+                                return items;
+                            };
+                            const nodes = all(document);
+                            const clickable = el => {
+                                let current = el;
+                                for (let i = 0; current && i < 6; i++, current = current.parentElement) {
+                                    if (current.matches && current.matches('button, [role=""button""], [role=""radio""], label, a, [tabindex]') && enabled(current)) return current;
+                                }
+                                return null;
+                            };
+                            const labelOf = el => ([(el.getAttribute && el.getAttribute('aria-label')) || '', (el.innerText || el.textContent || '')]
+                                .join(' ').replace(/\s+/g, ' ').trim().toLowerCase());
+
+                        // user_cookie_choice_v2 的最终确认区没有稳定 id/testid：两个同级宽按钮
+                        // 纵向排列，下面一个是允许全部 Cookie 的主操作。
+                        if (location.search.includes('flow=user_cookie_choice_v2')) {
+                            const wideButtons = nodes.filter(el => {
+                                if (!visible(el) || !enabled(el) || !el.matches('button, [role=""button""]')) return false;
+                                const rect = el.getBoundingClientRect();
+                                return rect.width >= 400 && rect.height >= 30 && rect.height <= 80;
+                            });
+                            const groups = new Map();
+                            for (const button of wideButtons) {
+                                const parent = button.parentElement;
+                                if (!parent) continue;
+                                const siblings = [...parent.children].filter(el => wideButtons.includes(el));
+                                if (siblings.length >= 2) groups.set(parent, siblings);
+                            }
+                            const finalGroup = [...groups.values()].find(group => group.length >= 2);
+                            if (finalGroup) {
+                                const target = finalGroup.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).at(-1);
+                                if (target) {
+                                    await humanClick(target);
+                                    return true;
+                                }
+                            }
+                        }
+
+                        // 隐私方案 URL 也可能先显示 Get started，必须先完成这一步，
+                        // 不能因为 pathname 是 /privacy/consent/ 就直接跳到 Free/Continue。
+                        const getStartedNode = nodes.find(el => {
+                            if (!visible(el)) return false;
+                            const label = labelOf(el);
+                            if (!label.includes('get started') && !label.includes('开始使用')) return false;
+                            const target = clickable(el);
+                            return !!target && !label.includes('continue');
+                        });
+                        if (getStartedNode) {
+                            const target = clickable(getStartedNode) || getStartedNode;
+                            target.scrollIntoView({ block: 'center', inline: 'center' });
+                            await humanClick(target);
+                            return true;
+                        }
+
+                            // 免费广告方案的稳定 DOM 标识是 value=PA。
+                            // 先选择方案，Continue 解锁后由下一轮轮询点击。
+                            const freeChoice = document.querySelector(
+                                'input[type=""radio""][name=""afs_choice_input_key""][value=""PA""]')
+                                || [...document.querySelectorAll('input[type=""radio""]')].find(el => {
+                                    const label = (el.closest('label')?.innerText || el.parentElement?.innerText || '').toLowerCase();
+                                    return label.includes('free') || label.includes('免费');
+                                });
+                            if (freeChoice && !freeChoice.checked && freeChoice.getAttribute('aria-checked') !== 'true') {
+                                const target = clickable(freeChoice) || freeChoice;
+                                await humanClick(target);
+                                return false;
+                            }
+                            const freeRadio = nodes.find(el => (el.getAttribute('role') || '') === 'radio' &&
+                                (labelOf(el).includes('free') || labelOf(el).includes('免费')));
+                            if (freeRadio && freeRadio.getAttribute('aria-checked') !== 'true') {
+                                await humanClick(clickable(freeRadio) || freeRadio);
+                                return false;
+                            }
+
+                            // Free 已选中后必须优先点击 Continue，不能再次命中 Free 卡片并提前返回。
+                            const continueNodes = nodes
+                                .filter(el => visible(el) && labelOf(el).includes('continue'))
+                                .map(clickable).filter(Boolean)
+                                .filter(el => enabled(el));
+                            if (continueNodes.length) {
+                                const target = continueNodes[0];
+                                target.scrollIntoView({ block: 'center', inline: 'center' });
+                                const rect = target.getBoundingClientRect();
+                                const options = { bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
+                                for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                                target.dispatchEvent(type.startsWith('pointer')
+                                    ? new PointerEvent(type, { ...options, pointerId: 1, pointerType: 'mouse', isPrimary: true })
+                                    : new MouseEvent(type, options));
+                                await sleep(35 + Math.random() * 80);
+                            }
+                            if (typeof target.click === 'function') target.click();
+                            await sleep(1200 + Math.random() * 1200);
+                            return true;
+                            }
+
+                            // 某些版本将 Free 方案渲染为整块可点击卡片，没有 radio 属性。
+                            const freeCardText = !freeChoice && !freeRadio && nodes.find(el => {
+                                if (!visible(el) || !labelOf(el).match(/free|免费/)) return false;
+                                const target = clickable(el);
+                                if (!target) return false;
+                                const label = labelOf(target);
+                                return !label.includes('continue') && !label.includes('离开');
+                            });
+                            if (freeCardText) {
+                                await humanClick(clickable(freeCardText) || freeCardText);
+                                return false;
+                            }
+
+                            const actions = [...document.querySelectorAll('button, [role=""button""], a, [tabindex]')]
+                                .filter(enabled)
+                                .filter(el => {
+                                    const rect = el.getBoundingClientRect();
+                                    return rect.width >= 160 && rect.height >= 28;
+                                });
+                            const primary = actions.find(el => {
+                                const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                                return text === 'continue' ||
+                                    (el.getAttribute('data-testid') || '').toLowerCase().includes('continue');
+                            });
+                            // 方案选择后按钮可能还要异步解锁，继续由外层轮询。
+                            if (primary) {
+                                primary.scrollIntoView({ block: 'center', inline: 'center' });
+                                await humanClick(primary);
+                                return true;
+                            }
+
+                            // 仅在 Continue 已消失后才处理最终确认 Agree / 同意。
+                            const agreeNode = nodes.find(el => {
+                                if (!visible(el)) return false;
+                                const label = labelOf(el);
+                                return (label === 'agree' || label.includes('agree and continue') || label.includes('同意')) && !!clickable(el);
+                            });
+                            if (agreeNode) {
+                                await humanClick(clickable(agreeNode) || agreeNode);
+                                return true;
+                            }
+
+                            // Agree 后 Facebook 可能显示独立 Cookie 横幅。优先使用稳定 DOM 属性，
+                            // 不依赖界面语言；文本只在结构化属性缺失时作为最后兜底。
+                            const cookieDialogs = nodes.filter(el => visible(el) &&
+                                ((el.getAttribute('role') || '').toLowerCase() === 'dialog' ||
+                                 (el.getAttribute('aria-modal') || '').toLowerCase() === 'true' ||
+                                 /cookie|consent|privacy/i.test(`${el.id || ''} ${el.getAttribute('data-testid') || ''} ${el.className || ''}`)));
+                            const cookieRoots = cookieDialogs.length ? cookieDialogs : [document];
+                            const structuralCookieButton = cookieRoots.flatMap(root => [...root.querySelectorAll('*')])
+                                .filter(el => enabled(el) && (el.matches('button, [role=""button""], a, [tabindex]') || el.tagName === 'INPUT'))
+                                .find(el => /cookie|accept|allow|all|confirm|consent|choice/i.test(
+                                    `${el.getAttribute('data-testid') || ''} ${el.id || ''} ${el.getAttribute('name') || ''} ${el.getAttribute('value') || ''} ${el.getAttribute('aria-label') || ''}`));
+                            const allowCookiesNode = structuralCookieButton || cookieRoots.flatMap(root => [...root.querySelectorAll('button, [role=""button""], a, [tabindex]')])
+                                .filter(enabled)
+                                .find(el => {
+                                    const label = labelOf(el);
+                                    return label.includes('allow all cookies') || label.includes('接受所有 cookie');
+                                });
+                            if (allowCookiesNode) {
+                                console.debug('[登录] cookie consent button', allowCookiesNode.tagName, allowCookiesNode.id, allowCookiesNode.getAttribute('data-testid'));
+                                await humanClick(clickable(allowCookiesNode) || allowCookiesNode);
+                                return true;
+                            }
+                            return false;
+                        }
+
+                        // Agree 后横幅可能触发页面导航，Cookie 按钮因此出现在普通页面分支。
+                        const cookieContainers = [...document.querySelectorAll('*')]
+                            .filter(el => visible(el) && (
+                                (el.getAttribute('role') || '').toLowerCase() === 'dialog' ||
+                                (el.getAttribute('aria-modal') || '').toLowerCase() === 'true' ||
+                                /cookie|consent|privacy|user_cookie_choice/i.test(`${el.id || ''} ${el.getAttribute('data-testid') || ''} ${el.className || ''}`)));
+                        const cookieRoots = cookieContainers.length ? cookieContainers : [document];
+                        const allowCookies = cookieRoots.flatMap(root => [...root.querySelectorAll('*')])
+                            .filter(el => enabled(el) && (el.matches('button, [role=""button""], a, [tabindex]') || el.tagName === 'INPUT'))
+                            .find(el => /cookie|accept|allow|all|confirm|consent|choice/i.test(
+                                `${el.getAttribute('data-testid') || ''} ${el.id || ''} ${el.getAttribute('name') || ''} ${el.getAttribute('value') || ''} ${el.getAttribute('aria-label') || ''}`))
+                            || cookieRoots.flatMap(root => [...root.querySelectorAll('button, [role=""button""], a, [tabindex]')])
+                                .filter(enabled)
+                                .find(el => {
+                                    const label = `${el.getAttribute('aria-label') || ''} ${el.innerText || el.textContent || ''}`
+                                        .replace(/\s+/g, ' ').trim().toLowerCase();
+                                    return label.includes('allow all cookies') || label.includes('接受所有 cookie');
+                                });
+                        if (allowCookies) {
+                            console.debug('[登录] cookie consent button', allowCookies.tagName, allowCookies.id, allowCookies.getAttribute('data-testid'));
+                            await humanClick(allowCookies);
+                            return true;
+                        }
+
+                        const candidates = [
+                            '[data-testid*=""get_started"" i] [role=""button""]',
+                            '[data-testid*=""get_started"" i]',
+                            '[data-testid*=""onboarding"" i] [role=""button""]',
+                            'a[href*=""get_started"" i]'
+                        ].flatMap(selector => {
+                            try { return [...document.querySelectorAll(selector)]; } catch { return []; }
+                        });
+                        const unique = [...new Set(candidates)].filter(enabled);
+                        const guideButton = unique.find(el => {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width < 80 || rect.height < 28) return false;
+                            const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                            const href = (el.getAttribute('href') || '').toLowerCase();
+                            return testId.includes('get_started') || href.includes('get_started');
+                        });
+                        if (guideButton) {
+                            guideButton.scrollIntoView({ block: 'center', inline: 'center' });
+                            guideButton.click();
+                            return true;
+                        }
+
+                        // Cookie 注入后部分版本会把引导按钮直接渲染在首页，而不是 dialog 内。
+                        const normalizeLabel = value => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                        const getLabel = el => normalizeLabel([el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('value'), el.innerText || el.textContent].filter(Boolean).join(' '));
+                        const getClickTarget = el => {
+                            let current = el;
+                            for (let i = 0; current && i < 5; i++, current = current.parentElement) {
+                                if (current.matches && current.matches('button, [role=""button""], a, [tabindex]') && enabled(current)) return current;
+                            }
+                            return null;
+                        };
+                        const allElements = root => {
+                            const result = [...root.querySelectorAll('*')];
+                            for (const el of result) {
+                                if (el.shadowRoot) result.push(...allElements(el.shadowRoot));
+                            }
+                            return result;
+                        };
+                        const fireClick = el => {
+                            el.scrollIntoView({ block: 'center', inline: 'center' });
+                            const rect = el.getBoundingClientRect();
+                            const options = { bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
+                            for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                                el.dispatchEvent(type.startsWith('pointer')
+                                    ? new PointerEvent(type, { ...options, pointerId: 1, pointerType: 'mouse', isPrimary: true })
+                                    : new MouseEvent(type, options));
+                            }
+                            if (typeof el.click === 'function') el.click();
+                        };
+                        const pageTextButtons = allElements(document)
+                            .filter(el => visible(el) && (getLabel(el).includes('get started') || getLabel(el).includes('开始使用')))
+                            .map(getClickTarget).filter(Boolean);
+                        if (pageTextButtons.length) {
+                            fireClick(pageTextButtons[0]);
+                            return true;
+                        }
+
+                        // 引导可能位于同源 iframe；跨域 iframe 会被安全策略跳过。
+                        for (const frame of [...document.querySelectorAll('iframe')]) {
+                            try {
+                                const frameDoc = frame.contentDocument;
+                                if (!frameDoc) continue;
+                                const frameText = allElements(frameDoc)
+                                    .find(el => visible(el) && (getLabel(el).includes('get started') || getLabel(el).includes('开始使用')));
+                                const target = frameText && getClickTarget(frameText);
+                                if (target) { fireClick(target); return true; }
+                            } catch (_) { }
+                        }
+
+                        // 页面版本变化时没有稳定 data-testid，按引导弹层中的按钮文本兜底。
+                        const guideDialogs = [...document.querySelectorAll('[role=""dialog""], [aria-modal=""true""]')]
+                            .filter(visible);
+                        for (const dialog of guideDialogs) {
+                            if (dialog.querySelector('input[type=""password""], input[name=""email""]')) continue;
+                            const textButtons = [...dialog.querySelectorAll('button, [role=""button""], a')]
+                                .filter(enabled)
+                                .filter(el => {
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width < 100 || rect.height < 28) return false;
+                                    const label = `${el.getAttribute('aria-label') || ''} ${el.innerText || el.textContent || ''}`.trim().toLowerCase();
+                                    return label === 'get started' || label.includes('get started') || label.includes('开始使用');
+                                });
+                            if (textButtons.length) {
+                                textButtons[0].scrollIntoView({ block: 'center', inline: 'center' });
+                                textButtons[0].click();
+                                return true;
+                            }
+                        }
+
+                        // 某些版本没有稳定的按钮名称，但会把引导内容放在弹层内。
+                        // 只有弹层中恰好存在一个明显的可用按钮时才点击，避免误点普通页面按钮。
+                        const dialogs = [...document.querySelectorAll('[role=""dialog""], [aria-modal=""true""]')]
+                            .filter(visible);
+                        for (const dialog of dialogs) {
+                            if (dialog.querySelector('input[type=""password""], input[name=""email""]')) continue;
+                            const buttons = [...dialog.querySelectorAll('button, [role=""button""]')]
+                                .filter(enabled)
+                                .filter(el => {
+                                    const rect = el.getBoundingClientRect();
+                                    return rect.width >= 180 && rect.height >= 32;
+                                });
+                            if (buttons.length === 1) {
+                                buttons[0].scrollIntoView({ block: 'center', inline: 'center' });
+                                buttons[0].click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    })();");
+                var clicked = result.Success && result.Result is bool value && value;
+                System.Diagnostics.Debug.WriteLine($"🔎 Get started 探测: success={result.Success}, clicked={clicked}, url={browser.Address}");
+                return clicked;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 检测新手引导按钮失败: {ex.Message}");
+                return false;
+            }
         }
 
         private async Task<bool> ClickFacebookContinueAsync(ChromiumWebBrowser browser)

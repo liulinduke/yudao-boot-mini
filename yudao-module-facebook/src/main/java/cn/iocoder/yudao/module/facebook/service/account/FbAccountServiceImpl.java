@@ -320,10 +320,15 @@ public class FbAccountServiceImpl implements FbAccountService {
 
             String userName = parts[0].trim();
             String password = parts[1].trim();
-            String securityKey = parts.length > 2 ? parts[2].trim() : null;
-            String cookie = parts.length > 3 ? parts[3].trim() : null;
+            String thirdPart = parts.length > 2 ? parts[2].trim() : "";
+            // 兼容：账号----密码----Cookie JSON；普通第三段仍按 2FA 处理。
+            boolean thirdPartIsCookie = thirdPart.startsWith("[") || thirdPart.startsWith("{");
+            String securityKey = thirdPartIsCookie ? null : (StrUtil.isEmpty(thirdPart) ? null : thirdPart);
+            String cookie = thirdPartIsCookie
+                    ? thirdPart
+                    : (parts.length > 3 ? parts[3].trim() : null);
 
-            if (StrUtil.isEmpty(userName) || StrUtil.isEmpty(password)) {
+            if (StrUtil.isEmpty(userName) || (StrUtil.isEmpty(password) && StrUtil.isEmpty(cookie))) {
                 continue;
             }
 
@@ -520,6 +525,19 @@ public class FbAccountServiceImpl implements FbAccountService {
         for (String line : normalized.split("\\R")) {
             String trimmedLine = line.trim();
             if (StrUtil.isEmpty(trimmedLine)) {
+                continue;
+            }
+
+            // 纯 Cookie JSON：每行一个，自动从 c_user 提取账号。
+            if (trimmedLine.startsWith("[") || trimmedLine.startsWith("{")) {
+                try {
+                    String userId = extractUserIdFromCookie(trimmedLine);
+                    if (StrUtil.isNotBlank(userId)) {
+                        records.add(new String[]{userId, "", "", trimmedLine});
+                    }
+                } catch (Exception ignored) {
+                    // 无效 JSON 交给导入结果统一跳过。
+                }
                 continue;
             }
 
