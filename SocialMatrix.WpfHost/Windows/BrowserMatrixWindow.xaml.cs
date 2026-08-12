@@ -150,16 +150,19 @@ namespace SocialMatrix.WpfHost.Windows
         {
             InitializeComponent();
             _instances.Add(this);
+            BrowserTabs.Loaded += (_, _) => UpdateBrowserTabNavigationVisibility();
             BrowserTabs.SelectionChanged += (_, _) =>
             {
                 ShowSelectedBrowserTab();
                 ScrollSelectedBrowserTabIntoView();
+                UpdateBrowserTabNavigationVisibility();
             };
 
             // 监听窗口大小变化，重新计算布局
             this.SizeChanged += (sender, e) =>
             {
                 UpdateLayout();
+                UpdateBrowserTabNavigationVisibility();
             };
 
             // 监听窗口关闭事件，清理所有资源
@@ -574,6 +577,8 @@ namespace SocialMatrix.WpfHost.Windows
             BrowserTabs.Items.Add(tab);
             BrowserTabs.SelectedItem = tab;
             ShowSelectedBrowserTab();
+            Dispatcher.BeginInvoke(new Action(UpdateBrowserTabNavigationVisibility),
+                System.Windows.Threading.DispatcherPriority.Loaded);
 
             // 更新布局
             UpdateLayout();
@@ -941,6 +946,39 @@ namespace SocialMatrix.WpfHost.Windows
             if (BrowserTabs.SelectedItem is System.Windows.Controls.TabItem tab)
             {
                 tab.BringIntoView();
+            }
+        }
+
+        private void UpdateBrowserTabNavigationVisibility()
+        {
+            if (!BrowserTabs.IsLoaded) return;
+            BrowserTabs.ApplyTemplate();
+            if (BrowserTabs.Template.FindName("HeaderScrollViewer", BrowserTabs) is not System.Windows.Controls.ScrollViewer scrollViewer)
+            {
+                return;
+            }
+
+            void UpdateButtons()
+            {
+                var overflow = scrollViewer.ExtentWidth > scrollViewer.ViewportWidth + 1;
+                var visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+                if (BrowserTabs.Template.FindName("PreviousTabButton", BrowserTabs) is System.Windows.Controls.Button previous)
+                {
+                    previous.Visibility = visibility;
+                }
+                if (BrowserTabs.Template.FindName("NextTabButton", BrowserTabs) is System.Windows.Controls.Button next)
+                {
+                    next.Visibility = visibility;
+                }
+            }
+
+            scrollViewer.SizeChanged -= BrowserTabHeaderScrollViewer_SizeChanged;
+            scrollViewer.SizeChanged += BrowserTabHeaderScrollViewer_SizeChanged;
+            UpdateButtons();
+
+            void BrowserTabHeaderScrollViewer_SizeChanged(object sender, SizeChangedEventArgs args)
+            {
+                UpdateButtons();
             }
         }
 
