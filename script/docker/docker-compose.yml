@@ -12,6 +12,8 @@ services:
     volumes:
       - mysql:/var/lib/mysql
       - ../../sql/mysql/ruoyi-vue-pro.sql:/docker-entrypoint-initdb.d/ruoyi-vue-pro.sql:ro
+    ports:
+      - "127.0.0.1:3306:3306"
     networks: [yudao]
 
   redis:
