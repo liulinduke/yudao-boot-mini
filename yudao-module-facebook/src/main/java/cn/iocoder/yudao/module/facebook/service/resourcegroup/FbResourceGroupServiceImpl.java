@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.collectuser.FbCollectUserMappe
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectgroup.FbCollectGroupMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import jakarta.annotation.Resource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 import java.util.List;
@@ -27,7 +28,11 @@ public class FbResourceGroupServiceImpl implements FbResourceGroupService {
         if (list.stream().noneMatch(item -> Boolean.TRUE.equals(item.getIsDefault()))) {
             FbResourceGroupDO defaultGroup = FbResourceGroupDO.builder()
                     .name("未分组").resourceType(resourceType).isDefault(true).build();
-            mapper.insert(defaultGroup);
+            try {
+                mapper.insert(defaultGroup);
+            } catch (DuplicateKeyException ignored) {
+                // 首次打开多个资源页时可能并发创建默认分组；唯一索引保证只保留一个。
+            }
             list = mapper.selectByType(resourceType);
         }
         return BeanUtils.toBean(list, FbResourceGroupRespVO.class);

@@ -1237,7 +1237,8 @@ const submitForm = async () => {
     message.success(`已创建 ${details.length} 条采集明细，已加入账号串行队列`)
     dialogVisible.value = false
     // 发送操作成功的事件
-    emit('success')
+    // 新建任务后通知父页面立即领取队列；编辑任务不触发浏览器启动。
+    emit('success', { created: true })
   } finally {
     formLoading.value = false
   }

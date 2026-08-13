@@ -233,7 +233,7 @@ export const finishQueuedAccountTaskAndStartNext = async (
   return nextDetail || null
 }
 
-function registerQueuedDetailTimeout(accountId: string, detailId: string | number, sourceType: string) {
+export function registerQueuedDetailTimeout(accountId: string, detailId: string | number, sourceType: string) {
   const value = String(detailId)
   clearQueuedDetailTimeout(value)
   queuedDetailSources.set(value, sourceType)

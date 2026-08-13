@@ -10,6 +10,7 @@ import {
   finishQueuedAccountTaskAndStartNext,
   isAiAgentClaimedDetail,
   markAiAgentCollectFinished,
+  registerQueuedDetailTimeout,
   startAiAgentCollectDetail
 } from '@/utils/wpfAiAgentTaskPoller'
 import { closeBrowser, onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'

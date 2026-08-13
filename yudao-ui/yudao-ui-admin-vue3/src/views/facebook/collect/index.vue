@@ -189,7 +189,7 @@
     </el-row>
 
     <!-- 表单弹窗：添加/修改 -->
-    <FbCollectForm ref="formRef" @success="getList" />
+    <FbCollectForm ref="formRef" @success="handleCollectFormSuccess" />
   </div>
 </template>
 
@@ -207,6 +207,7 @@ import FunctionCard from './components/FunctionCard.vue'
 import { isAiAgentClaimedDetail } from '@/utils/wpfAiAgentTaskPoller'
 import { onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'
 import {
+  claimAndStartPendingAiAgentDetails,
   claimNextAiAgentDetail,
   markAiAgentCollectFinished,
   startAiAgentCollectDetail
@@ -573,6 +574,14 @@ const continueNextCollectDetailOrClose = async (
     message.info(`账号 ${fbAccount} 本轮采集已结束`)
   } catch (error) {
     console.warn('查询下一条采集明细失败，交由 WPF 按全局配置处理浏览器', error)
+  }
+}
+
+/** 新建采集任务后立即领取，避免仅依赖 WebSocket 通知导致任务滞留在队列。 */
+const handleCollectFormSuccess = async (result?: { created?: boolean }) => {
+  await getList()
+  if (result?.created) {
+    await claimAndStartPendingAiAgentDetails()
   }
 }
 

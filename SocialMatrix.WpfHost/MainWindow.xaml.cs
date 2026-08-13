@@ -33,8 +33,9 @@ namespace SocialMatrix.WpfHost
         private bool _titleBarMouseDown;
         private Point _titleBarMouseDownPoint;
         private readonly AppUpdateService _appUpdateService = new();
-        private readonly LocalVueServer _localVueServer = new();
         private bool _updateCheckStarted;
+
+        private const string ProductionVueUrl = "http://1.14.181.156";
 
         public MainWindow()
         {
@@ -42,7 +43,6 @@ namespace SocialMatrix.WpfHost
             MaximizeToWorkArea();
             InitializeVueWebView();
             ContentRendered += MainWindow_ContentRendered;
-            Closed += (_, _) => _localVueServer.Dispose();
         }
 
         private async void MainWindow_ContentRendered(object? sender, EventArgs e)
@@ -154,6 +154,8 @@ namespace SocialMatrix.WpfHost
             Width = workArea.Width;
             Height = workArea.Height;
             _isWorkAreaMaximized = true;
+            MainWindowChrome.CornerRadius = new CornerRadius(0);
+            WindowHeaderBorder.CornerRadius = new CornerRadius(0);
             MaximizeButton.Content = "❐";
             MaximizeButton.ToolTip = "还原";
         }
@@ -171,6 +173,8 @@ namespace SocialMatrix.WpfHost
             Height = _normalWindowBounds.Height;
             ResizeMode = ResizeMode.CanResize;
             _isWorkAreaMaximized = false;
+            MainWindowChrome.CornerRadius = new CornerRadius(12);
+            WindowHeaderBorder.CornerRadius = new CornerRadius(12, 12, 0, 0);
             MaximizeButton.Content = "□";
             MaximizeButton.ToolTip = "最大化";
         }
@@ -196,14 +200,6 @@ namespace SocialMatrix.WpfHost
         {
             try
             {
-                // 当前服务器暂时只有 HTTP，WPF 页面使用虚拟 HTTPS 主机时需要允许
-                // 访问 HTTP API。域名配置 HTTPS 后应移除该兼容参数。
-                // The embedded Vue page is hosted at https://app.local while the
-                // production API and local file storage currently use HTTP/IP.
-                // Permit those HTTP resources so avatars and file previews work
-                // in the desktop client as they do in the normal browser.
-                var webViewOptions = new CoreWebView2EnvironmentOptions(
-                    "--allow-running-insecure-content --disable-web-security");
                 // Keep WebView2 localStorage/cookies outside the Velopack version
                 // directory. Otherwise every update can create a new profile and
                 // discard the system login token.
@@ -215,7 +211,7 @@ namespace SocialMatrix.WpfHost
                 var webViewEnvironment = await CoreWebView2Environment.CreateAsync(
                     null,
                     webViewUserDataFolder,
-                    webViewOptions);
+                    null);
                 await VueWebView.EnsureCoreWebView2Async(webViewEnvironment);
 
                 VueWebView.CoreWebView2.NavigationCompleted += (_, _) =>
@@ -258,22 +254,11 @@ namespace SocialMatrix.WpfHost
                     }
                 };
 
-                // 开发环境加载本地 dev server，生产环境加载本地文件
+                // 开发环境连接本机 Vite，生产环境直接连接服务器 Nginx。
 #if DEBUG
                 VueWebView.Source = new Uri("http://localhost:80");
 #else
-                var indexPath = System.IO.Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "wwwroot", "index.html");
-                var wwwRoot = System.IO.Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "wwwroot");
-                if (System.IO.File.Exists(indexPath))
-                {
-                    // 通过本地 HTTP 服务加载 Vue，允许页面连接服务器的 ws:// WebSocket。
-                    var localVueUrl = await _localVueServer.StartAsync(wwwRoot);
-                    VueWebView.Source = new Uri(localVueUrl, "index.html");
-                }
+                VueWebView.Source = new Uri(ProductionVueUrl);
 #endif
 
                 System.Diagnostics.Debug.WriteLine("✅ WebView2 初始化成功");
