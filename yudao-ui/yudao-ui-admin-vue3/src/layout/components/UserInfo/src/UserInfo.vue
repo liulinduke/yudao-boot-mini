@@ -6,6 +6,7 @@ import { useDesign } from '@/hooks/web/useDesign'
 import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUserStore } from '@/store/modules/user'
 import TenantVisit from '@/layout/components/TenantVisit/index.vue'
+import { checkPermi } from '@/utils/permission'
 
 defineOptions({ name: 'UserInfo' })
 
@@ -42,6 +43,9 @@ const prefixCls = getPrefixCls('user-info')
 
 const avatar = computed(() => userStore.user.avatar || avatarImg)
 const userName = computed(() => userStore.user.nickname ?? 'Admin')
+const hasTenantVisitPermission = computed(
+  () => import.meta.env.VITE_APP_TENANT_ENABLE === 'true' && checkPermi(['system:tenant:visit'])
+)
 
 const loginOut = async () => {
   try {
@@ -84,7 +88,7 @@ const toProfile = async () => {
     </div>
     <template #dropdown>
       <ElDropdownMenu>
-        <div class="user-tenant-switch">
+        <div v-if="hasTenantVisitPermission" class="user-tenant-switch">
           <TenantVisit />
         </div>
         <ElDropdownItem>

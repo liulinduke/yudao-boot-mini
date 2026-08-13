@@ -82,10 +82,10 @@
                 :max="50"
                 class="!w-200px"
               />
-              <span class="ml-10px text-gray-500 whitespace-nowrap">最大并发窗口数（每个窗口约占用300MB内存）</span>
+              <span class="ml-10px text-gray-500 whitespace-nowrap">最大并发窗口数（按每个窗口约 200MB 峰值预留）</span>
             </div>
             <div class="text-xs text-gray-400 ml-0px">
-              💡 建议值：8GB内存 → 19个窗口 | 16GB内存 → 38个窗口 | 当前系统 {{ Math.floor(getSystemMemory() / 1024) }}GB → {{ getRecommendedConcurrent() }}个
+              💡 建议值：8GB内存 → 28个窗口 | 16GB内存 → 50个窗口（上限） | 当前系统 {{ Math.floor(getSystemMemory() / 1024) }}GB → {{ getRecommendedConcurrent() }}个。轻负载常驻内存更低，图片、视频和复杂页面会明显增加占用。
             </div>
             <div class="mt-8px flex items-center">
               <el-input-number
@@ -126,11 +126,10 @@ const getSystemMemory = (): number => {
   return 8192
 }
 
-/** 计算推荐并发数（每窗口300MB）*/
+/** 按 Facebook 重页面峰值 200MB/窗口估算，并预留 30% 给系统及其它应用。 */
 const getRecommendedConcurrent = (): number => {
   const memoryMB = getSystemMemory()
-  const perWindowMB = 300
-  // 预留 30% 内存给系统和其他应用
+  const perWindowMB = 200
   const availableMemory = memoryMB * 0.7
   const recommended = Math.floor(availableMemory / perWindowMB)
   return Math.min(Math.max(recommended, 1), 50) // 限制在 1-50 之间

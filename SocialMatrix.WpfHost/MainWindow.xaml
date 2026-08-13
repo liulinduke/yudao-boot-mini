@@ -9,7 +9,7 @@
         WindowState="Normal"
         WindowStyle="None"
         ResizeMode="CanResize"
-        Background="#FFFFFF"
+        Background="#F7F9FC"
         SnapsToDevicePixels="True">
 
     <shell:WindowChrome.WindowChrome>
@@ -81,8 +81,10 @@
 
         <Border x:Name="WindowHeaderBorder"
                 Grid.Row="0"
-                Background="#FFFFFF"
+                Background="#F7F9FC"
                 CornerRadius="12,12,0,0"
+                BorderBrush="#E5E7EB"
+                BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="WindowHeader_MouseLeftButtonDown"
                 MouseMove="WindowHeader_MouseMove"
                 MouseLeftButtonUp="WindowHeader_MouseLeftButtonUp">

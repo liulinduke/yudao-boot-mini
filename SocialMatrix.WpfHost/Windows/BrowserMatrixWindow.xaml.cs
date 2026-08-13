@@ -86,7 +86,7 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         // 最大并发数配置（从后端读取，默认19 - 8GB内存推荐值）
-        private static int _maxConcurrentBrowsers = 19;
+        private static int _maxConcurrentBrowsers = 28;
         public static int MaxConcurrentBrowsers => _maxConcurrentBrowsers;
         private static FingerprintGlobalConfig? _globalConfig = null;
         private static DateTime _configLastFetchTime = DateTime.MinValue;
@@ -102,11 +102,11 @@ namespace SocialMatrix.WpfHost.Windows
         {
             public bool DisableImages { get; set; } = false;  // 默认加载图片，按配置关闭
             public bool DisableVideos { get; set; } = true;   // 默认不加载视频
-            public int MaxConcurrent { get; set; } = 19;      // 8GB内存推荐值：(8192 * 0.7) / 300 ≈ 19
+            public int MaxConcurrent { get; set; } = 28;      // 8GB内存推荐值：(8192 * 0.7) / 200 ≈ 28
         }
 
-        // 测试排查时设为 true，任务结束后保留浏览器；正常运行改为 false。
-        private const bool KeepBrowserAfterTask = true;
+        // 仅排查浏览器任务时设为 true；正常运行到时必须释放浏览器资源。
+        private const bool KeepBrowserAfterTask = false;
         internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
 
         /// <summary>
