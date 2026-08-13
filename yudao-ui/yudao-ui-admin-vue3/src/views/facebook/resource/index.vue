@@ -37,7 +37,12 @@
             />
           </el-form-item>
           <el-form-item label="分组">
-            <ResourceGroupControl v-model="userQueryParams.resourceGroupId" resource-type="LEAD" title="潜客分组" @change="handleUserQuery" />
+            <ResourceGroupControl
+              v-model="userQueryParams.resourceGroupId"
+              resource-type="LEAD"
+              title="潜客分组"
+              @change="handleUserQuery"
+            />
           </el-form-item>
           <el-form-item label="深度采集" prop="deepCollected">
             <el-select
@@ -51,12 +56,22 @@
             </el-select>
           </el-form-item>
           <el-form-item label="AI标签" prop="aiTags">
-            <el-select v-model="userQueryParams.aiTags" placeholder="请选择AI标签" clearable class="!w-160px">
+            <el-select
+              v-model="userQueryParams.aiTags"
+              placeholder="请选择AI标签"
+              clearable
+              class="!w-160px"
+            >
               <el-option v-for="tag in aiTagOptions" :key="tag" :label="tag" :value="tag" />
             </el-select>
           </el-form-item>
           <el-form-item label="意向等级" prop="intentLevel">
-            <el-select v-model="userQueryParams.intentLevel" placeholder="请选择意向" clearable class="!w-140px">
+            <el-select
+              v-model="userQueryParams.intentLevel"
+              placeholder="请选择意向"
+              clearable
+              class="!w-140px"
+            >
               <el-option label="高" value="high" />
               <el-option label="中" value="medium" />
               <el-option label="低" value="low" />
@@ -64,7 +79,12 @@
             </el-select>
           </el-form-item>
           <el-form-item label="触达状态" prop="touchStatus">
-            <el-select v-model="userQueryParams.touchStatus" placeholder="请选择状态" clearable class="!w-150px">
+            <el-select
+              v-model="userQueryParams.touchStatus"
+              placeholder="请选择状态"
+              clearable
+              class="!w-150px"
+            >
               <el-option label="未触达" value="not_touched" />
               <el-option label="已触达" value="touched" />
               <el-option label="已回复" value="replied" />
@@ -126,19 +146,14 @@
             </template>
           </el-table-column>
           <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
-            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
+            <template #default="scope">{{
+              getResourceGroupName(scope.row.resourceGroupId)
+            }}</template>
           </el-table-column>
           <el-table-column
             label="用户名"
             align="center"
             prop="userName"
-            min-width="120"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            label="用户ID"
-            align="center"
-            prop="userId"
             min-width="120"
             show-overflow-tooltip
           />
@@ -169,7 +184,12 @@
           <el-table-column label="AI标签" align="center" prop="aiTags" width="180">
             <template #default="scope">
               <div class="tag-list" v-if="splitTags(scope.row.aiTags).length">
-                <el-tag v-for="tag in splitTags(scope.row.aiTags)" :key="tag" size="small" class="mr-4px">
+                <el-tag
+                  v-for="tag in splitTags(scope.row.aiTags)"
+                  :key="tag"
+                  size="small"
+                  class="mr-4px"
+                >
                   {{ tag }}
                 </el-tag>
               </div>
@@ -199,14 +219,44 @@
           <el-table-column label="WhatsApp" align="center" prop="whatsapp" width="130" />
           <el-table-column label="Line" align="center" prop="line" width="120" />
           <el-table-column label="邮箱" align="center" prop="email" width="180" />
-          <el-table-column label="网站" align="center" prop="website" width="180" show-overflow-tooltip />
-          <el-table-column label="类别" align="center" prop="category" width="140" show-overflow-tooltip />
-          <el-table-column label="简介/状态" align="center" prop="profileStatus" width="180" show-overflow-tooltip />
+          <el-table-column
+            label="网站"
+            align="center"
+            prop="website"
+            width="180"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="类别"
+            align="center"
+            prop="category"
+            width="140"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="简介/状态"
+            align="center"
+            prop="profileStatus"
+            width="180"
+            show-overflow-tooltip
+          />
           <el-table-column label="所在地" align="center" prop="city" width="120" />
           <el-table-column label="居住地" align="center" prop="location" width="120" />
           <el-table-column label="性别" align="center" prop="gender" width="90" />
-          <el-table-column label="最近帖子摘要" align="center" prop="lastPostSummary" width="220" show-overflow-tooltip />
-          <el-table-column label="AI摘要" align="center" prop="aiSummary" width="220" show-overflow-tooltip />
+          <el-table-column
+            label="最近帖子摘要"
+            align="center"
+            prop="lastPostSummary"
+            width="220"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="AI摘要"
+            align="center"
+            prop="aiSummary"
+            width="220"
+            show-overflow-tooltip
+          />
           <el-table-column label="最近发帖" align="center" prop="lastPostTime" width="160">
             <template #default="scope">
               {{ formatDate(scope.row.lastPostTime) }}
@@ -268,7 +318,12 @@
             />
           </el-form-item>
           <el-form-item label="分组">
-            <ResourceGroupControl v-model="groupQueryParams.resourceGroupId" resource-type="GROUP" title="群组分组" @change="handleGroupQuery" />
+            <ResourceGroupControl
+              v-model="groupQueryParams.resourceGroupId"
+              resource-type="GROUP"
+              title="群组分组"
+              @change="handleGroupQuery"
+            />
           </el-form-item>
           <el-form-item label="成员数量" prop="memberQuantity">
             <el-input-number
@@ -340,7 +395,9 @@
             </template>
           </el-table-column>
           <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
-            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
+            <template #default="scope">{{
+              getResourceGroupName(scope.row.resourceGroupId)
+            }}</template>
           </el-table-column>
           <el-table-column
             label="群组名称"
@@ -434,7 +491,12 @@
             />
           </el-form-item>
           <el-form-item label="分组">
-            <ResourceGroupControl v-model="postQueryParams.resourceGroupId" resource-type="POST" title="帖子分组" @change="handlePostQuery" />
+            <ResourceGroupControl
+              v-model="postQueryParams.resourceGroupId"
+              resource-type="POST"
+              title="帖子分组"
+              @change="handlePostQuery"
+            />
           </el-form-item>
           <el-form-item label="帖子内容" prop="postContent">
             <el-input
@@ -446,12 +508,22 @@
             />
           </el-form-item>
           <el-form-item label="AI标签" prop="aiTags">
-            <el-select v-model="postQueryParams.aiTags" placeholder="请选择AI标签" clearable class="!w-160px">
+            <el-select
+              v-model="postQueryParams.aiTags"
+              placeholder="请选择AI标签"
+              clearable
+              class="!w-160px"
+            >
               <el-option v-for="tag in aiTagOptions" :key="tag" :label="tag" :value="tag" />
             </el-select>
           </el-form-item>
           <el-form-item label="意向等级" prop="intentLevel">
-            <el-select v-model="postQueryParams.intentLevel" placeholder="请选择意向" clearable class="!w-140px">
+            <el-select
+              v-model="postQueryParams.intentLevel"
+              placeholder="请选择意向"
+              clearable
+              class="!w-140px"
+            >
               <el-option label="高" value="high" />
               <el-option label="中" value="medium" />
               <el-option label="低" value="low" />
@@ -459,7 +531,12 @@
             </el-select>
           </el-form-item>
           <el-form-item label="触达状态" prop="touchStatus">
-            <el-select v-model="postQueryParams.touchStatus" placeholder="请选择状态" clearable class="!w-150px">
+            <el-select
+              v-model="postQueryParams.touchStatus"
+              placeholder="请选择状态"
+              clearable
+              class="!w-150px"
+            >
               <el-option label="未触达" value="not_touched" />
               <el-option label="已触达" value="touched" />
               <el-option label="已回复" value="replied" />
@@ -524,7 +601,9 @@
             </template>
           </el-table-column>
           <el-table-column label="分组" align="center" prop="resourceGroupId" width="110">
-            <template #default="scope">{{ getResourceGroupName(scope.row.resourceGroupId) }}</template>
+            <template #default="scope">{{
+              getResourceGroupName(scope.row.resourceGroupId)
+            }}</template>
           </el-table-column>
           <el-table-column
             label="发帖人"
@@ -533,6 +612,25 @@
             min-width="120"
             show-overflow-tooltip
           />
+          <el-table-column
+            label="发帖人主页"
+            align="center"
+            prop="postAuthorUrl"
+            min-width="230"
+            show-overflow-tooltip
+          >
+            <template #default="scope">
+              <el-link
+                v-if="scope.row.postAuthorUrl"
+                :href="scope.row.postAuthorUrl"
+                target="_blank"
+                type="primary"
+              >
+                {{ scope.row.postAuthorUrl }}
+              </el-link>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column
             label="帖子链接"
             align="center"
@@ -568,7 +666,12 @@
           <el-table-column label="AI标签" align="center" prop="aiTags" width="180">
             <template #default="scope">
               <div class="tag-list" v-if="splitTags(scope.row.aiTags).length">
-                <el-tag v-for="tag in splitTags(scope.row.aiTags)" :key="tag" size="small" class="mr-4px">
+                <el-tag
+                  v-for="tag in splitTags(scope.row.aiTags)"
+                  :key="tag"
+                  size="small"
+                  class="mr-4px"
+                >
                   {{ tag }}
                 </el-tag>
               </div>
@@ -594,7 +697,13 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="AI摘要" align="center" prop="aiSummary" width="220" show-overflow-tooltip />
+          <el-table-column
+            label="AI摘要"
+            align="center"
+            prop="aiSummary"
+            width="220"
+            show-overflow-tooltip
+          />
           <el-table-column label="帖子创建时间" align="center" prop="postCreateTime" width="160">
             <template #default="scope">
               {{ formatDateTime(scope.row.postCreateTime) }}
@@ -650,10 +759,13 @@ const loadResourceGroupNames = async () => {
     FbResourceGroupApi.getList('POST')
   ])
   const names: Record<string, string> = {}
-  all.flat().forEach((item: FbResourceGroup) => { names[String(item.id)] = item.name })
+  all.flat().forEach((item: FbResourceGroup) => {
+    names[String(item.id)] = item.name
+  })
   resourceGroupNames.value = names
 }
-const getResourceGroupName = (id?: number) => id ? resourceGroupNames.value[String(id)] || '未分组' : '未分组'
+const getResourceGroupName = (id?: number) =>
+  id ? resourceGroupNames.value[String(id)] || '未分组' : '未分组'
 
 const aiTagOptions = [
   '高意向询价',
@@ -999,8 +1111,31 @@ watch(activeTab, (newTab) => {
 }
 
 .search-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 16px;
+
   :deep(.el-form-item) {
+    margin-right: 0;
     margin-bottom: 12px;
+  }
+
+  :deep(.el-form-item__content) {
+    min-height: 32px;
+  }
+
+  :deep(.resource-group-control) {
+    width: 178px;
+  }
+
+  :deep(.resource-group-control .group-select) {
+    width: 150px;
+  }
+
+  :deep(.el-form-item:last-child) {
+    flex-basis: 100%;
+    margin-top: 0;
   }
 }
 

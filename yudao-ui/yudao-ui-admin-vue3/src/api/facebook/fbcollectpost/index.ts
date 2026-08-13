@@ -7,6 +7,7 @@ export interface FbCollectPost {
           taskId: number; // 任务id
           itemId: string; // 帖子唯一id
           postUser: string; // 发贴人
+          postAuthorUrl?: string; // 发帖人主页链接
           url: string; // 帖子链接
           fromResource: string; // 帖子来源
           groupName: string; // 群名
