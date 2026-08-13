@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
@@ -21,7 +22,7 @@ namespace SocialMatrix.WpfHost.Helpers
         public string Area { get; set; } = "US"; // 地区代码
         public double? Latitude { get; set; }    // 纬度（可选）
         public double? Longitude { get; set; }   // 经度（可选）
-        public long? DeviceId { get; set; }      // 设备ID（用于生成固定的设备名称）
+        public long? DeviceId { get; set; }      // 数据库设备 ID，也是账号指纹的稳定 seed
         
         // ==================== 全局配置（从后端读取）====================
         public bool DisableImages { get; set; } = false;   // 不加载图片
@@ -37,23 +38,29 @@ namespace SocialMatrix.WpfHost.Helpers
         /// <summary>设备名称（基于DeviceId生成，保证同一账号固定，不同账号不同）</summary>
         public string DeviceName => GenerateDeviceNameFromId(DeviceId);
 
-        // ==================== 随机生成（每次打开浏览器不同） ====================
-        public int HardwareConcurrency => RandomChoice(new[] { 4, 6, 8, 12, 16 });
-        public int DeviceMemory => RandomChoice(new[] { 4, 8, 16, 32 });
-        public string WebglVendor => RandomChoice(WebGLConfigs)[0];
-        public string WebglRenderer => RandomChoice(WebGLConfigs)[1];
+        // ==================== 硬件配置（与账号浏览器环境保持一致） ====================
+        public int HardwareConcurrency => 20;
+        public int DeviceMemory => 8;
+        public string WebglVendor => WebGLConfigs[WebglConfigIndex][0];
+        public string WebglRenderer => WebGLConfigs[WebglConfigIndex][1];
+        public int CanvasRed => 10 + (int)(FingerprintSeed % 90);
+        public int CanvasGreen => 10 + (int)((FingerprintSeed >> 8) % 90);
+        public int CanvasBlue => 10 + (int)((FingerprintSeed >> 16) % 90);
+        public string AudioNoise => ToInvariantDecimal(((int)((FingerprintSeed >> 24) % 1001) - 500) / 10000.0);
+        public string ClientRectNoise => ToInvariantDecimal(((int)((FingerprintSeed >> 36) % 1001) - 500) / 10000.0);
+        public string SpeechVoiceSuffix => ToBase36(FingerprintSeed, 6);
 
         // ==================== 固定值 ====================
-        public string CanvasMode => "random";
-        public string WebglImageMode => "random";
-        public string AudioMode => "random"; // 随机 - 同一电脑上每个浏览器生成不同的 Audio
-        public string GeoPermission => "allow"; // 允许获取地理位置
+        public string CanvasMode => "account";
+        public string WebglImageMode => "account";
+        public string AudioMode => "account";
+        public string GeoPermission => "deny"; // 未有与代理 IP 匹配的坐标时，不返回冲突位置
         public string WebrtcMode => "hide";
         public string DoNotTrack => "off"; // 关闭 - 不设置追踪个人信息
         public string SslFingerprint => "off"; // 关闭 SSL 指纹
         public string MediaDevices => "off"; // 关闭 - 使用当前电脑默认的媒体设备 ID
-        public string SpeechVoices => "random"; // 随机 - 使用相匹配的值代替真实的 Speech Voices
-        public string ClientRects => "random"; // 随机 - 使用相匹配的值代替真实的 ClientRects
+        public string SpeechVoices => "account";
+        public string ClientRects => "account";
 
         // ==================== WebGL配置库 ====================
         private static readonly string[][] WebGLConfigs = new[]
@@ -63,9 +70,31 @@ namespace SocialMatrix.WpfHost.Helpers
             new[] { "Google Inc. (AMD)", "ANGLE (AMD, Radeon (TM) RX 480 Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)" },
         };
 
+        private ulong FingerprintSeed => Mix((ulong)(DeviceId.GetValueOrDefault()));
+        private int WebglConfigIndex => (int)(FingerprintSeed % (ulong)WebGLConfigs.Length);
 
+        private static ulong Mix(ulong value)
+        {
+            value += 0x9E3779B97F4A7C15UL;
+            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
+            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
+            return value ^ (value >> 31);
+        }
 
-        private static T RandomChoice<T>(T[] array) => array[new Random().Next(array.Length)];
+        private static string ToInvariantDecimal(double value) =>
+            value.ToString("0.0000", CultureInfo.InvariantCulture);
+
+        private static string ToBase36(ulong value, int length)
+        {
+            const string chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+            var result = new char[length];
+            for (var i = length - 1; i >= 0; i--)
+            {
+                result[i] = chars[(int)(value % (ulong)chars.Length)];
+                value /= (ulong)chars.Length;
+            }
+            return new string(result);
+        }
         
         /// <summary>
         /// 基于DeviceId生成固定的设备名称（格式：DESKTOP-XXXXXX）
@@ -75,7 +104,6 @@ namespace SocialMatrix.WpfHost.Helpers
         {
             if (!deviceId.HasValue || deviceId.Value == 0)
             {
-                // 如果没有DeviceId，生成随机名称
                 return GenerateRandomDeviceName();
             }
             
@@ -92,16 +120,13 @@ namespace SocialMatrix.WpfHost.Helpers
             
             return $"DESKTOP-{new string(suffix)}";
         }
-        
-        /// <summary>
-        /// 生成随机设备名称（当没有DeviceId时使用）
-        /// </summary>
+
         private static string GenerateRandomDeviceName()
         {
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             var random = new Random();
             var suffix = new char[6];
-            for (int i = 0; i < 6; i++)
+            for (var i = 0; i < suffix.Length; i++)
             {
                 suffix[i] = chars[random.Next(chars.Length)];
             }
@@ -203,16 +228,15 @@ namespace SocialMatrix.WpfHost.Helpers
                 ");
             }
 
-            // 7. Canvas 随机化
-            if (config.CanvasMode == "random")
+            // 7. Canvas 扰动由账号 deviceId 固定派生，跨会话保持一致。
+            if (config.CanvasMode == "account")
             {
-                var noise = new Random().Next(10, 100) / 100.0;
                 sb.AppendLine($@"
                     const origCanvas = HTMLCanvasElement.prototype.toDataURL;
                     HTMLCanvasElement.prototype.toDataURL = function() {{
                         const ctx = this.getContext('2d');
                         if (ctx && this.width > 0 && this.height > 0) {{
-                            ctx.fillStyle = 'rgba({(int)(noise * 255)}, {(int)(noise * 200)}, {(int)(noise * 150)}, 0.001)';
+                            ctx.fillStyle = 'rgba({config.CanvasRed}, {config.CanvasGreen}, {config.CanvasBlue}, 0.001)';
                             ctx.fillRect(0, 0, this.width, this.height);
                         }}
                         return origCanvas.apply(this, arguments);
@@ -221,7 +245,7 @@ namespace SocialMatrix.WpfHost.Helpers
             }
 
             // 8. WebGL 伪装
-            if (config.WebglImageMode == "random")
+            if (config.WebglImageMode == "account")
             {
                 sb.AppendLine($@"
                     const origGL = WebGLRenderingContext.prototype.getParameter;
@@ -233,31 +257,30 @@ namespace SocialMatrix.WpfHost.Helpers
                 ");
             }
 
-            // 9. AudioContext 随机化（同一电脑上每个浏览器生成不同的 Audio）
-            if (config.AudioMode == "random")
+            // 9. AudioContext 扰动由账号 deviceId 固定派生。
+            if (config.AudioMode == "account")
             {
                 sb.AppendLine(@"
                     const origAudio = AudioContext.prototype.createAnalyser;
                     AudioContext.prototype.createAnalyser = function() {
                         const a = origAudio.call(this);
                         const origGet = a.getFloatFrequencyData;
-                        const noise = (Math.random() - 0.5) * 0.1;
+                        const noise = __AUDIO_NOISE__;
                         a.getFloatFrequencyData = function(arr) {
                             origGet.call(this, arr);
                             for (let i = 0; i < arr.length; i++) arr[i] += noise;
                         };
                         return a;
                     };
-                ");
+                ".Replace("__AUDIO_NOISE__", config.AudioNoise));
             }
 
-            // 10. 地理位置权限（不注入具体经纬度，让浏览器通过代理IP自动获取）
+            // 10. 没有与代理 IP 一致的坐标时明确拒绝地理位置，不能返回 0,0。
             if (config.GeoPermission == "allow")
             {
                 // 不注入具体坐标，让网站通过IP推导位置
                 sb.AppendLine(@"
                     navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                        // 返回空坐标，让Facebook通过代理IP推导位置
                         success({
                             coords: { 
                                 latitude: 0, 
@@ -302,36 +325,36 @@ namespace SocialMatrix.WpfHost.Helpers
                 // 不注入，使用系统默认媒体设备
             }
 
-            // 14. Speech Voices 随机化（使用相匹配的值代替真实的 Speech Voices）
-            if (config.SpeechVoices == "random")
+            // 14. Speech Voices 的稳定账号后缀，避免每次调用产生新值。
+            if (config.SpeechVoices == "account")
             {
                 sb.AppendLine(@"
                     const origGetVoices = speechSynthesis.getVoices;
                     speechSynthesis.getVoices = function() {
                         const voices = origGetVoices.call(this);
                         if (voices.length > 0) {
-                            // 随机扰动 voice URI 防止指纹追踪
-                            const noise = Math.random().toString(36).substring(2, 8);
+                            const suffix = '#__SPEECH_VOICE_SUFFIX__';
                             voices.forEach(v => {
-                                if (v.voiceURI) {
-                                    Object.defineProperty(v, 'voiceURI', { value: v.voiceURI + '#' + noise, writable: false });
+                                if (v.voiceURI && !v.voiceURI.endsWith(suffix)) {
+                                    Object.defineProperty(v, 'voiceURI', { value: v.voiceURI + suffix, configurable: true });
                                 }
                             });
                         }
                         return voices;
                     };
-                ");
+                ".Replace("__SPEECH_VOICE_SUFFIX__", config.SpeechVoiceSuffix));
             }
 
-            // 15. ClientRects 随机化（使用相匹配的值代替真实的 ClientRects）
-            if (config.ClientRects == "random")
+            // 15. ClientRects 扰动由账号 deviceId 固定派生，同页多次调用不变化。
+            if (config.ClientRects == "account")
             {
                 sb.AppendLine(@"
+                    const clientRectNoise = __CLIENT_RECT_NOISE__;
                     const origGetClientRects = Element.prototype.getClientRects;
                     Element.prototype.getClientRects = function() {
                         const rects = origGetClientRects.call(this);
                         if (rects.length > 0) {
-                            const noise = (Math.random() - 0.5) * 0.1;
+                            const noise = clientRectNoise;
                             const arr = Array.from(rects);
                             arr.forEach(r => {
                                 r.x += noise;
@@ -347,7 +370,7 @@ namespace SocialMatrix.WpfHost.Helpers
                     const origGetBoundingClientRect = Element.prototype.getBoundingClientRect;
                     Element.prototype.getBoundingClientRect = function() {
                         const rect = origGetBoundingClientRect.call(this);
-                        const noise = (Math.random() - 0.5) * 0.1;
+                        const noise = clientRectNoise;
                         return {
                             x: rect.x + noise,
                             y: rect.y + noise,
@@ -360,7 +383,7 @@ namespace SocialMatrix.WpfHost.Helpers
                             toJSON: () => rect.toJSON()
                         };
                     };
-                ");
+                ".Replace("__CLIENT_RECT_NOISE__", config.ClientRectNoise));
             }
 
             // 16. SSL 指纹（关闭）

@@ -221,6 +221,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     @Override
     public FbAiKeywordGenerateRespVO generateKeywords(FbAiKeywordGenerateReqVO reqVO) {
         List<String> seeds = reqVO.getSeedKeywords() == null ? Collections.emptyList() : reqVO.getSeedKeywords();
+        Set<String> normalizedSeeds = seeds.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(this::normalizeKeyword)
+                .collect(Collectors.toSet());
         int count = Optional.ofNullable(reqVO.getExpandCount()).orElse(20);
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("type", "keyword_expand");
@@ -235,7 +239,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(keywords)) {
             keywords = buildFallbackKeywords(seeds, count);
         }
-        return new FbAiKeywordGenerateRespVO(keywords.stream().distinct().limit(count).collect(Collectors.toList()));
+        return new FbAiKeywordGenerateRespVO(keywords.stream()
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .filter(keyword -> !normalizedSeeds.contains(normalizeKeyword(keyword)))
+                .distinct()
+                .limit(count)
+                .collect(Collectors.toList()));
     }
 
     @Override
@@ -2667,12 +2677,15 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (StrUtil.isBlank(seed)) {
                 continue;
             }
-            result.add(seed.trim());
             for (String suffix : suffixes) {
                 result.add(seed.trim() + " " + suffix);
             }
         }
         return result.stream().distinct().limit(count).collect(Collectors.toList());
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return StrUtil.trim(keyword).toLowerCase(Locale.ROOT);
     }
 
     private void fillAgentSummary(FbAiAgentConfigDO config) {

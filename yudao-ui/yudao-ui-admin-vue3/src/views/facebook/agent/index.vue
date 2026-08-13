@@ -1402,9 +1402,6 @@ const nextStep = async () => {
   if (wizardStep.value === 0 && !validateGroupPostSourceStep()) {
     return
   }
-  if (wizardStep.value === 1 && !isSourceUrlAgent(wizardForm.agentType) && !wizardState.keywordPoolList.length) {
-    wizardState.keywordPoolList = parseLines(wizardState.seedKeywordsText)
-  }
   if (wizardStep.value === 1 && !validateWizard()) {
     return
   }
@@ -1465,8 +1462,13 @@ const handleGenerateKeywords = async () => {
       targetLanguage: wizardState.targetLanguage.trim() || 'English',
       expandCount: wizardForm.aiKeywordExpandCount
     })
-    const merged = [...seedKeywords, ...(data.keywords || [])]
-    wizardState.keywordPoolList = Array.from(new Set(merged))
+    const seedSet = new Set(seedKeywords.map((item) => item.trim().toLocaleLowerCase()))
+    const generatedKeywords = (data.keywords || []).filter(
+      (item) => !seedSet.has(item.trim().toLocaleLowerCase())
+    )
+    wizardState.keywordPoolList = Array.from(
+      new Set([...wizardState.keywordPoolList, ...generatedKeywords])
+    )
     message.success(`已生成 ${data.keywords?.length || 0} 个关键词`)
   } finally {
     generatingKeywords.value = false
