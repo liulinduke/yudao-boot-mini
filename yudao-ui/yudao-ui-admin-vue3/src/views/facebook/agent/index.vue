@@ -252,28 +252,6 @@
           >
             <FbAccountSelector v-model="wizardState.accountIdList" v-model:selection-mode="wizardState.accountSelectionMode" scene="agent" class="w-full" />
           </el-form-item>
-          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType) && !isPostLeadAgent(wizardForm.agentType)" label="目标国家">
-            <el-select
-              v-model="wizardState.targetCountryList"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              class="w-full"
-            >
-              <el-option
-                v-for="item in wizardState.targetCountryList"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType)" label="关键词语言">
-            <el-select v-model="wizardState.targetLanguage" filterable allow-create default-first-option class="w-full">
-              <el-option label="English" value="English" />
-            </el-select>
-          </el-form-item>
         </template>
 
         <template v-else-if="wizardStep === 1">
@@ -313,15 +291,23 @@
           <el-form-item v-if="isPostLeadAgent(wizardForm.agentType) && wizardForm.searchMode !== 'link'" label="帖子过滤">
             <el-checkbox v-model="wizardState.latestPosts">最新帖</el-checkbox>
           </el-form-item>
-          <el-form-item label="种子关键词" prop="seedKeywords">
+           <el-form-item label="种子关键词" prop="seedKeywords">
             <el-input
               v-model="wizardState.seedKeywordsText"
               type="textarea"
               :rows="5"
               placeholder="每行一个关键词，例如&#10;bathroom faucet&#10;bath faucet&#10;shower faucet"
-            />
-          </el-form-item>
-          <el-form-item label="AI扩展关键词">
+             />
+           </el-form-item>
+           <el-form-item label="关键词生成语言">
+             <el-input
+               v-model="wizardState.targetLanguage"
+               placeholder="例如 English、中文、Spanish"
+               class="!w-180px"
+               clearable
+             />
+           </el-form-item>
+           <el-form-item label="AI扩展关键词">
             <div class="inline-row">
               <el-checkbox v-model="wizardForm.aiKeywordExpandEnabled">AI扩展关键词</el-checkbox>
               <el-input-number

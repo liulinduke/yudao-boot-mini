@@ -18,7 +18,8 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="PreviousTabButton" Grid.Column="0" Content="&lt;" Click="PreviousBrowserTab_Click"
-                                    ToolTip="上一个账号" FontSize="14" Width="30" Height="34" Padding="0"
+                                    ToolTip="上一个账号" FontSize="14" Width="30" Height="28" MinHeight="0"
+                                    VerticalAlignment="Center" Padding="0"
                                     Visibility="Collapsed" />
                             <ScrollViewer x:Name="HeaderScrollViewer" Grid.Column="1"
                                           HorizontalScrollBarVisibility="Hidden"
@@ -27,7 +28,8 @@
                                 <TabPanel IsItemsHost="True" />
                             </ScrollViewer>
                             <Button x:Name="NextTabButton" Grid.Column="2" Content="&gt;" Click="NextBrowserTab_Click"
-                                    ToolTip="下一个账号" FontSize="14" Width="30" Height="34" Padding="0"
+                                    ToolTip="下一个账号" FontSize="14" Width="30" Height="28" MinHeight="0"
+                                    VerticalAlignment="Center" Padding="0"
                                     Visibility="Collapsed" />
                         </Grid>
                     </ControlTemplate>

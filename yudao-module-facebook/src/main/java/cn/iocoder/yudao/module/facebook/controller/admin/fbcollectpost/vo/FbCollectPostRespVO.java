@@ -17,6 +17,10 @@ public class FbCollectPostRespVO {
     @ExcelProperty("id")
     private Long id;
 
+    @Schema(description = "采集时间")
+    @ExcelProperty("采集时间")
+    private LocalDateTime createTime;
+
     @Schema(description = "任务id", example = "32429")
     @ExcelProperty("任务id")
     private Long taskId;
