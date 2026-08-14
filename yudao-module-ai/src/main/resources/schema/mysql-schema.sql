@@ -309,6 +309,6 @@ CREATE TABLE IF NOT EXISTS `ai_workflow` (
     `update_by` BIGINT COMMENT '更新者',
     `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '是否删除',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_code` (`code`),
+    UNIQUE KEY `uk_tenant_code_deleted` (`tenant_id`, `code`, `deleted`),
     INDEX `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 工作流表';

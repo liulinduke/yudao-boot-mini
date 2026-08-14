@@ -3,7 +3,7 @@ package cn.iocoder.yudao.module.ai.dal.dataobject.model;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
-import cn.iocoder.yudao.framework.mybatis.core.dataobject.BaseDO;
+import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.KeySequence;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -23,7 +23,7 @@ import lombok.*;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AiModelDO extends BaseDO {
+public class AiModelDO extends TenantBaseDO {
 
     /**
      * 编号

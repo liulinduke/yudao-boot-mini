@@ -166,6 +166,16 @@
             编辑
           </el-button>
           <el-button
+            v-if="scope.row.id !== 1"
+            link
+            type="warning"
+            :loading="initializingTenantId === scope.row.id"
+            @click="handleInitializeAiConfig(scope.row)"
+            v-hasPermi="['system:tenant:update']"
+          >
+            初始化 AI 配置
+          </el-button>
+          <el-button
             link
             type="danger"
             @click="handleDelete(scope.row.id)"
@@ -258,6 +268,19 @@ const handleDelete = async (id: number) => {
     // 刷新列表
     await getList()
   } catch {}
+}
+
+const initializingTenantId = ref<number>()
+const handleInitializeAiConfig = async (tenant: TenantApi.TenantVO) => {
+  try {
+    await message.confirm(`确认使用租户 1 的 AI 模板初始化“${tenant.name}”吗？已存在的配置不会被覆盖。`)
+    initializingTenantId.value = tenant.id
+    await TenantApi.initializeAiConfig(tenant.id)
+    message.success('AI 配置初始化完成')
+  } catch {
+  } finally {
+    initializingTenantId.value = undefined
+  }
 }
 
 /** 批量删除按钮操作 */

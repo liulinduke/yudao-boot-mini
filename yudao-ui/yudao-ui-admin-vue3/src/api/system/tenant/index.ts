@@ -67,6 +67,11 @@ export const deleteTenantList = (ids: number[]) => {
   return request.delete({ url: '/system/tenant/delete-list', params: { ids: ids.join(',') } })
 }
 
+// 使用租户 1 的模板补齐目标租户的 AI 配置
+export const initializeAiConfig = (tenantId: number) => {
+  return request.post({ url: '/ai/tenant-config/init', params: { tenantId } })
+}
+
 // 导出租户
 export const exportTenant = (params: TenantExportReqVO) => {
   return request.download({ url: '/system/tenant/export-excel', params })

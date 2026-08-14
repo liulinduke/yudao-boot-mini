@@ -4,7 +4,7 @@ const CACHE_KEY = 'facebook_global_browser_config'
 const DEFAULT_CONFIG = {
   disableImages: false,
   disableVideos: true,
-  maxConcurrent: 19
+  maxConcurrent: 28
 }
 
 let lastSyncedSignature = ''

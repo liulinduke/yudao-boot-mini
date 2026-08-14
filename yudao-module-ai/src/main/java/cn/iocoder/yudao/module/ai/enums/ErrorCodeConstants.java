@@ -64,5 +64,8 @@ public interface ErrorCodeConstants {
     // ========== AI 工作流 1-040-011-000 ==========
     ErrorCode WORKFLOW_NOT_EXISTS = new ErrorCode(1_040_011_000, "工作流不存在");
     ErrorCode WORKFLOW_CODE_EXISTS = new ErrorCode(1_040_011_001, "工作流标识已存在");
+    ErrorCode TENANT_AI_CONFIG_TEMPLATE_NOT_EXISTS = new ErrorCode(1_040_011_002, "AI 配置模板不存在");
+    ErrorCode TENANT_AI_CONFIG_CAN_NOT_INITIALIZE_TEMPLATE = new ErrorCode(1_040_011_003, "不能初始化模板租户的 AI 配置");
+    ErrorCode TENANT_AI_CONFIG_MODEL_MAPPING_NOT_EXISTS = new ErrorCode(1_040_011_004, "工作流引用的模板模型不存在：{}");
 
 }
