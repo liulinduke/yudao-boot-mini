@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.facebook.dal.dataobject.agent;
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.KeySequence;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
@@ -67,6 +68,12 @@ public class FbAiAgentDiscoveryLogDO extends TenantBaseDO {
      * 最终线索数
      */
     private Integer finalLeadCount;
+
+    /**
+     * 已触达客户数（非持久化）
+     */
+    @TableField(exist = false)
+    private Integer touchedCount;
 
     /**
      * 关联采集任务ID

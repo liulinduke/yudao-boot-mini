@@ -112,11 +112,17 @@ public class FbAiAgentConfigRespVO {
     @Schema(description = "AI业务员人设类型")
     private String personaType;
 
-    @Schema(description = "线索数量")
+    @Schema(description = "已分析线索数")
     private Long leadCount;
 
-    @Schema(description = "待处理数量")
-    private Long pendingCount;
+    @Schema(description = "达标客户数")
+    private Long qualifiedCount;
+
+    @Schema(description = "已触达客户数")
+    private Long touchedCount;
+
+    @Schema(description = "未触达客户数")
+    private Long untouchedCount;
 
     @Schema(description = "状态：0草稿 1运行中 2暂停 3停止")
     private Integer status;

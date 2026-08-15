@@ -34,7 +34,9 @@ export interface FbAiAgentConfig {
   personaType?: string
   status?: number
   leadCount?: number
-  pendingCount?: number
+  qualifiedCount?: number
+  touchedCount?: number
+  untouchedCount?: number
   createTime?: string | Dayjs
 }
 
@@ -49,6 +51,7 @@ export interface FbAiAgentDiscoveryLog {
   aiAnalyzeCount?: number
   filteredCount?: number
   finalLeadCount?: number
+  touchedCount?: number
   collectTaskId?: string | number
   createTime?: string | Dayjs
   updateTime?: string | Dayjs

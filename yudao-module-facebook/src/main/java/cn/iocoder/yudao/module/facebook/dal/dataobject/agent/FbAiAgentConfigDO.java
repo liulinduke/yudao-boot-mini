@@ -188,15 +188,27 @@ public class FbAiAgentConfigDO extends TenantBaseDO {
     private Integer status;
 
     /**
-     * 线索数（非持久化）
+     * 已分析线索数（非持久化）
      */
     @TableField(exist = false)
     private Long leadCount;
 
     /**
-     * 待处理数（非持久化）
+     * 达标客户数（非持久化）
      */
     @TableField(exist = false)
-    private Long pendingCount;
+    private Long qualifiedCount;
+
+    /**
+     * 已触达客户数（非持久化）
+     */
+    @TableField(exist = false)
+    private Long touchedCount;
+
+    /**
+     * 未触达客户数（非持久化）
+     */
+    @TableField(exist = false)
+    private Long untouchedCount;
 
 }

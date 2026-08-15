@@ -254,7 +254,15 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (pageReqVO.getAgentConfigId() != null) {
             refreshDiscoveryStats(pageReqVO.getAgentConfigId());
         }
-        return discoveryLogMapper.selectPage(pageReqVO);
+        PageResult<FbAiAgentDiscoveryLogDO> pageResult = discoveryLogMapper.selectPage(pageReqVO);
+        if (CollUtil.isEmpty(pageResult.getList())) {
+            return pageResult;
+        }
+        FbAiAgentConfigDO config = pageReqVO.getAgentConfigId() == null ? null
+                : agentConfigMapper.selectById(pageReqVO.getAgentConfigId());
+        int threshold = config == null ? 95 : resolveTouchScoreThreshold(config);
+        pageResult.getList().forEach(logDO -> logDO.setTouchedCount(countDiscoveryTouched(logDO, threshold)));
+        return pageResult;
     }
 
     @Override
@@ -2691,49 +2699,47 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private void fillAgentSummary(FbAiAgentConfigDO config) {
         List<Long> taskIds = getAgentDiscoveryTaskIds(config.getId());
         if (CollUtil.isEmpty(taskIds)) {
-            config.setLeadCount(0L);
-            config.setPendingCount(0L);
+            setAgentSummary(config, Collections.emptyList());
             return;
         }
         if (AGENT_TYPE_GROUP_POST.equals(config.getAgentType()) || AGENT_TYPE_POST_LEAD.equals(config.getAgentType())) {
             List<Long> postIds = getAgentPostLeadIds(config.getId());
             if (CollUtil.isEmpty(postIds)) {
-                config.setLeadCount(0L);
-                config.setPendingCount(0L);
+                setAgentSummary(config, Collections.emptyList());
                 return;
             }
             List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
                     .in(FbCollectPostDO::getId, postIds));
-            long leadCount = posts.stream()
+            setAgentSummary(config, posts.stream()
                     .filter(item -> item.getProductRelevanceScore() != null)
-                    .count();
-            long pendingCount = posts.stream()
-                    .filter(item -> item.getProductRelevanceScore() != null)
-                    .filter(item -> StrUtil.equalsAny(StrUtil.blankToDefault(item.getTouchStatus(), "not_touched"),
-                            "not_touched", "pending"))
-                    .count();
-            config.setLeadCount(leadCount);
-            config.setPendingCount(pendingCount);
+                    .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
+                    .collect(Collectors.toList()));
             return;
         }
         List<Long> leadIds = getAgentLeadIds(config.getId());
         if (CollUtil.isEmpty(leadIds)) {
-            config.setLeadCount(0L);
-            config.setPendingCount(0L);
+            setAgentSummary(config, Collections.emptyList());
             return;
         }
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .in(FbCollectUserDO::getId, leadIds));
-        long leadCount = users.stream()
+        setAgentSummary(config, users.stream()
                 .filter(item -> item.getProductRelevanceScore() != null)
+                .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
+                .collect(Collectors.toList()));
+    }
+
+    private void setAgentSummary(FbAiAgentConfigDO config, List<AgentLeadSummary> leads) {
+        int threshold = resolveTouchScoreThreshold(config);
+        long qualifiedCount = leads.stream().filter(item -> item.score >= threshold).count();
+        long touchedCount = leads.stream()
+                .filter(item -> item.score >= threshold)
+                .filter(item -> StrUtil.equalsAny(item.touchStatus, "touched", "replied", "done"))
                 .count();
-        long pendingCount = users.stream()
-                .filter(item -> item.getProductRelevanceScore() != null)
-                .filter(item -> StrUtil.equalsAny(StrUtil.blankToDefault(item.getTouchStatus(), "not_touched"),
-                        "not_touched", "pending"))
-                .count();
-        config.setLeadCount(leadCount);
-        config.setPendingCount(pendingCount);
+        config.setLeadCount((long) leads.size());
+        config.setQualifiedCount(qualifiedCount);
+        config.setTouchedCount(touchedCount);
+        config.setUntouchedCount(qualifiedCount - touchedCount);
     }
 
     private Map<Long, LeadAnalysisResult> analyzeUsersByWorkflow(FbAiAgentConfigDO config, List<String> seedKeywords,
@@ -2746,9 +2752,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<FbCollectUserDO> batch = users.subList(fromIndex, Math.min(fromIndex + AI_ANALYZE_BATCH_SIZE, users.size()));
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("exportProduct", resolveExportProduct(config, seedKeywords));
-            params.put("persona", StrUtil.blankToDefault(config.getPersonaType(), "professional_sales"));
+            params.put("persona", resolvePersonaProfile(config.getPersonaType()));
             params.put("needComment", Boolean.TRUE.equals(config.getAutoCommentEnabled()));
             params.put("needDm", Boolean.TRUE.equals(config.getAutoDmEnabled()));
+            params.put("touchScoreThreshold", resolveTouchScoreThreshold(config));
             params.put("customers", batch.stream().map(this::buildCustomerPayload).collect(Collectors.toList()));
             Object rawResult = invokeDefaultAiWorkflow(DEFAULT_LEAD_ANALYZE_WORKFLOW_CODE, params);
             Map<Long, LeadAnalysisResult> parsed = parseLeadWorkflowResults(rawResult, config.getTouchScoreThreshold());
@@ -2775,7 +2782,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<FbCollectPostDO> batch = posts.subList(fromIndex, Math.min(fromIndex + AI_ANALYZE_BATCH_SIZE, posts.size()));
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("exportProduct", resolveExportProduct(config, Collections.emptyList()));
-            params.put("persona", StrUtil.blankToDefault(config.getPersonaType(), "professional_sales"));
+            params.put("persona", resolvePersonaProfile(config.getPersonaType()));
             params.put("needComment", Boolean.TRUE.equals(config.getAutoCommentEnabled()));
             params.put("needDm", Boolean.TRUE.equals(config.getAutoDmEnabled()));
             params.put("touchScoreThreshold", resolveTouchScoreThreshold(config));
@@ -2807,7 +2814,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<FbCollectUserDO> batch = users.subList(fromIndex, Math.min(fromIndex + AI_ANALYZE_BATCH_SIZE, users.size()));
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("exportProduct", resolveExportProduct(config, Collections.emptyList()));
-            params.put("persona", StrUtil.blankToDefault(config.getPersonaType(), "professional_sales"));
+            params.put("persona", resolvePersonaProfile(config.getPersonaType()));
             params.put("needDm", Boolean.TRUE.equals(config.getAutoDmEnabled()));
             params.put("touchScoreThreshold", resolveTouchScoreThreshold(config));
             params.put("comments", batch.stream()
@@ -3318,6 +3325,30 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         }
     }
 
+    private record AgentLeadSummary(Integer score, String touchStatus) {
+    }
+
+    private int countDiscoveryTouched(FbAiAgentDiscoveryLogDO logDO, int threshold) {
+        if (logDO.getCollectTaskId() == null) {
+            return 0;
+        }
+        if ("group_post".equals(logDO.getSourceType()) || "post_lead".equals(logDO.getSourceType())
+                || "group_comment_post".equals(logDO.getSourceType()) || "competitor_post".equals(logDO.getSourceType())) {
+            return (int) collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
+                            .eq(FbCollectPostDO::getTaskId, logDO.getCollectTaskId()))
+                    .stream()
+                    .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
+                    .filter(item -> StrUtil.equalsAny(item.getTouchStatus(), "touched", "replied", "done"))
+                    .count();
+        }
+        return (int) collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                        .eq(FbCollectUserDO::getTaskId, logDO.getCollectTaskId()))
+                .stream()
+                .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
+                .filter(item -> StrUtil.equalsAny(item.getTouchStatus(), "touched", "replied", "done"))
+                .count();
+    }
+
     private boolean isCommentablePostUrl(String url) {
         if (StrUtil.isBlank(url)) {
             return false;
@@ -3466,6 +3497,15 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private boolean isSupportedAgentType(String agentType) {
         return AGENT_TYPE_PAGE_LEAD.equals(agentType) || AGENT_TYPE_POST_LEAD.equals(agentType) || AGENT_TYPE_GROUP_POST.equals(agentType)
                 || AGENT_TYPE_GROUP_COMMENT.equals(agentType) || AGENT_TYPE_COMPETITOR_BUYER.equals(agentType);
+    }
+
+    private String resolvePersonaProfile(String personaType) {
+        return switch (StrUtil.blankToDefault(personaType, "professional_sales")) {
+            case "consultant_sales" -> "顾问式销售：先结合线索内容理解对方需求，再给出有针对性的产品建议或解决思路。语气克制、专业、可信，避免生硬推销和夸张承诺，以建立信任并推动继续沟通为目标。";
+            case "friendly_sales" -> "朋友式开发：用自然、友好、轻松的社媒语气开启对话，先建立亲近感并围绕对方内容互动。表达真诚简洁，不使用强推销话术，再自然引导对方了解产品或继续沟通。";
+            case "closer_sales" -> "强成交型销售：直接突出与对方需求相关的产品优势、供货能力和下一步行动。语气自信、有推进感但保持礼貌，不施压，不虚构库存、价格、交期或资质。";
+            default -> "专业外贸销售：以清晰、专业、礼貌的外贸销售语气介绍与对方需求相关的产品和合作价值。表达简洁可信，突出匹配点，并自然邀请对方进一步沟通，不夸张或虚构信息。";
+        };
     }
 
     private boolean isGroupMonitorAgent(String agentType) {

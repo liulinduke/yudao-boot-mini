@@ -43,6 +43,9 @@ public class FbAiAgentDiscoveryLogRespVO {
     @Schema(description = "最终线索数")
     private Integer finalLeadCount;
 
+    @Schema(description = "已触达客户数")
+    private Integer touchedCount;
+
     @Schema(description = "关联采集任务ID")
     @JsonSerialize(using = ToStringSerializer.class)
     private Long collectTaskId;

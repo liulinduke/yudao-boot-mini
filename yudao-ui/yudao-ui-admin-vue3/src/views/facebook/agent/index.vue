@@ -86,8 +86,14 @@
             <el-table-column label="线索" width="90">
               <template #default="scope">{{ scope.row.leadCount || 0 }}</template>
             </el-table-column>
-            <el-table-column label="待处理" width="90">
-              <template #default="scope">{{ scope.row.pendingCount || 0 }}</template>
+            <el-table-column label="达标客户数" width="100">
+              <template #default="scope">{{ scope.row.qualifiedCount || 0 }}</template>
+            </el-table-column>
+            <el-table-column label="已触达" width="90">
+              <template #default="scope">{{ scope.row.touchedCount || 0 }}</template>
+            </el-table-column>
+            <el-table-column label="未触达" width="90">
+              <template #default="scope">{{ scope.row.untouchedCount || 0 }}</template>
             </el-table-column>
             <el-table-column label="发现来源" min-width="180">
               <template #default="scope">
@@ -441,10 +447,10 @@
                 <template #default="scope">{{ getDiscoverySourceLabel(scope.row.sourceType) }}</template>
               </el-table-column>
               <el-table-column label="发现客户数" prop="discoveredCount" width="110" />
-              <el-table-column label="达标客户数" prop="highIntentCount" width="110" />
               <el-table-column label="AI分析" prop="aiAnalyzeCount" width="90" />
+              <el-table-column label="达标客户数" prop="highIntentCount" width="110" />
               <el-table-column label="未达阈值" prop="filteredCount" width="100" />
-              <el-table-column label="可触达线索" prop="finalLeadCount" width="110" />
+              <el-table-column label="已触达" prop="touchedCount" width="90" />
             </el-table>
             <Pagination
               :total="discoveryTotal"

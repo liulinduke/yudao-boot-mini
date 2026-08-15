@@ -109,7 +109,54 @@ Test-Path .\artifacts\wpf-publish\EyochSocial.exe
 
 应输出 `True`。
 
-## 4. 使用 Velopack 打包
+## 4. 混淆 EyochSocial.dll
+
+只混淆项目自己的 `EyochSocial.dll`，不要混淆 CefSharp、WebView2、Velopack、System 等依赖 DLL。`Scripts\*.js` 当前保持原样，运行功能不受影响。
+
+### 4.1 安装 Obfuscar
+
+Obfuscar 是免费的 .NET 混淆工具，只需安装一次：
+
+```powershell
+dotnet tool install -g Obfuscar.GlobalTool
+```
+
+已经安装过时更新：
+
+```powershell
+dotnet tool update -g Obfuscar.GlobalTool
+```
+
+检查命令：
+
+```powershell
+obfuscar.console --help
+```
+
+### 4.2 混淆发布目录中的 DLL
+
+必须在 `dotnet publish` 成功后、`vpk pack` 之前执行：
+
+```powershell
+cd D:\Work\yudao-boot-mini
+
+Remove-Item .\artifacts\wpf-obfuscated -Recurse -Force -ErrorAction SilentlyContinue
+
+obfuscar.console .\docs\obfuscar.EyochSocial.xml
+
+Copy-Item `
+  .\artifacts\wpf-obfuscated\EyochSocial.dll `
+  .\artifacts\wpf-publish\EyochSocial.dll `
+  -Force
+
+Remove-Item .\artifacts\wpf-publish\EyochSocial.pdb -Force -ErrorAction SilentlyContinue
+```
+
+混淆后先直接启动 `EyochSocial.exe`，确认 WPF 窗口、Vue 通信、CefSharp 浏览器、登录和 FB 操作正常，再进行 Velopack 打包。
+
+> 不要把 `wpf-obfuscated` 目录直接拿去打包。Obfuscar 输出目录通常只包含被处理的 DLL，Velopack 仍然要使用完整的 `wpf-publish` 目录。
+
+## 5. 使用 Velopack 打包
 
 首次版本示例使用 `1.0.0`，发布目录会自动生成 `wpf-releases-1.0.0`：
 
@@ -136,7 +183,7 @@ RELEASES
 
 不同 Velopack 版本生成的文件名可能略有区别，以 `wpf-releases-$Version` 实际输出为准，所有文件都要上传。
 
-## 5. 首次安装
+## 6. 首次安装
 
 将 `wpf-releases-1.0.0` 中的全部文件上传到服务器：
 
@@ -152,7 +199,7 @@ http://1.14.181.156/downloads/wpf/Setup.exe
 
 Velopack 会将程序安装到用户本机的应用目录。用户以后应从安装后的快捷方式启动，不要直接运行下载目录里的文件。
 
-## 6. 生成新版本
+## 7. 生成新版本
 
 修改代码后递增版本号，例如 `1.0.1`：
 
@@ -173,6 +220,17 @@ dotnet publish .\SocialMatrix.WpfHost\SocialMatrix.WpfHost.csproj `
   -p:PublishReadyToRun=false `
   -o .\artifacts\wpf-publish
 
+Remove-Item .\artifacts\wpf-obfuscated -Recurse -Force -ErrorAction SilentlyContinue
+
+obfuscar.console .\docs\obfuscar.EyochSocial.xml
+
+Copy-Item `
+  .\artifacts\wpf-obfuscated\EyochSocial.dll `
+  .\artifacts\wpf-publish\EyochSocial.dll `
+  -Force
+
+Remove-Item .\artifacts\wpf-publish\EyochSocial.pdb -Force -ErrorAction SilentlyContinue
+
 vpk pack `
   --packId EyochSocial `
   --packVersion $Version `
@@ -189,7 +247,7 @@ vpk pack `
 
 不要删除旧版本的更新元数据后再只上传 EXE。Velopack 需要 `RELEASES`、包文件和版本元数据判断更新内容。
 
-## 7. WPF 增加更新检查
+## 8. WPF 增加更新检查
 
 Velopack 打包不会自动更新，程序需要在启动时检查更新。项目添加 Velopack 包：
 
@@ -236,7 +294,7 @@ private async Task CheckForUpdatesAsync()
 - 下载完成后提示用户重启，或在没有任务运行时自动重启。
 - 有采集/运营任务执行时不要立即重启。
 
-## 8. 服务器上传方式
+## 9. 服务器上传方式
 
 本地将生成目录打包，便于通过宝塔上传：
 
@@ -269,7 +327,7 @@ docker compose --env-file docker.env up -d --force-recreate nginx
 docker exec yudao-nginx nginx -t
 ```
 
-## 9. 未签名发布说明
+## 10. 未签名发布说明
 
 当前不购买代码签名证书也可以发布 Velopack，但首次安装可能出现 Windows SmartScreen 的“未知发布者”提示。这不影响程序运行，但用户需要手动选择允许运行。
 
@@ -278,7 +336,7 @@ HTTPS 证书和 EXE 代码签名证书是两种不同证书：
 - 腾讯云免费 SSL：保护官网和下载链路。
 - 代码签名证书：减少 EXE 的未知发布者提示。
 
-## 10. 发布检查清单
+## 11. 发布检查清单
 
 - [ ] 版本号比服务器当前版本高。
 - [ ] `EyochSocial.exe` 位于 Velopack 发布包中。
