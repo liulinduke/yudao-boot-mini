@@ -32,8 +32,8 @@
             <div>
               <div class="panel-title">Agent列表</div>
             </div>
-            <el-button :loading="dispatching" :disabled="!selectedAgentIds.length" @click="handleDispatch">
-              <Icon icon="ep:video-play" class="mr-5px" /> 立即执行选中
+            <el-button :loading="dispatching" type="primary"  :disabled="!selectedAgentIds.length" @click="handleDispatch">
+              <Icon icon="ep:video-play" class="mr-5px" /> 立即执行
             </el-button>
           </div>
 
@@ -180,8 +180,16 @@
               placeholder="粘贴 Facebook 搜索条件链接，系统只替换 q 参数并保留 filters 条件"
             />
           </el-form-item>
-          <el-form-item label="主营/出口产品" prop="exportProduct">
-            <el-input v-model="wizardForm.exportProduct" placeholder="例如：Bathroom Faucet / Auto Parts" />
+          <el-form-item label="主营/出口产品说明" prop="exportProduct">
+            <el-input
+              v-model="wizardForm.exportProduct"
+              type="textarea"
+              :rows="4"
+              :maxlength="255"
+              show-word-limit
+              placeholder="请描述产品类别、核心规格/材质、目标客户和优势。&#10;例如：我们生产出口中高端卫浴龙头及淋浴系统，主要材质为黄铜和不锈钢，提供 OEM/ODM，面向建材批发商、卫浴品牌商和工程项目采购商。"
+            />
+            <div class="form-tip">填写越详细，越有助于 AI 进行客户匹配和关键词扩展。</div>
           </el-form-item>
           <template v-if="isGroupAgent(wizardForm.agentType)">
             <el-form-item label="群组来源">
@@ -372,10 +380,10 @@
           </el-form-item>
           <el-form-item label="随机间隔">
             <div class="inline-row">
-              <el-input-number v-model="wizardState.replyDelayMin" :min="0" :max="86400" />
+              <el-input-number v-model="wizardState.replyDelayMin" :min="1" :max="1440" />
               <span>至</span>
-              <el-input-number v-model="wizardState.replyDelayMax" :min="0" :max="86400" />
-              <span>秒</span>
+              <el-input-number v-model="wizardState.replyDelayMax" :min="1" :max="1440" />
+              <span>分钟</span>
             </div>
           </el-form-item>
           <el-form-item prop="touchScoreThreshold">
@@ -461,7 +469,7 @@
           </el-tab-pane>
 
           <el-tab-pane label="线索列表" name="leads">
-            <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true">
+            <el-table v-loading="leadLoading" :data="leadList" :show-overflow-tooltip="true" @sort-change="handleLeadSortChange">
               <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType) && !isCommentLeadAgent(detailAgent?.agentType)" label="线索名称" min-width="160">
                 <template #default="scope">{{ scope.row.userName || scope.row.postUser || '-' }}</template>
               </el-table-column>
@@ -480,7 +488,7 @@
               <el-table-column label="客户类型" width="130">
                 <template #default="scope">{{ getLeadTypeLabel(scope.row.leadType) }}</template>
               </el-table-column>
-              <el-table-column width="110">
+              <el-table-column prop="intentLevel" width="110" sortable="custom">
                 <template #header>
                   <el-tooltip :content="intentLevelTip" placement="top">
                     <span class="table-header-tip">意向等级</span>
@@ -520,7 +528,7 @@
                 <template #default="scope">{{ formatDateTime(scope.row.postCreateTime) }}</template>
               </el-table-column>
               <el-table-column v-if="isCommentLeadAgent(detailAgent?.agentType)" label="评论内容" prop="commentContent" min-width="260" />
-              <el-table-column label="采集时间" prop="createTime" width="160">
+              <el-table-column label="采集时间" prop="createTime" width="160" sortable="custom">
                 <template #default="scope">{{ formatDateTime(scope.row.createTime) }}</template>
               </el-table-column>
               <!-- <el-table-column v-if="!isPostLeadOrGroupPostAgent(detailAgent?.agentType)" label="来源帖子" min-width="180">
@@ -609,6 +617,7 @@
 <script setup lang="ts" name="FbAiAgent">
 defineOptions({ name: 'FbAiAgent' })
 import { formatDate } from '@/utils/formatTime'
+import { buildSortingField } from '@/utils'
 import ContentWrap from '@/components/ContentWrap/src/ContentWrap.vue'
 import { useMessage } from '@/hooks/web/useMessage'
 import { FbAccountApi, filterSelectableFbAccounts, type FbAccount } from '@/api/facebook/account'
@@ -662,7 +671,7 @@ const leadTotal = ref(0)
 const touchTotal = ref(0)
 const runLogTotal = ref(0)
 const discoveryPage = reactive({ pageNo: 1, pageSize: 10 })
-const leadPage = reactive({ pageNo: 1, pageSize: 10 })
+const leadPage = reactive({ pageNo: 1, pageSize: 10, sortingFields: [] as any[] })
 const touchPage = reactive({ pageNo: 1, pageSize: 10 })
 const runLogPage = reactive({ pageNo: 1, pageSize: 10 })
 
@@ -737,7 +746,7 @@ const wizardForm = reactive<FbAiAgentConfig>({
   dailyCommentLimit: 50,
   dailyDmLimit: 30,
   touchScoreThreshold: 85,
-  replyDelayRange: '[180,600]',
+  replyDelayRange: '[1,30]',
   personaType: 'professional_sales',
   personaConfig: '',
   status: 0
@@ -751,8 +760,8 @@ const wizardState = reactive({
   seedKeywordsText: '',
   keywordPoolList: [] as string[],
   newKeyword: '',
-  replyDelayMin: 180,
-  replyDelayMax: 600,
+  replyDelayMin: 1,
+  replyDelayMax: 30,
   groupPostSourceMode: 'select' as 'manual' | 'select',
   manualGroupUrlsText: '',
   selectedGroups: [] as FbCollectGroup[],
@@ -1119,9 +1128,11 @@ const syncWizard = (config?: FbAiAgentConfig) => {
   wizardState.targetLanguage = parseJsonArray<string>(wizardForm.targetLanguages)[0] || 'English'
   wizardState.keywordPoolList = parseJsonArray<string>(wizardForm.keywordPool)
   wizardState.seedKeywordsText = parseJsonArray<string>(wizardForm.seedKeywords).join('\n')
-  const delayRange = parseJsonArray<number>(wizardForm.replyDelayRange, [180, 600])
-  wizardState.replyDelayMin = delayRange[0] ?? 180
-  wizardState.replyDelayMax = delayRange[1] ?? 600
+  const delayRange = parseJsonArray<number>(wizardForm.replyDelayRange, [1, 30])
+  // 兼容旧配置：历史值按秒保存，转换为分钟展示。
+  const legacySeconds = Number(delayRange[1] || 0) > 60
+  wizardState.replyDelayMin = legacySeconds ? Math.max(1, Math.ceil(Number(delayRange[0] || 60) / 60)) : (delayRange[0] ?? 1)
+  wizardState.replyDelayMax = legacySeconds ? Math.max(wizardState.replyDelayMin, Math.ceil(Number(delayRange[1] || 1800) / 60)) : (delayRange[1] ?? 30)
   wizardState.newKeyword = ''
   const groupConfig = getGroupPostConfig(wizardForm)
   wizardState.groupPostSourceMode = groupConfig.sourceMode || 'select'
@@ -1201,7 +1212,7 @@ const validateWizard = () => {
     return false
   }
   if (!wizardForm.exportProduct?.trim()) {
-    message.warning('请输入主营/出口产品')
+    message.warning('请输入主营/出口产品说明')
     return false
   }
   if (!isSourceUrlAgent(wizardForm.agentType) && wizardForm.searchMode === 'link') {
@@ -1277,7 +1288,7 @@ const getWizardCompetitorPageUrls = () => {
 
 const validateGroupPostSourceStep = () => {
   if (!wizardForm.exportProduct?.trim()) {
-    message.warning('请输入主营/出口产品')
+    message.warning('请输入主营/出口产品说明')
     return false
   }
   if (wizardState.accountSelectionMode === 'MANUAL' && !wizardState.accountIdList.length) {
@@ -1491,6 +1502,7 @@ const handleView = async (row: FbAiAgentConfig) => {
   detailTab.value = 'discovery'
   discoveryPage.pageNo = 1
   leadPage.pageNo = 1
+  leadPage.sortingFields = []
   touchPage.pageNo = 1
   runLogPage.pageNo = 1
   await loadDetailTabs()
@@ -1541,6 +1553,12 @@ const loadTouchPage = async () => {
   } finally {
     touchLoading.value = false
   }
+}
+
+const handleLeadSortChange = (params: any) => {
+  leadPage.pageNo = 1
+  leadPage.sortingFields = params.order ? [buildSortingField(params)] : []
+  loadLeadPage()
 }
 
 const loadRunLogPage = async () => {
@@ -1716,12 +1734,15 @@ onBeforeUnmount(() => {
 
   .keyword-pool {
     width: 100%;
-    min-height: 42px;
+    height: 140px;
+    box-sizing: border-box;
+    overflow-y: auto;
     padding: 10px;
     border: 1px dashed var(--el-border-color);
     border-radius: 8px;
     display: flex;
     flex-wrap: wrap;
+    align-content: flex-start;
     gap: 8px;
     background: #fafafa;
   }

@@ -32,6 +32,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -125,8 +126,8 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
                 }
                 details.get(i).setScriptContent(script);
             }
+            scheduleDetails(details, task.getMinIntervalSeconds(), task.getMaxIntervalSeconds());
             dmTaskDetailMapper.insertBatch(details);
-            pushDmDetailsToAccountQueue(details);
             task.setTotalCount(details.size());
             dmTaskMapper.updateById(task);
         }
@@ -135,6 +136,39 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
                 task.getId(), details.size(), allocation.size(), saveReqVO.getScripts().size());
 
         return task.getId();
+    }
+
+    @Override
+    public void enqueueDueDetails() {
+        List<FbDmTaskDetailDO> details = dmTaskDetailMapper.selectDueScheduled(500);
+        if (CollUtil.isEmpty(details)) return;
+        Set<Long> activeTaskIds = dmTaskMapper.selectBatchIds(details.stream()
+                        .map(FbDmTaskDetailDO::getTaskId).filter(Objects::nonNull).distinct().collect(Collectors.toList()))
+                .stream().filter(task -> !Objects.equals(task.getStatus(), 4))
+                .map(FbDmTaskDO::getId).collect(Collectors.toSet());
+        details = details.stream().filter(detail -> activeTaskIds.contains(detail.getTaskId())).collect(Collectors.toList());
+        if (CollUtil.isEmpty(details)) return;
+        Map<String, String> accountMap = resolveFbAccountMap(details.stream()
+                .map(FbDmTaskDetailDO::getAccountId).collect(Collectors.toList()));
+        for (FbDmTaskDetailDO detail : details) {
+            String fbAccount = accountMap.get(detail.getAccountId());
+            if (StrUtil.isNotBlank(fbAccount)) {
+                accountTaskQueueService.pushScheduledDm(detail.getId(), fbAccount);
+            }
+        }
+    }
+
+    private void scheduleDetails(List<FbDmTaskDetailDO> details, Integer minIntervalSeconds, Integer maxIntervalSeconds) {
+        int min = Math.max(60, minIntervalSeconds == null ? 300 : minIntervalSeconds);
+        int max = Math.max(min, maxIntervalSeconds == null ? 600 : maxIntervalSeconds);
+        Map<String, LocalDateTime> accountNextTimes = new HashMap<>();
+        LocalDateTime firstSchedule = LocalDateTime.now();
+        for (FbDmTaskDetailDO detail : details) {
+            LocalDateTime scheduled = accountNextTimes.getOrDefault(detail.getAccountId(), firstSchedule);
+            detail.setScheduledTime(scheduled);
+            int delay = min == max ? min : ThreadLocalRandom.current().nextInt(min, max + 1);
+            accountNextTimes.put(detail.getAccountId(), scheduled.plusSeconds(delay));
+        }
     }
 
     @Override
@@ -248,6 +282,7 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
         task.setStatus(1);
         task.setStartTime(LocalDateTime.now());
         dmTaskMapper.updateById(task);
+        enqueueDueDetails();
 
         log.info("启动群发私信任务，任务ID: {}", taskId);
         
@@ -311,21 +346,6 @@ public class FbDmTaskServiceImpl implements FbDmTaskService {
 
         // 更新主任务统计
         updateTaskStatistics(detail.getTaskId());
-    }
-
-    private void pushDmDetailsToAccountQueue(List<FbDmTaskDetailDO> details) {
-        if (CollUtil.isEmpty(details)) {
-            return;
-        }
-        Map<String, String> accountMap = resolveFbAccountMap(details.stream()
-                .map(FbDmTaskDetailDO::getAccountId)
-                .collect(Collectors.toList()));
-        for (FbDmTaskDetailDO detail : details) {
-            String fbAccount = accountMap.get(detail.getAccountId());
-            if (StrUtil.isNotBlank(fbAccount)) {
-                accountTaskQueueService.push("dm", detail.getId(), fbAccount);
-            }
-        }
     }
 
     private void releaseDmAccountRunning(FbDmTaskDetailDO detail) {

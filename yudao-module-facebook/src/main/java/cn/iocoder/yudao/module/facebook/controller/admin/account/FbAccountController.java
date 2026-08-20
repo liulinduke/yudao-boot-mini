@@ -94,6 +94,10 @@ public class FbAccountController {
     public CommonResult<PageResult<FbAccountRespVO>> getFbAccountPage(@Valid FbAccountPageReqVO pageReqVO) {
         PageResult<FbAccountDO> pageResult = fbAccountService.getFbAccountPage(pageReqVO);
         PageResult<FbAccountRespVO> result = BeanUtils.toBean(pageResult, FbAccountRespVO.class);
+        result.getList().forEach(account -> {
+            account.setPassword(null);
+            account.setCookie(null);
+        });
         fillProxyNames(result.getList());
         return success(result);
     }
@@ -118,7 +122,7 @@ public class FbAccountController {
     public void exportFbAccountExcel(@Valid FbAccountPageReqVO pageReqVO,
               HttpServletResponse response) throws IOException {
         pageReqVO.setPageSize(PageParam.PAGE_SIZE_NONE);
-        List<FbAccountDO> list = fbAccountService.getFbAccountPage(pageReqVO).getList();
+        List<FbAccountDO> list = fbAccountService.getFbAccountPageForExport(pageReqVO).getList();
         ExcelUtils.write(response, "FB账号.xls", "数据", FbAccountRespVO.class,
                         BeanUtils.toBean(list, FbAccountRespVO.class));
     }

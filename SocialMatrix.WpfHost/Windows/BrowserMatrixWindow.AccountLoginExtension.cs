@@ -457,8 +457,9 @@ namespace SocialMatrix.WpfHost.Windows
 
             if (pageState == FacebookPageState.Authenticated)
             {
-                // 有效 Cookie 已直接进入首页，不经过密码登录，不处理 Remember password 弹框。
-                System.Diagnostics.Debug.WriteLine($"✅ 账号 {account.AccountId} Cookie 已直接进入 Facebook 首页，跳过 Remember password");
+                // 有效 Cookie 直接进入首页，不走密码登录后的 Remember password 弹框检查。
+                // 该弹框只属于账号密码登录流程，Cookie 登录每次等待检查没有必要。
+                System.Diagnostics.Debug.WriteLine($"✅ 账号 {account.AccountId} Cookie 已直接进入 Facebook 首页");
                 var cookieJson = await ExportFacebookCookiesAsync(browser);
                 if (!string.IsNullOrWhiteSpace(cookieJson))
                 {

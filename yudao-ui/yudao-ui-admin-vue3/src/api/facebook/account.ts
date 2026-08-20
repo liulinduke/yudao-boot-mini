@@ -43,7 +43,7 @@ export const FbAccountApi = {
   },
 
   exportFbAccount: (params: FbAccountPageReqVO) => {
-    return request.get({ url: '/facebook/fb-account/export', params, responseType: 'blob' })
+    return request.get({ url: '/facebook/fb-account/export-excel', params, responseType: 'blob' })
   },
 
   updateFbAccountProxy: (data: FbAccountUpdateProxyReqVO) => {

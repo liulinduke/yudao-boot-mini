@@ -234,6 +234,15 @@ public class AiModelServiceImpl implements AiModelService {
 
         @Override
         public AiMessageResponse chat(Prompt prompt, ChatOptions options) {
+            // AgentsFlex DeepSeek serializer omits ChatOptions.topK; forward the
+            // workflow node's value through extra so the HTTP body contains top_k.
+            if (options.getTopK() != null) {
+                options.addExtra("top_k", options.getTopK());
+            }
+            // DeepSeek V4 defaults to high-effort reasoning. Workflow nodes that only
+            // generate structured data should return directly instead of producing a
+            // long reasoning_content response.
+            options.addExtra("thinking", Map.of("type", "disabled"));
             String payload = DeepseekLlmUtil.promptToPayload(prompt, config, options, false);
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Content-Type", "application/json");

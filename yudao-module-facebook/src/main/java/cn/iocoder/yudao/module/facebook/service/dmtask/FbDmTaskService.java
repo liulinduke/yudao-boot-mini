@@ -12,6 +12,9 @@ import cn.iocoder.yudao.module.facebook.controller.admin.dmtask.vo.FbDmTaskPageR
  */
 public interface FbDmTaskService {
 
+    /** 将已到计划时间的私信明细放入账号执行队列。 */
+    void enqueueDueDetails();
+
     /**
      * 创建群发私信任务
      *

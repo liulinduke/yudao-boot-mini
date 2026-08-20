@@ -64,4 +64,7 @@ public class FbDmTaskDetailDO extends TenantBaseDO {
      */
     private LocalDateTime sendTime;
 
+    /** 计划进入账号执行队列的时间 */
+    private LocalDateTime scheduledTime;
+
 }

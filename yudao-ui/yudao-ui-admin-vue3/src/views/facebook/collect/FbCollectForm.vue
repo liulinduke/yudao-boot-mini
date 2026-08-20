@@ -67,7 +67,12 @@
           prop="accountIds"
           :rules="formData.accountSelectionMode === 'MANUAL' ? formRules.accountIds : []"
         >
-          <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" placeholder="请选择账号" class="w-full" />
+          <FbAccountSelector
+            v-model="formData.accountIds"
+            v-model:selection-mode="formData.accountSelectionMode"
+            placeholder="请选择账号"
+            class="w-full"
+          />
         </el-form-item>
 
         <el-form-item label="采集结果分组">
@@ -76,7 +81,6 @@
             :resource-type="getResourceGroupType(formData.taskType)"
             :title="getResourceGroupTitle(formData.taskType)"
           />
-          <span class="form-tip ml-2">不选择时归入对应类型的未分组</span>
         </el-form-item>
 
         <!-- 帖子采集：同一入口下按来源切换 -->
@@ -569,7 +573,12 @@
                 <dict-tag :type="DICT_TYPE.SYS_COLLECT_STATUS" :value="scope.row.status" />
               </template>
             </el-table-column>
-            <el-table-column label="执行摘要" prop="errorMessage" min-width="280" show-overflow-tooltip />
+            <el-table-column
+              label="执行摘要"
+              prop="errorMessage"
+              min-width="280"
+              show-overflow-tooltip
+            />
           </el-table>
         </el-tab-pane>
 
@@ -628,7 +637,12 @@
                 {{ scope.row.config ? JSON.parse(scope.row.config).replyCount || 0 : 0 }}
               </template>
             </el-table-column>
-            <el-table-column label="评论时间" prop="lastPostSummary" width="120" show-overflow-tooltip />
+            <el-table-column
+              label="评论时间"
+              prop="lastPostSummary"
+              width="120"
+              show-overflow-tooltip
+            />
             <el-table-column
               label="评论内容"
               prop="profileStatus"
@@ -693,8 +707,20 @@
           </el-table>
 
           <!-- 个人主页采集结果显示（默认） -->
-          <el-table v-else :data="filteredUserList" stripe border max-height="500" class="collect-result-table">
-            <el-table-column label="Facebook ID" prop="fbUserId" width="180" show-overflow-tooltip />
+          <el-table
+            v-else
+            :data="filteredUserList"
+            stripe
+            border
+            max-height="500"
+            class="collect-result-table"
+          >
+            <el-table-column
+              label="Facebook ID"
+              prop="fbUserId"
+              width="180"
+              show-overflow-tooltip
+            />
             <el-table-column label="用户名" prop="userName" width="150" show-overflow-tooltip />
             <el-table-column label="主页链接" prop="url" min-width="250" show-overflow-tooltip />
             <el-table-column label="粉丝数" prop="followers" width="100" />
@@ -760,8 +786,10 @@ import GroupSelector from './components/GroupSelector.vue'
 import UserSelector from './components/UserSelector.vue'
 import PostSelector from './components/PostSelector.vue'
 
-const getResourceGroupType = (taskType?: number): 'LEAD' | 'GROUP' | 'POST' => taskType === 4 ? 'GROUP' : taskType === 2 ? 'POST' : 'LEAD'
-const getResourceGroupTitle = (taskType?: number) => taskType === 4 ? '群组分组' : taskType === 2 ? '帖子分组' : '潜客分组'
+const getResourceGroupType = (taskType?: number): 'LEAD' | 'GROUP' | 'POST' =>
+  taskType === 4 ? 'GROUP' : taskType === 2 ? 'POST' : 'LEAD'
+const getResourceGroupTitle = (taskType?: number) =>
+  taskType === 4 ? '群组分组' : taskType === 2 ? '帖子分组' : '潜客分组'
 
 const { t } = useI18n() // 国际化
 const message = useMessage() // 消息弹窗
@@ -799,7 +827,12 @@ const formData = ref({
   remark: ''
 })
 
-watch(() => formData.value.taskType, () => { formData.value.resourceGroupId = undefined })
+watch(
+  () => formData.value.taskType,
+  () => {
+    formData.value.resourceGroupId = undefined
+  }
+)
 
 const getNonEmptyLineCount = (value: string | undefined) =>
   (value || '')
@@ -857,7 +890,11 @@ const singleTargetCountLabel = computed(() => {
 
 const estimatedTotalCount = computed(() => {
   const relationCount = formData.value.taskType === 8 ? relationTypes.value.length : 1
-  return collectionTargetCount.value * relationCount * Math.max(Number(formData.value.expectedCount) || 0, 0)
+  return (
+    collectionTargetCount.value *
+    relationCount *
+    Math.max(Number(formData.value.expectedCount) || 0, 0)
+  )
 })
 
 const formRules = reactive({
@@ -1182,11 +1219,12 @@ const submitForm = async () => {
     const likeExpectedCount = commentLikeOptions.value.includes('like')
       ? Number(formData.value.likeExpectedCount || 0)
       : 0
-    const taskExpectedCount = data.taskType === 11
-      ? commentExpectedCount + likeExpectedCount
-      : data.taskType === 12
-        ? 1
-        : data.expectedCount
+    const taskExpectedCount =
+      data.taskType === 11
+        ? commentExpectedCount + likeExpectedCount
+        : data.taskType === 12
+          ? 1
+          : data.expectedCount
 
     // 准备任务数据(包含所有账号和URL)
     const taskData: any = {
@@ -1200,8 +1238,10 @@ const submitForm = async () => {
       expectedCount: taskExpectedCount,
       collectComment: data.taskType === 11 && commentLikeOptions.value.includes('comment'),
       collectLike: data.taskType === 11 && commentLikeOptions.value.includes('like'),
-      commentExpectedCount: data.taskType === 11 ? Number(formData.value.commentExpectedCount || 0) : undefined,
-      likeExpectedCount: data.taskType === 11 ? Number(formData.value.likeExpectedCount || 0) : undefined,
+      commentExpectedCount:
+        data.taskType === 11 ? Number(formData.value.commentExpectedCount || 0) : undefined,
+      likeExpectedCount:
+        data.taskType === 11 ? Number(formData.value.likeExpectedCount || 0) : undefined,
       intervalSeconds: data.intervalSeconds,
       status: 0, // 待执行
       remark: data.remark
@@ -1419,11 +1459,12 @@ const normalizePostCollectUrls = (value: string): string => {
   }
   return urls
     .map(cleanFacebookUrl)
-    .map((url) => postLatestPosts.value ? withLatestPostsFilter(url) : url)
+    .map((url) => (postLatestPosts.value ? withLatestPostsFilter(url) : url))
     .join('\n')
 }
 
-const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9In0%3D'
+const RECENT_POSTS_FILTER =
+  'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9In0%3D'
 
 const withLatestPostsFilter = (url: string): string => {
   try {

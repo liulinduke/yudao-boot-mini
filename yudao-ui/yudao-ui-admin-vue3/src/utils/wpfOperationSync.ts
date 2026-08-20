@@ -107,7 +107,13 @@ export function setupWpfOperationSync() {
       console.error('[私信结果] 上报失败:', error)
     } finally {
       if (accountId) {
-        await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+        const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+        const nextAccountId = nextDetail
+          ? String(nextDetail.accountId || nextDetail.fbAccount || '')
+          : ''
+        if (!nextDetail || nextAccountId !== accountId) {
+          closeBrowser(accountId)
+        }
       }
     }
   })

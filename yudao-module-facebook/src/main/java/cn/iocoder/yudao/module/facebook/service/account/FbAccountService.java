@@ -62,6 +62,9 @@ public interface FbAccountService {
      */
     PageResult<FbAccountDO> getFbAccountPage(FbAccountPageReqVO pageReqVO);
 
+    /** 获得导出用的完整账号分页数据，包含密码和 Cookie。 */
+    PageResult<FbAccountDO> getFbAccountPageForExport(FbAccountPageReqVO pageReqVO);
+
     /** 获取任务账号选择器所需的状态、额度和长期统计。 */
     List<FbAccountSelectorOptionRespVO> getSelectorOptions(FbAccountSelectorOptionReqVO reqVO);
 

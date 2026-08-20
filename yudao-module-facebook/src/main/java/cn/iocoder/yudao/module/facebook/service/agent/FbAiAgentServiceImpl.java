@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.common.pojo.SortingField;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.dal.dataobject.workflow.AiWorkflowDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.workflow.AiWorkflowMapper;
@@ -34,6 +35,7 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskDetailMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.dmtask.FbDmTaskMapper;
 import cn.iocoder.yudao.module.facebook.dal.mysql.fbcollectpost.FbCollectPostMapper;
 import cn.iocoder.yudao.module.facebook.service.operation.FbOperationTaskService;
+import cn.iocoder.yudao.module.facebook.service.dmtask.FbDmTaskService;
 import cn.iocoder.yudao.module.facebook.service.account.FbAccountTaskAllocationService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
@@ -147,6 +149,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     @Resource
     private FbAiAgentCollectQueueService collectQueueService;
     @Resource
+    private FbDmTaskService dmTaskService;
+    @Resource
     private FbAccountTaskAllocationService accountAllocationService;
 
     @Override
@@ -258,10 +262,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(pageResult.getList())) {
             return pageResult;
         }
-        FbAiAgentConfigDO config = pageReqVO.getAgentConfigId() == null ? null
-                : agentConfigMapper.selectById(pageReqVO.getAgentConfigId());
-        int threshold = config == null ? 95 : resolveTouchScoreThreshold(config);
-        pageResult.getList().forEach(logDO -> logDO.setTouchedCount(countDiscoveryTouched(logDO, threshold)));
+        pageResult.getList().forEach(logDO -> logDO.setTouchedCount(countDiscoveryTouched(logDO)));
         return pageResult;
     }
 
@@ -284,8 +285,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     .orderByDesc(FbCollectPostDO::getCreateTime)
                     .orderByDesc(FbCollectPostDO::getId));
             records.sort((left, right) -> compareLeadPriority(
-                    left.getIntentLevel(), left.getProductRelevanceScore(), left.getCreateTime(), left.getId(),
-                    right.getIntentLevel(), right.getProductRelevanceScore(), right.getCreateTime(), right.getId()));
+                    left.getIntentLevel(), left.getCreateTime(), left.getId(),
+                    right.getIntentLevel(), right.getCreateTime(), right.getId(), pageReqVO.getSortingFields()));
             int pageNo = Math.max(pageReqVO.getPageNo(), 1);
             int pageSize = Math.max(pageReqVO.getPageSize(), 10);
             int fromIndex = Math.min((pageNo - 1) * pageSize, records.size());
@@ -301,8 +302,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .orderByDesc(FbCollectUserDO::getCreateTime)
                 .orderByDesc(FbCollectUserDO::getId));
         records.sort((left, right) -> compareLeadPriority(
-                left.getIntentLevel(), left.getProductRelevanceScore(), left.getCreateTime(), left.getId(),
-                right.getIntentLevel(), right.getProductRelevanceScore(), right.getCreateTime(), right.getId()));
+                left.getIntentLevel(), left.getCreateTime(), left.getId(),
+                right.getIntentLevel(), right.getCreateTime(), right.getId(), pageReqVO.getSortingFields()));
         if (config != null && (AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())
                 || AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType()))) {
             enrichCommentLeadPostFields(records);
@@ -314,24 +315,44 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return new PageResult<>(records.subList(fromIndex, toIndex), (long) records.size());
     }
 
-    /** 线索默认按 A、B、C、D 意向等级，再按分数从高到低排列。 */
-    private int compareLeadPriority(String leftLevel, Integer leftScore, LocalDateTime leftCreateTime, Long leftId,
-                                    String rightLevel, Integer rightScore, LocalDateTime rightCreateTime, Long rightId) {
-        int levelCompare = Integer.compare(intentLevelRank(leftLevel), intentLevelRank(rightLevel));
-        if (levelCompare != 0) {
-            return levelCompare;
-        }
-        int scoreCompare = Integer.compare(
-                rightScore == null ? 0 : rightScore,
-                leftScore == null ? 0 : leftScore);
-        if (scoreCompare != 0) {
-            return scoreCompare;
+    /** 默认先按采集时间倒序，再按 A、B、C、D 意向等级排序。 */
+    private int compareLeadPriority(String leftLevel, LocalDateTime leftCreateTime, Long leftId,
+                                    String rightLevel, LocalDateTime rightCreateTime, Long rightId,
+                                    List<SortingField> sortingFields) {
+        if (CollUtil.isNotEmpty(sortingFields)) {
+            for (SortingField sortingField : sortingFields) {
+                int comparison = compareLeadField(sortingField, leftLevel, leftCreateTime, rightLevel, rightCreateTime);
+                if (comparison != 0) {
+                    return comparison;
+                }
+            }
         }
         int timeCompare = compareNullableDesc(leftCreateTime, rightCreateTime);
         if (timeCompare != 0) {
             return timeCompare;
         }
+        int levelCompare = Integer.compare(intentLevelRank(leftLevel), intentLevelRank(rightLevel));
+        if (levelCompare != 0) {
+            return levelCompare;
+        }
         return Long.compare(rightId == null ? 0L : rightId, leftId == null ? 0L : leftId);
+    }
+
+    private int compareLeadField(SortingField sortingField, String leftLevel, LocalDateTime leftCreateTime,
+                                 String rightLevel, LocalDateTime rightCreateTime) {
+        if (sortingField == null || StrUtil.isBlank(sortingField.getField())) {
+            return 0;
+        }
+        boolean ascending = SortingField.ORDER_ASC.equalsIgnoreCase(sortingField.getOrder());
+        if ("createTime".equals(sortingField.getField())) {
+            int comparison = compareNullableDesc(leftCreateTime, rightCreateTime);
+            return ascending ? -comparison : comparison;
+        } else if ("intentLevel".equals(sortingField.getField())) {
+            int comparison = Integer.compare(intentLevelRank(leftLevel), intentLevelRank(rightLevel));
+            return ascending ? comparison : -comparison;
+        } else {
+            return 0;
+        }
     }
 
     private int intentLevelRank(String intentLevel) {
@@ -621,7 +642,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
             CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
             addRunLog(config.getId(), "群帖采集完成",
-                    saveSummary.toLogContent("进入AI分析"),
+                    saveSummary.toSimpleLogContent("进入AI分析"),
                     saveSummary.duplicateCount > 0 ? "warning" : "success");
             int analyzedPosts = analyzePendingPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
@@ -632,8 +653,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             int queuedTouches = queuePostHighIntentTouches(config, accountIds, currentPostIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentPostIds);
             refreshDiscoveryStats(config.getId());
-            addRunLog(config.getId(), "触达完成",
-                    String.format("评论%s条，私信%s条", activatedTouches.commentDetailCount, activatedTouches.dmDetailCount),
+            addRunLog(config.getId(), "触达中",
+                    String.format("已提交触达%s条，评论任务%s条、私信任务%s条",
+                            queuedTouches, activatedTouches.commentDetailCount, activatedTouches.dmDetailCount),
                     activatedTouches.failed > 0 ? "warning" : "success");
             return;
         }
@@ -645,16 +667,17 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
             addRunLog(config.getId(), "帖子采集完成",
-                    saveSummary.toLogContent("进入AI分析"),
+                    saveSummary.toSimpleLogContent("进入AI分析"),
                     saveSummary.duplicateCount > 0 ? "warning" : "success");
             addRunLog(config.getId(), "AI分析完成",
                     String.format("分析%s条，达标%s条，触达阈值%s", analyzedPosts, qualifiedPosts,
                             formatPostAnalysisThreshold(currentPostIds, threshold)), "success");
-            queuePostHighIntentTouches(config, accountIds, currentPostIds);
+            int queuedTouches = queuePostHighIntentTouches(config, accountIds, currentPostIds);
             TouchActivateResult activatedTouches = activateDueTouchRecords(config, currentPostIds);
             refreshDiscoveryStats(config.getId());
-            addRunLog(config.getId(), "触达完成",
-                    String.format("评论%s条，私信%s条", activatedTouches.commentDetailCount, activatedTouches.dmDetailCount),
+            addRunLog(config.getId(), "触达中",
+                    String.format("已提交触达%s条，评论任务%s条、私信任务%s条",
+                            queuedTouches, activatedTouches.commentDetailCount, activatedTouches.dmDetailCount),
                     activatedTouches.failed > 0 ? "warning" : "success");
             return;
         }
@@ -723,6 +746,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private FbAiAgentDispatchRespVO dispatchInternal(boolean scheduledOnly, boolean enqueueForVuePoller) {
+        // 任务明细先落库，只有到计划时间的私信才进入账号执行队列。
+        dmTaskService.enqueueDueDetails();
         List<FbAiAgentConfigDO> configs = agentConfigMapper.selectList(new LambdaQueryWrapper<FbAiAgentConfigDO>()
                 .eq(FbAiAgentConfigDO::getStatus, 1)
                 .in(FbAiAgentConfigDO::getAgentType, Arrays.asList(AGENT_TYPE_PAGE_LEAD, AGENT_TYPE_POST_LEAD, AGENT_TYPE_GROUP_POST, AGENT_TYPE_GROUP_COMMENT, AGENT_TYPE_COMPETITOR_BUYER))
@@ -841,6 +866,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectDetailDO::getTaskId, taskIds)
                 .eq(FbCollectDetailDO::getStatus, 1)
                 .isNotNull(FbCollectDetailDO::getStartTime)
+                // 批次保存接口会写入“本轮采集”回执。已经收到批次的明细仍可能
+                // 等待最终 complete 事件，不能再按启动时间直接判定为 3 分钟超时。
+                .notLike(FbCollectDetailDO::getErrorMessage, "本轮采集")
                 .le(FbCollectDetailDO::getStartTime, deadline)
                 .last("LIMIT 200"));
         if (CollUtil.isEmpty(timeoutDetails)) {
@@ -1881,6 +1909,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     markTouchRecordRunning(record.getId(), taskId, null);
                     markLeadTouched(record);
                 }
+                dmTaskService.enqueueDueDetails();
                 result.dmTaskCount++;
                 result.dmDetailCount += dmRecords.size();
             } catch (Exception ex) {
@@ -1938,8 +1967,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             throw new IllegalArgumentException("AI私信触达记录为空");
         }
         List<Integer> delayRange = parseJsonIntegerList(config.getReplyDelayRange());
-        int minDelay = CollUtil.isNotEmpty(delayRange) ? delayRange.get(0) : 180;
-        int maxDelay = delayRange.size() > 1 ? delayRange.get(1) : 600;
+        int minDelay = CollUtil.isNotEmpty(delayRange) ? delayRange.get(0) : 1;
+        int maxDelay = delayRange.size() > 1 ? delayRange.get(1) : 30;
+        // AI 获客配置以分钟保存；兼容历史版本按秒保存的 [180,600] 等配置。
+        if (maxDelay <= 60) {
+            minDelay *= 60;
+            maxDelay *= 60;
+        }
         if (maxDelay < minDelay) {
             maxDelay = minDelay;
         }
@@ -1976,6 +2010,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         dmTaskMapper.insert(task);
 
         List<FbDmTaskDetailDO> details = new ArrayList<>(records.size());
+        Map<String, LocalDateTime> accountNextTimes = new HashMap<>();
+        LocalDateTime firstSchedule = LocalDateTime.now();
         for (FbAiTouchRecordDO record : records) {
             FbDmTaskDetailDO detail = new FbDmTaskDetailDO();
             detail.setTaskId(task.getId());
@@ -1983,14 +2019,24 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             detail.setTargetUserId(record.getTargetUserId());
             detail.setScriptContent(record.getGeneratedContent());
             detail.setStatus(0);
+            LocalDateTime scheduledTime = accountNextTimes.getOrDefault(record.getAccountId(), firstSchedule);
+            detail.setScheduledTime(scheduledTime);
+            int delaySeconds = minDelay == maxDelay
+                    ? minDelay
+                    : ThreadLocalRandom.current().nextInt(minDelay, maxDelay + 1);
+            accountNextTimes.put(record.getAccountId(), scheduledTime.plusSeconds(delaySeconds));
             details.add(detail);
         }
         if (CollUtil.isEmpty(details)) {
             throw new IllegalArgumentException("AI私信任务明细为空");
         }
         dmTaskDetailMapper.insertBatch(details);
-        for (int i = 0; i < details.size(); i++) {
-            collectQueueService.push("dm", details.get(i).getId(), records.get(i).getFbAccount());
+        // 触达记录页面展示的是自身的计划时间，需与实际私信明细保持一致。
+        for (int index = 0; index < records.size(); index++) {
+            FbAiTouchRecordDO updateObj = new FbAiTouchRecordDO();
+            updateObj.setId(records.get(index).getId());
+            updateObj.setScheduledTime(details.get(index).getScheduledTime());
+            touchRecordMapper.updateById(updateObj);
         }
         if (!Objects.equals(task.getTotalCount(), details.size())) {
             FbDmTaskDO updateObj = new FbDmTaskDO();
@@ -2225,9 +2271,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         return count == null ? 0 : count;
     }
 
-    /**
-     * 运行日志同时显示配置的触达门槛和本批线索实际最高评分，避免把二者混为一谈。
-     */
     private String formatUserAnalysisThreshold(List<Long> leadIds, int threshold) {
         int highestScore = 0;
         if (CollUtil.isNotEmpty(leadIds)) {
@@ -2261,11 +2304,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private String formatAnalysisThreshold(int threshold, int highestScore) {
-        String thresholdText = mapScoreToIntent(threshold) + "/" + threshold;
-        if (highestScore <= 0) {
-            return thresholdText;
-        }
-        return thresholdText + "，最高意向" + mapScoreToIntent(highestScore) + "/" + highestScore;
+        return mapScoreToIntent(threshold) + "/" + threshold;
     }
 
     private long countQualifiedPostLeads(List<Long> postIds, int threshold) {
@@ -2330,8 +2369,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             addRunLog(agentConfigId, "触达跳过", reason, qualifiedUsers > 0 ? "warning" : "info");
             return;
         }
-        addRunLog(agentConfigId, "触达完成", String.format("触达%s条，私信任务%s个，私信%s条，评论任务%s个",
-                queuedTouches, activatedTouches.dmTaskCount, activatedTouches.dmDetailCount, activatedTouches.commentTaskCount),
+        addRunLog(agentConfigId, "触达中", String.format("已提交触达%s条，评论任务%s条、私信任务%s条",
+                queuedTouches, activatedTouches.commentDetailCount, activatedTouches.dmDetailCount),
                 activatedTouches.failed > 0 ? "warning" : "success");
     }
 
@@ -2733,13 +2772,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         int threshold = resolveTouchScoreThreshold(config);
         long qualifiedCount = leads.stream().filter(item -> item.score >= threshold).count();
         long touchedCount = leads.stream()
+                .filter(item -> isLeadTouched(item.touchStatus))
+                .count();
+        long untouchedCount = leads.stream()
                 .filter(item -> item.score >= threshold)
-                .filter(item -> StrUtil.equalsAny(item.touchStatus, "touched", "replied", "done"))
+                .filter(item -> !isLeadTouched(item.touchStatus))
                 .count();
         config.setLeadCount((long) leads.size());
         config.setQualifiedCount(qualifiedCount);
         config.setTouchedCount(touchedCount);
-        config.setUntouchedCount(qualifiedCount - touchedCount);
+        config.setUntouchedCount(untouchedCount);
     }
 
     private Map<Long, LeadAnalysisResult> analyzeUsersByWorkflow(FbAiAgentConfigDO config, List<String> seedKeywords,
@@ -3328,7 +3370,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     private record AgentLeadSummary(Integer score, String touchStatus) {
     }
 
-    private int countDiscoveryTouched(FbAiAgentDiscoveryLogDO logDO, int threshold) {
+    private int countDiscoveryTouched(FbAiAgentDiscoveryLogDO logDO) {
         if (logDO.getCollectTaskId() == null) {
             return 0;
         }
@@ -3337,16 +3379,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             return (int) collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
                             .eq(FbCollectPostDO::getTaskId, logDO.getCollectTaskId()))
                     .stream()
-                    .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
-                    .filter(item -> StrUtil.equalsAny(item.getTouchStatus(), "touched", "replied", "done"))
+                    .filter(item -> isLeadTouched(item.getTouchStatus()))
                     .count();
         }
         return (int) collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                         .eq(FbCollectUserDO::getTaskId, logDO.getCollectTaskId()))
                 .stream()
-                .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
-                .filter(item -> StrUtil.equalsAny(item.getTouchStatus(), "touched", "replied", "done"))
+                .filter(item -> isLeadTouched(item.getTouchStatus()))
                 .count();
+    }
+
+    private boolean isLeadTouched(String touchStatus) {
+        return StrUtil.equalsAny(touchStatus, "touched", "replied", "done");
     }
 
     private boolean isCommentablePostUrl(String url) {
@@ -3418,6 +3462,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             return String.format("本轮采集：接收%s条，新增保存%s条，重复跳过%s条；%s",
                     receivedCount, newCount, duplicateCount, suffix);
         }
+
+        private String toSimpleLogContent(String suffix) {
+            return String.format("发现%s条，重复跳过%s条，%s", receivedCount, duplicateCount, suffix);
+        }
     }
 
     private void addRunLog(Long agentConfigId, String title, String content, String logLevel) {
@@ -3447,8 +3495,12 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private int randomDelaySeconds(String replyDelayRange) {
         List<Integer> range = parseJsonIntegerList(replyDelayRange);
-        int min = CollUtil.isNotEmpty(range) ? range.get(0) : 180;
-        int max = range.size() > 1 ? range.get(1) : 600;
+        int min = CollUtil.isNotEmpty(range) ? range.get(0) : 1;
+        int max = range.size() > 1 ? range.get(1) : 30;
+        if (max <= 60) {
+            min *= 60;
+            max *= 60;
+        }
         if (max < min) {
             max = min;
         }
@@ -3702,7 +3754,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             reqVO.setDailyDmLimit(30);
         }
         if (StrUtil.isBlank(reqVO.getReplyDelayRange())) {
-            reqVO.setReplyDelayRange("[180,600]");
+            reqVO.setReplyDelayRange("[1,30]");
         }
         if (StrUtil.isBlank(reqVO.getPersonaType())) {
             reqVO.setPersonaType("professional_sales");

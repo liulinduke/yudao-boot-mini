@@ -41,6 +41,14 @@ namespace SocialMatrix.WpfHost.Services
         }
         if (typeof el.click === 'function') el.click();
     };
+    // 先按 Messenger 的按钮 DOM 结构找候选；文案只作为最后兜底，避免把会话容器当按钮。
+    const structural = Array.from(document.querySelectorAll(
+        '[role=""button""][tabindex=""0""], button:not([disabled]), input[type=""button""], input[type=""submit""]'
+    )).filter(isVisible).filter(el => {
+        const direct = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent || '').join(' ').trim();
+        const nested = el.querySelectorAll('[role=""button""], button').length;
+        return nested === 0 && direct.length <= 40;
+    });
     const labels = [
         'continue',
         'get started',
@@ -51,7 +59,7 @@ namespace SocialMatrix.WpfHost.Services
         '继续'
     ];
     const candidates = Array.from(document.querySelectorAll(
-        '[aria-label], div[role=""button""], button, span[role=""button""], a[role=""button""], input[type=""button""], input[type=""submit""]'
+        'button, [role=""button""], input[type=""button""], input[type=""submit""]'
     ));
     for (const el of candidates) {
         if (!isVisible(el)) continue;
@@ -61,9 +69,13 @@ namespace SocialMatrix.WpfHost.Services
             el.getAttribute('value'),
             el.innerText || el.textContent
         ].filter(Boolean).join(' '));
-        if (labels.some(label => text === label || text.includes(label))) {
+        const aria = normalize(el.getAttribute('aria-label'));
+        const value = normalize(el.getAttribute('value'));
+        const visibleText = normalize(el.innerText || el.textContent);
+        const exact = labels.some(label => aria === label || value === label || visibleText === label);
+        if (exact) {
             await robustClick(el);
-            return JSON.stringify({ success: true, action: 'clicked', text });
+            return JSON.stringify({ success: true, action: 'clicked', tag: el.tagName, role: el.getAttribute('role'), aria, text: visibleText });
         }
     }
     return JSON.stringify({ success: true, action: 'no_start_button' });

@@ -18,7 +18,18 @@ import cn.iocoder.yudao.module.facebook.controller.admin.account.vo.*;
 public interface FbAccountMapper extends BaseMapperX<FbAccountDO> {
 
     default PageResult<FbAccountDO> selectPage(FbAccountPageReqVO reqVO) {
-        return selectPage(reqVO, new LambdaQueryWrapperX<FbAccountDO>()
+        LambdaQueryWrapperX<FbAccountDO> query = buildPageQuery(reqVO);
+        query.select(FbAccountDO.class, field -> !"password".equals(field.getProperty())
+                && !"cookie".equals(field.getProperty()));
+        return selectPage(reqVO, query);
+    }
+
+    default PageResult<FbAccountDO> selectPageForExport(FbAccountPageReqVO reqVO) {
+        return selectPage(reqVO, buildPageQuery(reqVO));
+    }
+
+    default LambdaQueryWrapperX<FbAccountDO> buildPageQuery(FbAccountPageReqVO reqVO) {
+        return new LambdaQueryWrapperX<FbAccountDO>()
                 .eqIfPresent(FbAccountDO::getFbAccount, reqVO.getFbAccount())
                 .eqIfPresent(FbAccountDO::getPassword, reqVO.getPassword())
                 .eqIfPresent(FbAccountDO::getArea, reqVO.getArea())
@@ -40,7 +51,7 @@ public interface FbAccountMapper extends BaseMapperX<FbAccountDO> {
                 .eqIfPresent(FbAccountDO::getProxyId, reqVO.getProxyId())
                 .betweenIfPresent(FbAccountDO::getCreationDate, reqVO.getCreationDate())
                 .betweenIfPresent(FbAccountDO::getCreateTime, reqVO.getCreateTime())
-                .orderByDesc(FbAccountDO::getId));
+                .orderByDesc(FbAccountDO::getId);
     }
 
 }

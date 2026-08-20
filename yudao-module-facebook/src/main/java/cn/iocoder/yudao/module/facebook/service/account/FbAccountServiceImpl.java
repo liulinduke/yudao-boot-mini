@@ -158,6 +158,11 @@ public class FbAccountServiceImpl implements FbAccountService {
     }
 
     @Override
+    public PageResult<FbAccountDO> getFbAccountPageForExport(FbAccountPageReqVO pageReqVO) {
+        return fbAccountMapper.selectPageForExport(pageReqVO);
+    }
+
+    @Override
     public List<FbAccountSelectorOptionRespVO> getSelectorOptions(FbAccountSelectorOptionReqVO reqVO) {
         FbAccountPageReqVO pageReqVO = new FbAccountPageReqVO();
         pageReqVO.setPageSize(PageParam.PAGE_SIZE_NONE);

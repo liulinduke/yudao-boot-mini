@@ -18,8 +18,9 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="PreviousTabButton" Grid.Column="0" Content="&lt;" Click="PreviousBrowserTab_Click"
-                                    ToolTip="上一个账号" FontSize="14" Width="30" Height="28" MinHeight="0" MaxHeight="28"
-                                    VerticalAlignment="Center" Margin="0,3" Padding="0"
+                                    ToolTip="上一个账号" FontSize="13" Width="30" Height="28" MinHeight="0" MaxHeight="28"
+                                     VerticalAlignment="Stretch" Margin="0" Padding="0"
+                                     Background="Transparent" BorderThickness="0"
                                     Visibility="Collapsed" />
                             <ScrollViewer x:Name="HeaderScrollViewer" Grid.Column="1"
                                           HorizontalScrollBarVisibility="Hidden"
@@ -28,8 +29,9 @@
                                 <TabPanel IsItemsHost="True" />
                             </ScrollViewer>
                             <Button x:Name="NextTabButton" Grid.Column="2" Content="&gt;" Click="NextBrowserTab_Click"
-                                    ToolTip="下一个账号" FontSize="14" Width="30" Height="28" MinHeight="0" MaxHeight="28"
-                                    VerticalAlignment="Center" Margin="0,3" Padding="0"
+                                    ToolTip="下一个账号" FontSize="13" Width="30" Height="28" MinHeight="0" MaxHeight="28"
+                                     VerticalAlignment="Stretch" Margin="0" Padding="0"
+                                     Background="Transparent" BorderThickness="0"
                                     Visibility="Collapsed" />
                         </Grid>
                     </ControlTemplate>
@@ -40,10 +42,10 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="34" />
+            <RowDefinition Height="28" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <TabControl x:Name="BrowserTabs" Grid.Row="0" Margin="0" Height="34"
+        <TabControl x:Name="BrowserTabs" Grid.Row="0" Margin="0" Height="28"
                     Style="{StaticResource BrowserTabControlStyle}" />
         <Grid x:Name="BrowserHostGrid" Grid.Row="1" />
     </Grid>

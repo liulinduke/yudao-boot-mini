@@ -31,6 +31,7 @@ public class FbAiAgentCollectQueueService {
     private static final String ACCOUNT_QUEUE_KEY_PREFIX = "fb:account-task:pending:";
     private static final String ACCOUNT_RUNNING_KEY_PREFIX = "fb:account-task:running:";
     private static final String QUEUED_SET_KEY_PREFIX = "fb:account-task:queued:";
+    private static final String DM_ENQUEUED_KEY_PREFIX = "fb:dm:enqueued:";
     private static final String CREATED_KEY_PREFIX = "fb:ai-agent:collect:created:";
     private static final long QUEUE_EXPIRE_DAYS = 7;
     private static final long RUNNING_EXPIRE_MINUTES = 3;
@@ -67,6 +68,16 @@ public class FbAiAgentCollectQueueService {
         // 任务明细通常还在同一个数据库事务中。必须等事务提交后再通知 WPF，
         // 否则 WPF 可能先领取队列，再查询不到尚未提交的明细，导致通知被消费但任务不执行。
         notifyTaskReadyAfterCommit();
+    }
+
+    /** 到期私信明细专用：同一明细只允许进入账号队列一次，避免调度轮询重复入队。 */
+    public void pushScheduledDm(Long detailId, String fbAccount) {
+        if (detailId == null || fbAccount == null || fbAccount.isBlank()) return;
+        String marker = DM_ENQUEUED_KEY_PREFIX + TenantContextHolder.getRequiredTenantId() + ":" + detailId;
+        Boolean first = stringRedisTemplate.opsForValue().setIfAbsent(marker, "1", 15, TimeUnit.MINUTES);
+        if (Boolean.TRUE.equals(first)) {
+            push("dm", detailId, fbAccount);
+        }
     }
 
     /**
@@ -143,6 +154,7 @@ public class FbAiAgentCollectQueueService {
         stringRedisTemplate.opsForSet().remove(buildQueuedSetKey(), buildQueueValue("collect", detailId));
         stringRedisTemplate.opsForSet().remove(buildQueuedSetKey(), buildQueueValue("dm", detailId));
         stringRedisTemplate.opsForSet().remove(buildQueuedSetKey(), buildQueueValue("operation", detailId));
+        stringRedisTemplate.delete(DM_ENQUEUED_KEY_PREFIX + TenantContextHolder.getRequiredTenantId() + ":" + detailId);
     }
 
     public void releaseRunning(String fbAccount) {

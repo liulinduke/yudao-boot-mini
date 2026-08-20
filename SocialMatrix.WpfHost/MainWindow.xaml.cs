@@ -34,12 +34,20 @@ namespace SocialMatrix.WpfHost
         private Point _titleBarMouseDownPoint;
         private readonly AppUpdateService _appUpdateService = new();
         private bool _updateCheckStarted;
+        private bool _pendingUpdateApplyStarted;
+        private bool _showStartupLoading;
 
         private const string ProductionVueUrl = "http://1.14.181.156";
 
         public MainWindow()
         {
             InitializeComponent();
+            _showStartupLoading = !File.Exists(Path.Combine(AppContext.BaseDirectory, ".first-launch-complete"));
+            if (!_showStartupLoading)
+            {
+                VueWebView.Visibility = Visibility.Visible;
+                VueLoadingOverlay.Visibility = Visibility.Collapsed;
+            }
             MaximizeToWorkArea();
             InitializeVueWebView();
             ContentRendered += MainWindow_ContentRendered;
@@ -54,7 +62,21 @@ namespace SocialMatrix.WpfHost
 
             _updateCheckStarted = true;
             await Task.Delay(TimeSpan.FromSeconds(3));
-            await _appUpdateService.CheckAndApplyAsync(() => _browserMatrixWindows.Count == 0);
+            await _appUpdateService.CheckAndDownloadAsync();
+        }
+
+        /// <summary>
+        /// 用户主动启动任务时应用已下载的更新。更新期间才会重启当前程序。
+        /// </summary>
+        public void ApplyPendingUpdateOnUserStart()
+        {
+            if (_pendingUpdateApplyStarted)
+            {
+                return;
+            }
+
+            _pendingUpdateApplyStarted = true;
+            _appUpdateService.ApplyPendingUpdateOnStartup();
         }
 
         private void WindowHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -216,11 +238,38 @@ namespace SocialMatrix.WpfHost
 
                 VueWebView.CoreWebView2.NavigationCompleted += (_, _) =>
                 {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        VueWebView.Visibility = Visibility.Visible;
+                        VueLoadingOverlay.Visibility = Visibility.Collapsed;
+                        if (_showStartupLoading)
+                        {
+                            _showStartupLoading = false;
+                            try
+                            {
+                                File.WriteAllText(
+                                    Path.Combine(AppContext.BaseDirectory, ".first-launch-complete"),
+                                    DateTimeOffset.UtcNow.ToString("O"));
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"首次启动标记写入失败: {ex.Message}");
+                            }
+                        }
+                    }));
                 };
 
                 // 消息管理由独立 WPF 窗口承载，拦截旧前端或缓存前端发起的路由导航。
                 VueWebView.CoreWebView2.NavigationStarting += (_, args) =>
                 {
+                    if (_showStartupLoading)
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            VueWebView.Visibility = Visibility.Collapsed;
+                            VueLoadingOverlay.Visibility = Visibility.Visible;
+                        }));
+                    }
                     try
                     {
                         var uri = new Uri(args.Uri);
@@ -349,6 +398,14 @@ namespace SocialMatrix.WpfHost
             });
             VueWebView.CoreWebView2.ExecuteScriptAsync(
                 $"window.dispatchEvent(new CustomEvent('fb:message:badge-changed',{{detail:{detail}}}));");
+        }
+
+        public void NotifyBrowserClosed(string accountId, string detailId, int taskType)
+        {
+            if (VueWebView.CoreWebView2 == null) return;
+            var detail = JsonConvert.SerializeObject(new { accountId, detailId, taskType });
+            VueWebView.CoreWebView2.ExecuteScriptAsync(
+                $"window.dispatchEvent(new CustomEvent('fb:wpf:browser-closed',{{detail:{detail}}}));");
         }
 
         public void StartMessageMonitorTask(string monitorId, string accountId, string cookie,

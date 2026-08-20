@@ -77,6 +77,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="isOperation">是否为运营任务（true=运营任务如加组/私信/转帖，false=采集任务）</param>
         public void StartBrowser(string detailId, string accountId, string cookie, string searchUrl, int expectedCount, int taskType = 1, string config = null, bool isOperation = false, string deviceId = null, string password = null, string tfa = null, string fbAccount = null, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             // 记录配置信息（如果有）
             if (!string.IsNullOrEmpty(config))
             {
@@ -123,6 +124,7 @@ namespace SocialMatrix.WpfHost.Services
         public void StartProfileUpdateTask(string taskId, string accountId, string cookie,
             string deviceId, string profileConfigJson, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(() =>
             {
                 long? parsedDeviceId = long.TryParse(deviceId, out var value) ? value : null;
@@ -142,6 +144,7 @@ namespace SocialMatrix.WpfHost.Services
 
         public void StartAccountLoginBatch(string accountsJson)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(() =>
             {
                 _mainWindow.StartAccountLoginBatch(accountsJson);
@@ -168,6 +171,7 @@ namespace SocialMatrix.WpfHost.Services
         public void StartMessageMonitor(string monitorId, string accountId, string cookie,
             string deviceId, string url, string mode, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(() => _mainWindow.StartMessageMonitorTask(
                 monitorId, accountId, cookie, deviceId, mode, $"message-monitor-{monitorId}", proxyConfigJson));
         }
@@ -325,6 +329,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="messageText">消息内容</param>
         public async void StartDmTask(string taskId, string detailId, string accountId, string cookie, string fbUserId, string messageText, string password = null, string tfa = null, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 try
@@ -444,6 +449,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="actionConfigJson">动作配置JSON</param>
         public async void StartPublishPostTask(string taskId, string accountId, string cookie, string actionConfigJson, string password = null, string tfa = null, string detailId = null, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 try
@@ -558,6 +564,7 @@ namespace SocialMatrix.WpfHost.Services
         /// <param name="actionConfigJson">动作配置JSON</param>
         public async void StartGroupPublishTask(string taskId, string accountId, string cookie, string actionConfigJson, string detailId = "", string password = null, string tfa = null, string fbAccount = null, string proxyConfigJson = null)
         {
+            _mainWindow.ApplyPendingUpdateOnUserStart();
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 try

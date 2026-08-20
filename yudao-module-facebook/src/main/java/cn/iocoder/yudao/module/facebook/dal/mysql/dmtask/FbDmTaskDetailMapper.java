@@ -14,6 +14,15 @@ import java.util.List;
 @Mapper
 public interface FbDmTaskDetailMapper extends BaseMapperX<FbDmTaskDetailDO> {
 
+    default List<FbDmTaskDetailDO> selectDueScheduled(Integer limit) {
+        return selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<FbDmTaskDetailDO>()
+                .eq(FbDmTaskDetailDO::getStatus, 0)
+                .isNotNull(FbDmTaskDetailDO::getScheduledTime)
+                .le(FbDmTaskDetailDO::getScheduledTime, java.time.LocalDateTime.now())
+                .orderByAsc(FbDmTaskDetailDO::getScheduledTime)
+                .last("LIMIT " + Math.max(1, Math.min(limit == null ? 200 : limit, 500))));
+    }
+
     /**
      * 根据任务ID查询明细列表
      *

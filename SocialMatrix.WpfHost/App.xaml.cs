@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using SocialMatrix.WpfHost.Helpers;
+using SocialMatrix.WpfHost.Services;
 using Velopack;
 
 namespace SocialMatrix.WpfHost

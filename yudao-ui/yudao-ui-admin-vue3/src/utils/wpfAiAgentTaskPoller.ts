@@ -221,6 +221,17 @@ export const beginQueuedDetailResult = (detailId?: string | number) => {
   return true
 }
 
+async function handleWpfBrowserClosed(event: Event) {
+  const detail = (event as CustomEvent).detail || {}
+  const detailId = String(detail.detailId || '')
+  const accountId = String(detail.accountId || '')
+  const sourceType = queuedDetailSources.get(detailId)
+  if (!detailId || !accountId || !sourceType || finishedDetailIds.has(detailId)) return
+  // 关闭通知可能先于 WPF 已排队的 collection-complete 事件到达。
+  // 此处不能清理 claimedDetailId、标记失败或清除超时，否则正常完成回调会被丢弃。
+  // 正常完成由 collection-complete 回调释放账号；异常关闭则由原有超时机制回收。
+}
+
 export const finishQueuedAccountTaskAndStartNext = async (
   accountId?: string | number,
   detailId?: string | number
@@ -354,9 +365,13 @@ export const claimNextAiAgentDetail = async () => {
 }
 
 export const setupWpfAiAgentTaskPoller = () => {
+  window.addEventListener('fb:wpf:browser-closed', (event) => { void handleWpfBrowserClosed(event) })
   // 任务由 Vue 调用后端领取，WPF 只接收已领取的明细并操作浏览器。
   // 首屏完成后补领一次，覆盖 WPF/Vue 启动前已经创建的任务。
   window.setTimeout(() => {
     void claimAndStartPendingAiAgentDetails()
   }, 1500)
+  window.setInterval(() => {
+    void claimAndStartPendingAiAgentDetails()
+  }, 30_000)
 }

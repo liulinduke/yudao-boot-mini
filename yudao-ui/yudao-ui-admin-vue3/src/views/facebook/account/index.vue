@@ -233,7 +233,6 @@
                 </template>
               </el-table-column>
               <el-table-column label="FB账号" align="center" prop="fbAccount" width="180" />
-              <el-table-column label="密码" align="center" prop="password" width="150" />
               <el-table-column label="地区" align="center" prop="area" width="100" />
               <el-table-column label="账户分组" align="center" prop="groupName" width="120" />
               <el-table-column label="代理" align="center" prop="proxyName" width="150">
@@ -646,14 +645,17 @@ const handleBatchLogin = async () => {
     return
   }
 
-  const payload: FbAccountLoginBridgePayload[] = await Promise.all(selectedAccounts.map(async (item) => ({
-    id: item.id!,
-    accountId: item.fbAccount || '',
-    password: item.password,
-    tfa: item.tfa,
-    cookie: item.cookie || null,
-    proxyConfigJson: await getFbAccountProxyJson(item.id)
-  })))
+  const payload: FbAccountLoginBridgePayload[] = await Promise.all(selectedAccounts.map(async (item) => {
+    const account = await FbAccountApi.getFbAccount(item.id!) as FbAccount
+    return {
+      id: item.id!,
+      accountId: account.fbAccount || '',
+      password: account.password,
+      tfa: account.tfa,
+      cookie: account.cookie || null,
+      proxyConfigJson: await getFbAccountProxyJson(item.id)
+    }
+  }))
 
   payload.forEach((item) => persistedLoginAccountIds.delete(String(item.id)))
 

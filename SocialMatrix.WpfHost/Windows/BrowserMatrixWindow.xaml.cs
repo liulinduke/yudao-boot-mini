@@ -106,7 +106,7 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         // 仅排查浏览器任务时设为 true；正常运行到时必须释放浏览器资源。
-        private const bool KeepBrowserAfterTask = false;
+        private const bool KeepBrowserAfterTask = true;
         internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
 
         /// <summary>
@@ -485,7 +485,7 @@ namespace SocialMatrix.WpfHost.Windows
             container.Visibility = Visibility.Hidden;
             container.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
             {
-                Height = new System.Windows.GridLength(18)
+                Height = new System.Windows.GridLength(28)
             });
             container.RowDefinitions.Add(new System.Windows.Controls.RowDefinition
             {
@@ -496,12 +496,13 @@ namespace SocialMatrix.WpfHost.Windows
             var urlLabel = new System.Windows.Controls.TextBlock
             {
                 Text = initialUrl,
-                FontSize = 9,
+                FontSize = 12,
                 Foreground = System.Windows.Media.Brushes.DarkGray,
-                Padding = new System.Windows.Thickness(2, 1, 2, 1),
+                Padding = new System.Windows.Thickness(6, 4, 6, 4),
                 Background = System.Windows.Media.Brushes.WhiteSmoke,
                 TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
-                Height = 18
+                VerticalAlignment = VerticalAlignment.Center,
+                Height = 28
             };
 
             // 监听 URL 变化并更新标签
@@ -1003,6 +1004,13 @@ namespace SocialMatrix.WpfHost.Windows
         {
             // 手动关闭或异常清理必须立即释放账号任务锁；旧任务稍后返回时会按明细ID校验，不能误释放新任务。
             ReleaseAccountTask(accountId);
+
+            if (_accountTaskTypes.TryGetValue(accountId, out var taskType)
+                && _accountDetailIds.TryGetValue(accountId, out var detailId)
+                && Application.Current?.MainWindow is MainWindow mainWindow)
+            {
+                mainWindow.NotifyBrowserClosed(accountId, detailId, taskType);
+            }
 
             if (_browsers.TryGetValue(accountId, out var browser))
             {

@@ -1,4 +1,25 @@
-# WPF Velopack 发布与更新
+cd D:\Work\yudao-boot-mini
+
+Remove-Item .\artifacts\wpf-publish -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item .\artifacts\wpf-releases-* -Recurse -Force -ErrorAction SilentlyContinue
+
+$Version = "1.0.20"
+$ReleaseDir = ".\artifacts\wpf-releases-$Version"
+
+dotnet publish .\SocialMatrix.WpfHost\SocialMatrix.WpfHost.csproj `
+  -c Release `
+-r win-x64 `
+  --self-contained true `
+-p:PublishSingleFile=false `
+  -p:PublishReadyToRun=false `
+-o .\artifacts\wpf-publish
+
+vpk pack `
+  --packId EyochSocial `
+--packVersion $Version `
+  --packDir .\artifacts\wpf-publish `
+--mainExe EyochSocial.exe `
+--outputDir $ReleaseDir# WPF Velopack 发布与更新
 
 本文适用于 `EyochSocial`（.NET 8、WPF、CefSharp）的 Windows x64 发布。
 

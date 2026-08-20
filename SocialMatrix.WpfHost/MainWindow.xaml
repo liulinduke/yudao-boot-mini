@@ -145,7 +145,17 @@
         </Border>
 
         <Grid Grid.Row="1">
-            <wpf:WebView2 x:Name="VueWebView" />
+            <wpf:WebView2 x:Name="VueWebView" Visibility="Collapsed" />
+            <Border x:Name="VueLoadingOverlay"
+                    Background="#F7F9FC"
+                    Panel.ZIndex="10">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="正在加载，请稍候..."
+                               Foreground="#475467"
+                               FontSize="16"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.facebook.controller.admin.agent.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -26,7 +27,8 @@ public class FbAiAgentConfigSaveReqVO {
     @Schema(description = "关键词搜索链接模板，链接模式下仅替换 q 参数")
     private String searchUrlTemplate;
 
-    @Schema(description = "用户主营/出口产品")
+    @Schema(description = "用户主营/出口产品说明", example = "出口中高端卫浴龙头及淋浴系统，黄铜和不锈钢材质，提供 OEM/ODM，面向建材批发商和卫浴品牌商")
+    @Size(max = 255, message = "主营/出口产品说明不能超过 255 个字符")
     private String exportProduct;
 
     @Schema(description = "知识库ID列表，逗号分隔")

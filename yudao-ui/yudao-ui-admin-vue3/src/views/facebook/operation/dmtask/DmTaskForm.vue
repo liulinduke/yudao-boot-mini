@@ -38,9 +38,7 @@
               已选择 {{ selectedUsers.length }} 个目标用户
             </div>
           </div>
-          <div v-else class="text-gray-400 text-sm mt-2">
-            暂未选择用户，请点击上方按钮选择
-          </div>
+          <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择用户，请点击上方按钮选择 </div>
         </div>
       </el-form-item>
 
@@ -95,27 +93,27 @@
         label="执行账号"
         :prop="formData.accountSelectionMode === 'MANUAL' ? 'accountIds' : undefined"
       >
-        <FbAccountSelector v-model="formData.accountIds" v-model:selection-mode="formData.accountSelectionMode" :action-types="['dm']" class="w-full" />
+        <FbAccountSelector
+          v-model="formData.accountIds"
+          v-model:selection-mode="formData.accountSelectionMode"
+          :action-types="['dm']"
+          class="w-full"
+        />
       </el-form-item>
 
       <!-- 4. 群发间隔 -->
       <el-form-item label="群发间隔" prop="intervalRange">
         <el-select v-model="intervalRange" placeholder="请选择间隔范围" class="!w-200px">
-          <el-option label="2-4秒" value="2-4" />
-          <el-option label="4-10秒" value="4-10" />
-          <el-option label="10-16秒" value="10-16" />
+          <el-option label="5-10分钟" value="5-10" />
+          <el-option label="10-20分钟" value="10-20" />
+          <el-option label="20-30分钟" value="20-30" />
         </el-select>
-        <span class="ml-10px text-gray-500">每个账号发送消息的随机间隔时间</span>
+        <span class="ml-10px text-gray-500">单个账号发送消息的随机间隔时间</span>
       </el-form-item>
 
       <!-- 5. 备注 -->
       <el-form-item label="备注" prop="remark">
-        <el-input
-          v-model="formData.remark"
-          type="textarea"
-          placeholder="请输入备注"
-          :rows="2"
-        />
+        <el-input v-model="formData.remark" type="textarea" placeholder="请输入备注" :rows="2" />
       </el-form-item>
     </el-form>
 
@@ -142,7 +140,6 @@ import { DailyLimitApi } from '@/api/facebook/dailylimit'
 import UserSelector from '../../collect/components/UserSelector.vue'
 import ScriptSelector from './ScriptSelector.vue'
 import { useMessage } from '@/hooks/web/useMessage'
-import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 const message = useMessage()
 const dialogVisible = ref(false)
@@ -166,7 +163,7 @@ const accountGroups = ref<any[]>([])
 const accounts = ref<any[]>([])
 
 // 间隔范围
-const intervalRange = ref('4-10')
+const intervalRange = ref('5-10')
 
 const formData = ref({
   id: undefined,
@@ -176,8 +173,8 @@ const formData = ref({
   appendRandomEmoji: false,
   accountIds: [] as string[],
   accountSelectionMode: 'AUTO' as 'AUTO' | 'MANUAL',
-  minIntervalSeconds: 4,
-  maxIntervalSeconds: 10,
+  minIntervalSeconds: 300,
+  maxIntervalSeconds: 600,
   remark: ''
 })
 
@@ -213,9 +210,8 @@ const formRules = reactive({
 
 // 过滤账号（只显示选中分组的账号）
 const filteredAccounts = computed(() => {
-  return accounts.value.filter(acc => 
-    formData.value.accountIds.includes(String(acc.id)) || 
-    !formData.value.accountIds.length
+  return accounts.value.filter(
+    (acc) => formData.value.accountIds.includes(String(acc.id)) || !formData.value.accountIds.length
   )
 })
 
@@ -225,11 +221,11 @@ const open = async (type: string, id?: number) => {
   dialogTitle.value = type === 'create' ? '新建群发私信任务' : '修改群发私信任务'
   formType.value = type
   resetForm()
-  
+
   // 加载账号分组和账号列表
   await loadAccountGroups()
   await loadAccounts()
-  
+
   if (id) {
     formLoading.value = true
     try {
@@ -242,14 +238,14 @@ const open = async (type: string, id?: number) => {
       }))
       selectedScripts.value = data.scripts
       manualScripts.value = data.scripts.join('\n')
-      
+
       // 解析间隔
-      if (data.minIntervalSeconds === 2 && data.maxIntervalSeconds === 4) {
-        intervalRange.value = '2-4'
-      } else if (data.minIntervalSeconds === 10 && data.maxIntervalSeconds === 16) {
-        intervalRange.value = '10-16'
+      if (data.minIntervalSeconds === 600 && data.maxIntervalSeconds === 1200) {
+        intervalRange.value = '10-20'
+      } else if (data.minIntervalSeconds === 1200 && data.maxIntervalSeconds === 1800) {
+        intervalRange.value = '20-30'
       } else {
-        intervalRange.value = '4-10'
+        intervalRange.value = '5-10'
       }
     } finally {
       formLoading.value = false
@@ -271,7 +267,7 @@ const loadAccounts = async () => {
   try {
     const res = await FbAccountApi.getFbAccountPage({ pageNo: 1, pageSize: 200 })
     accounts.value = filterSelectableFbAccounts(res.list || [])
-    
+
     // 获取每个账号的剩余次数
     for (const account of accounts.value) {
       try {
@@ -305,7 +301,7 @@ const handleUserConfirm = (users: any[]) => {
 
 /** 移除选中的用户 */
 const removeSelectedUser = (fbUserId: string) => {
-  const index = selectedUsers.value.findIndex(u => u.fbUserId === fbUserId)
+  const index = selectedUsers.value.findIndex((u) => u.fbUserId === fbUserId)
   if (index > -1) {
     selectedUsers.value.splice(index, 1)
     formData.value.targetUserIds.splice(index, 1)
@@ -337,68 +333,14 @@ const removeSelectedScript = (index: number) => {
 
 /** 同步话术到表单数据 */
 const syncScriptsToForm = () => {
-  formData.value.scripts = scriptType.value === 1
-    ? manualScripts.value.split('\n').map((s) => s.trim()).filter(Boolean)
-    : selectedScripts.value
+  formData.value.scripts =
+    scriptType.value === 1
+      ? manualScripts.value
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : selectedScripts.value
   formData.value.scriptType = scriptType.value
-}
-
-const getRandomIntervalMs = (minSec: number, maxSec: number) => {
-  const min = Math.min(minSec, maxSec)
-  const max = Math.max(minSec, maxSec)
-  return (min + Math.random() * (max - min)) * 1000
-}
-
-/** 按明细逐条发送（每条明细含独立话术） */
-const startDmTaskInWpf = async (taskId: string) => {
-  const win = window as any
-  const bridge = win.chrome?.webview?.hostObjects?.sync?.wpfBridge
-  if (!bridge) {
-    console.warn('WPF桥接未就绪，任务已创建但未启动浏览器')
-    return
-  }
-
-  const taskDetail = await DmTaskApi.getDmTask(taskId)
-  const details = taskDetail?.details || []
-  if (details.length === 0) {
-    message.warning('任务明细为空，无法启动发送')
-    return
-  }
-
-  const minInterval = taskDetail.minIntervalSeconds || formData.value.minIntervalSeconds
-  const maxInterval = taskDetail.maxIntervalSeconds || formData.value.maxIntervalSeconds
-  let sentCount = 0
-
-  await DmTaskApi.startTask(taskId)
-
-  for (let i = 0; i < details.length; i++) {
-    const detail = details[i]
-    const accountInfo = accounts.value.find((acc) => String(acc.id) === String(detail.accountId))
-    const cookie = detail.cookie || accountInfo?.cookie || ''
-
-    const proxyConfigJson = await getFbAccountProxyJson(detail.accountId)
-    bridge.StartDmTask(
-      taskId,
-      String(detail.id),
-      String(detail.accountId),
-      cookie || null,
-      detail.targetUserId,
-      detail.scriptContent || '',
-      detail.password,
-      detail.tfa,
-      proxyConfigJson
-    )
-    sentCount++
-    console.log(
-      `启动私信 ${i + 1}/${details.length}: 账号=${detail.accountId}, 目标=${detail.targetUserId}, 话术=${detail.scriptContent}`
-    )
-
-    if (i < details.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, getRandomIntervalMs(minInterval, maxInterval)))
-    }
-  }
-
-  message.success(`已提交 ${sentCount} 条私信到 WPF 执行队列`)
 }
 
 /** 提交表单 */
@@ -414,10 +356,7 @@ const submitForm = async () => {
     message.warning(scriptType.value === 1 ? '请输入话术' : '请选择话术')
     return
   }
-  if (
-    formData.value.accountSelectionMode === 'MANUAL' &&
-    formData.value.accountIds.length === 0
-  ) {
+  if (formData.value.accountSelectionMode === 'MANUAL' && formData.value.accountIds.length === 0) {
     message.warning('请选择执行账号')
     return
   }
@@ -433,19 +372,19 @@ const submitForm = async () => {
   try {
     // 处理间隔
     const [min, max] = intervalRange.value.split('-').map(Number)
-    formData.value.minIntervalSeconds = min
-    formData.value.maxIntervalSeconds = max
-    
+    formData.value.minIntervalSeconds = min * 60
+    formData.value.maxIntervalSeconds = max * 60
+
     const data = formData.value as any
     if (formType.value === 'create') {
       const result = await DmTaskApi.createDmTask(data)
       const respData = result.data || result
       const taskId = respData?.id || respData
       message.success('创建成功')
-      
-      // 群发私信任务创建成功后后台启动浏览器执行
+
+      // 创建后由后端按 scheduledTime 将到期明细放入账号队列。
       if (taskId) {
-        void startDmTaskInWpf(String(taskId))
+        await DmTaskApi.startTask(String(taskId))
       }
     } else {
       await DmTaskApi.updateDmTask(data)
@@ -471,15 +410,15 @@ const resetForm = () => {
     appendRandomEmoji: false,
     accountIds: [],
     accountSelectionMode: 'AUTO',
-    minIntervalSeconds: 4,
-    maxIntervalSeconds: 10,
+    minIntervalSeconds: 300,
+    maxIntervalSeconds: 600,
     remark: ''
   }
   selectedUsers.value = []
   selectedScripts.value = []
   manualScripts.value = ''
   scriptType.value = 1
-  intervalRange.value = '4-10'
+  intervalRange.value = '5-10'
   formRef.value?.resetFields()
 }
 
