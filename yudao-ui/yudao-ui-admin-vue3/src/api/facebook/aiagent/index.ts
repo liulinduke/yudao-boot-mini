@@ -122,6 +122,7 @@ export interface FbAiTouchRecordSaveReq {
 }
 
 export interface FbAiKeywordGenerateReq {
+  agentType?: 'page_lead' | 'post_lead' | string
   seedKeywords?: string[]
   targetCountries?: string[]
   productDescription?: string

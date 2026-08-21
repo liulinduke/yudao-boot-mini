@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 /**
  * 运营任务明细表 DO
  *
@@ -74,6 +76,10 @@ public class FbOperationTaskDetailDO extends TenantBaseDO {
      * 状态（0-待执行 1-执行中 2-已完成 3-失败）
      */
     private Integer status;
+    /**
+     * 计划进入账号执行队列的时间。刷粉任务到期后才由后端调度投递。
+     */
+    private LocalDateTime scheduledTime;
     /**
      * 开始时间
      */

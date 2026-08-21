@@ -212,7 +212,7 @@ const submitForm = async () => {
     }
 
     await createFbOperationTask(submitData)
-    message.success('刷粉任务已创建，已加入账号串行队列')
+    message.success('刷粉任务已创建，将按间隔到期后进入账号队列')
 
     dialogVisible.value = false
     emit('success')

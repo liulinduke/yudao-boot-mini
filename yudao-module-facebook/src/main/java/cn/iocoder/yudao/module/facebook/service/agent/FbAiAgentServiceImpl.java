@@ -94,7 +94,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             "本轮采集：接收\\s*(\\d+)\\s*条，新增保存\\s*(\\d+)\\s*条，重复跳过\\s*(\\d+)\\s*条");
     private static final int POST_COMMENT_TASK_TYPE = 15;
     private static final int COLLECT_RUNNING_TIMEOUT_MINUTES = 3;
-    private static final String DEFAULT_KEYWORD_WORKFLOW_CODE = "fb_ai_keyword_expand_v1";
+    private static final String DEFAULT_PAGE_KEYWORD_WORKFLOW_CODE = "fb_ai_public_keyword_expand_v1";
+    private static final String DEFAULT_POST_KEYWORD_WORKFLOW_CODE = "fb_ai_keyword_expand_v1";
     private static final String DEFAULT_KEYWORD_LANGUAGE = "English";
     private static final String KEYWORD_EXPANSION_PROMPT = """
             Generate high-intent B2B Facebook search keywords.
@@ -238,7 +239,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         params.put("targetLanguage", StrUtil.blankToDefault(reqVO.getTargetLanguage(), DEFAULT_KEYWORD_LANGUAGE));
         params.put("expandCount", count);
         params.put("keywordExpansionPrompt", KEYWORD_EXPANSION_PROMPT);
-        Object result = invokeDefaultAiWorkflow(DEFAULT_KEYWORD_WORKFLOW_CODE, params);
+        Object result = invokeDefaultAiWorkflow(resolveKeywordWorkflowCode(reqVO.getAgentType()), params);
         List<String> keywords = parseKeywordWorkflowResult(result);
         if (CollUtil.isEmpty(keywords)) {
             keywords = buildFallbackKeywords(seeds, count);
@@ -250,6 +251,12 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .distinct()
                 .limit(count)
                 .collect(Collectors.toList()));
+    }
+
+    private String resolveKeywordWorkflowCode(String agentType) {
+        return AGENT_TYPE_PAGE_LEAD.equals(agentType)
+                ? DEFAULT_PAGE_KEYWORD_WORKFLOW_CODE
+                : DEFAULT_POST_KEYWORD_WORKFLOW_CODE;
     }
 
     @Override

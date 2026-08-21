@@ -539,10 +539,10 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column> -->
-              <el-table-column label="状态" width="110">
+              <el-table-column label="是否达标" width="100">
                 <template #default="scope">
-                  <el-tag :type="getLeadTouchStatusTagType(scope.row.touchStatus)">
-                    {{ getLeadTouchStatusLabel(scope.row.touchStatus) }}
+                  <el-tag :type="isLeadQualified(scope.row) ? 'success' : 'info'">
+                    {{ isLeadQualified(scope.row) ? '达标' : '未达标' }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -1013,28 +1013,9 @@ const getTouchStatusTagType = (status?: number) => {
   return status !== undefined ? map[status] || 'info' : 'info'
 }
 
-const getLeadTouchStatusLabel = (status?: string) => {
-  const map: Record<string, string> = {
-    not_touched: '未触达',
-    pending: '待触达',
-    touched: '已触达',
-    completed: '已完成',
-    failed: '触达失败',
-    skipped: '已跳过'
-  }
-  return status ? map[status] || status : '-'
-}
-
-const getLeadTouchStatusTagType = (status?: string) => {
-  const map: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
-    not_touched: 'info',
-    pending: 'warning',
-    touched: 'success',
-    completed: 'success',
-    failed: 'danger',
-    skipped: 'info'
-  }
-  return status ? map[status] || 'info' : 'info'
+const isLeadQualified = (lead: any) => {
+  const threshold = Number(detailAgent.value?.touchScoreThreshold ?? 85)
+  return Number(lead.productRelevanceScore ?? 0) >= threshold
 }
 
 const getLeadTypeLabel = (value?: string) => {
@@ -1459,6 +1440,7 @@ const handleGenerateKeywords = async () => {
   generatingKeywords.value = true
   try {
     const data = await FbAiAgentApi.generateKeywords({
+      agentType: wizardForm.agentType,
       seedKeywords,
       targetCountries: wizardState.targetCountryList,
       productDescription: wizardForm.exportProduct,

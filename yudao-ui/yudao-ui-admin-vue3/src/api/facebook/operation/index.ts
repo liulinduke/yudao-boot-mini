@@ -32,6 +32,7 @@ export interface FbOperationTaskDetail {
   expectedCount: number
   actualCount?: number
   status?: number
+  scheduledTime?: string
   startTime?: string
   endTime?: string
   errorMsg?: string

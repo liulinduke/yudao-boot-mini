@@ -32,6 +32,12 @@
         />
       </el-form-item>
 
+      <el-form-item label="发布增强">
+        <el-checkbox v-model="formData.randomizeImagesAndAppendEmoji">
+          图片加噪点并在内容末尾追加随机表情
+        </el-checkbox>
+      </el-form-item>
+
       <el-form-item label="图片/视频" prop="mediaUrls">
         <div>
           <el-button type="primary" @click="handleSelectFiles">
@@ -223,6 +229,7 @@ const formData = ref({
   autoAccountCount: undefined as number | undefined,
   postContent: '',
   mediaUrls: [] as string[], // 存储本地文件路径
+  randomizeImagesAndAppendEmoji: true,
   anonymouslyPost: false,
   groupType: 1, // 1=已加入群组, 2=未加入群组
   groupsPerAccount: 5, // 每个账号发布的群组数量
@@ -298,7 +305,7 @@ const handleSelectFiles = async () => {
     console.log('✅ 选择的文件:', formData.value.mediaUrls)
   } catch (error) {
     console.error('❌ 文件选择失败:', error)
-    message.error('文件选择失败')
+    message.error(`文件选择失败: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -380,6 +387,7 @@ const resetForm = () => {
     autoAccountCount: undefined,
     postContent: '',
     mediaUrls: [],
+    randomizeImagesAndAppendEmoji: true,
     anonymouslyPost: false,
     groupType: 1, // 1=已加入群组, 2=未加入群组
     groupsPerAccount: 5, // 每个账号发布的群组数量
@@ -434,6 +442,7 @@ const submitForm = async () => {
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,
         mediaUrls: formData.value.mediaUrls,
+        randomizeImagesAndAppendEmoji: formData.value.randomizeImagesAndAppendEmoji,
         anonymouslyPost: formData.value.anonymouslyPost,
         groupType: formData.value.groupType,
         groupsPerAccount: formData.value.groupsPerAccount,

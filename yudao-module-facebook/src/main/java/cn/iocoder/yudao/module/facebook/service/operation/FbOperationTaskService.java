@@ -68,6 +68,9 @@ public interface FbOperationTaskService {
 
     List<String> getFollowedAccountIds(String targetUrl);
 
+    /** 将到期的刷粉明细投递到账号执行队列。 */
+    void enqueueDueFollowDetails();
+
     /**
      * 批量保存转帖结果
      *

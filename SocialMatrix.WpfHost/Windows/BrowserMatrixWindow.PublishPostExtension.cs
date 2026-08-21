@@ -65,7 +65,10 @@ namespace SocialMatrix.WpfHost.Windows
                 JObject config = JObject.Parse(actionConfigJson);
                 var postContent = config["postContent"]?.ToString() ?? "";
                 var mediaUrls = config["mediaUrls"]?.ToObject<string[]>() ?? Array.Empty<string>();
+                var randomizeImagesAndAppendEmoji = config["randomizeImagesAndAppendEmoji"]?.Value<bool>() ?? true;
                 var privacySetting = config["privacySetting"]?.Value<int>() ?? 1;
+                if (randomizeImagesAndAppendEmoji && !string.IsNullOrWhiteSpace(postContent))
+                    postContent = PostMediaRandomizer.AppendRandomEmoji(postContent);
 
                 System.Diagnostics.Debug.WriteLine("[发个人帖] 开始执行...");
 
@@ -75,14 +78,16 @@ namespace SocialMatrix.WpfHost.Windows
 
                 await RunPublishPostScript(browser, builder.BuildOpenComposerScript(), "打开发帖 composer");
 
+                if (mediaUrls.Length > 0)
+                {
+                    await UploadPublishPostMedia(browser, mediaUrls, randomizeImagesAndAppendEmoji);
+                }
+
+                // Facebook may recreate the composer after text is entered.
+                // Inject media into the initial composer, then enter the post text.
                 if (!string.IsNullOrWhiteSpace(postContent))
                 {
                     await RunPublishPostScript(browser, builder.BuildInputContentScript(postContent), "输入帖子内容");
-                }
-
-                if (mediaUrls.Length > 0)
-                {
-                    await UploadPublishPostMedia(browser, mediaUrls);
                 }
 
                 await RunPublishPostScript(browser, builder.BuildSetPrivacyScript(privacySetting), "设置隐私");
@@ -140,39 +145,35 @@ namespace SocialMatrix.WpfHost.Windows
             System.Diagnostics.Debug.WriteLine("[发个人帖] Facebook 首页已就绪");
         }
 
-        private async Task UploadPublishPostMedia(ChromiumWebBrowser browser, string[] mediaUrls)
+        private async Task UploadPublishPostMedia(ChromiumWebBrowser browser, string[] mediaUrls, bool addImageNoise)
         {
             System.Diagnostics.Debug.WriteLine($"[发个人帖] 准备上传 {mediaUrls.Length} 个文件");
+            var invalidPaths = Array.FindAll(mediaUrls, path => string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path));
+            if (invalidPaths.Length > 0)
+                throw new Exception($"媒体文件不存在或路径无效: {string.Join(", ", invalidPaths)}");
 
-            var fileHandler = new FileUploadDialogHandler(new List<string>(mediaUrls));
-            browser.DialogHandler = fileHandler;
-            await Task.Delay(500);
-
-            var triggerScript = @"
-                (function() {
-                    const composer = [...document.querySelectorAll('[role=""dialog""]')]
-                        .reverse()
-                        .find(d => d.querySelector('[role=""textbox""]'));
-                    const root = composer || document;
-                    const photoBtn = root.querySelector('[role=""button""][aria-label=""Photo/video""]:not([aria-disabled=""true""]), [role=""button""][aria-label=""照片/视频""]:not([aria-disabled=""true""])');
-                    if (photoBtn) { photoBtn.click(); return true; }
-                    const fileInput = root.querySelector('input[type=""file""]');
-                    if (fileInput) { fileInput.click(); return true; }
-                    return false;
-                })();
-            ";
-
-            var triggerResult = await browser.EvaluateScriptAsync(triggerScript);
-            if (triggerResult.Success && triggerResult.Result is bool ok && ok)
+            // Shared CDP locator selects the newest open composer, avoiding stale
+            // dialogs and avoiding Facebook's localized Photo/video button.
+            var inputNodeId = await FindGroupFileInputNodeAsync(browser);
+            if (inputNodeId <= 0) throw new Exception("未找到已打开个人帖 composer 的媒体输入框");
+            var temporaryFiles = new List<string>();
+            var uploadPaths = addImageNoise
+                ? PostMediaRandomizer.CreateNoisyImageCopies(mediaUrls, out temporaryFiles)
+                : mediaUrls;
+            try
             {
-                System.Diagnostics.Debug.WriteLine("[发个人帖] 已触发媒体上传");
+                await ExecuteDevToolsAsync(browser, "DOM.setFileInputFiles", new Dictionary<string, object>
+                {
+                    ["nodeId"] = inputNodeId,
+                    ["files"] = uploadPaths
+                });
+                System.Diagnostics.Debug.WriteLine("[发个人帖] 已通过 CDP 注入媒体文件");
+                await Task.Delay(3000);
             }
-            else
+            finally
             {
-                System.Diagnostics.Debug.WriteLine("[发个人帖] ⚠️ 未找到 Photo/video 按钮");
+                if (addImageNoise) PostMediaRandomizer.DeleteTemporaryFiles(temporaryFiles);
             }
-
-            await Task.Delay(3000);
         }
     }
 }

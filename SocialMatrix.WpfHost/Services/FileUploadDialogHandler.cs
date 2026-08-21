@@ -1,4 +1,5 @@
 using CefSharp;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
@@ -10,6 +11,7 @@ namespace SocialMatrix.WpfHost.Services
     public class FileUploadDialogHandler : IDialogHandler
     {
         private readonly List<string> _filePaths;
+        public bool WasInvoked { get; private set; }
 
         public FileUploadDialogHandler(List<string> filePaths)
         {
@@ -27,10 +29,20 @@ namespace SocialMatrix.WpfHost.Services
             IReadOnlyCollection<string> selectedAcceptFilters,
             IFileDialogCallback callback)
         {
+            WasInvoked = true;
             // 自动提供文件路径，不显示对话框
             if (_filePaths != null && _filePaths.Count > 0)
             {
-                callback.Continue(new List<string>(_filePaths));
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"[文件上传] 接收文件对话框: mode={mode}, files={_filePaths.Count}, title={title}");
+                    callback.Continue(new List<string>(_filePaths));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[文件上传] 提交文件失败: {ex}");
+                    callback.Cancel();
+                }
                 return true; // 返回 true 表示已处理
             }
 

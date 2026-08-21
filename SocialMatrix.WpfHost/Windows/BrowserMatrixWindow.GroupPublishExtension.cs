@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using CefSharp;
 using CefSharp.Wpf;
@@ -36,6 +37,7 @@ namespace SocialMatrix.WpfHost.Windows
                 JObject config = JObject.Parse(actionConfigJson);
                 var postContent = config["postContent"]?.ToString() ?? "";
                 var mediaUrls = config["mediaUrls"]?.ToObject<string[]>() ?? Array.Empty<string>();
+                var randomizeImagesAndAppendEmoji = config["randomizeImagesAndAppendEmoji"]?.Value<bool>() ?? true;
                 var anonymouslyPost = config["anonymouslyPost"]?.Value<bool>() ?? false;
                 var groupType = config["groupType"]?.Value<int>() ?? 1;
                 var selectedGroups = config["selectedGroups"]?.ToObject<JArray>() ?? new JArray();
@@ -67,17 +69,23 @@ namespace SocialMatrix.WpfHost.Windows
 
                     var success = false;
                     var failReason = "";
+                    var publishedContent = randomizeImagesAndAppendEmoji && !string.IsNullOrWhiteSpace(postContent)
+                        ? PostMediaRandomizer.AppendRandomEmoji(postContent)
+                        : postContent;
                     try
                     {
                         await NavigateToGroupPage(browser, group.Url);
                         await OpenGroupComposer(browser);
-                        if (!string.IsNullOrWhiteSpace(postContent))
-                        {
-                            await InputGroupPostContent(browser, postContent);
-                        }
                         if (mediaUrls.Length > 0)
                         {
-                            await UploadGroupMediaFiles(browser, mediaUrls);
+                            // Facebook may replace the composer DOM after text input.
+                            // Upload first so the media input belongs to the initial
+                            // composer, then enter text into that same composer.
+                            await UploadGroupMediaFiles(browser, mediaUrls, "", randomizeImagesAndAppendEmoji);
+                        }
+                        if (!string.IsNullOrWhiteSpace(postContent))
+                        {
+                            await InputGroupPostContent(browser, publishedContent);
                         }
                         if (anonymouslyPost)
                         {
@@ -106,7 +114,7 @@ namespace SocialMatrix.WpfHost.Windows
                         failReason = success ? "" : failReason,
                         joinTime = DateTime.Now.ToString("O"),
                         syncTime = DateTime.Now.ToString("O"),
-                        postContent
+                        postContent = publishedContent
                     });
 
                     if (i < targetGroups.Count - 1)
@@ -197,16 +205,6 @@ namespace SocialMatrix.WpfHost.Windows
             const string script = @"
                 (async function() {
                     const normalize = (t) => (t || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                    const hasPostBox = () => {
-                        const main = document.querySelector('[role=""main""]') || document.body;
-                        for (const btn of main.querySelectorAll('[role=""button""]')) {
-                            const text = normalize(btn.textContent);
-                            const aria = normalize(btn.getAttribute('aria-label'));
-                            if (text.includes('write something') || text.includes('写点什么') || text.includes('在想什么')) return true;
-                            if (aria.includes('write something') || aria.includes('写点什么')) return true;
-                        }
-                        return false;
-                    };
                     const ensureDiscussion = () => {
                         for (const tab of document.querySelectorAll('[role=""tab""], a[role=""tab""]')) {
                             const label = normalize(tab.textContent);
@@ -226,7 +224,9 @@ namespace SocialMatrix.WpfHost.Windows
                         const main = document.querySelector('[role=""main""]');
                         if (main) main.scrollIntoView({ block: 'start' });
                         window.scrollTo(0, 0);
-                        if (hasPostBox()) return true;
+                        // 页面就绪只依赖稳定的 DOM 结构，不依赖 Facebook 当前语言
+                        // 或按钮文案；具体 composer 由后续结构化查找完成。
+                        if (main && main.querySelectorAll('[role=""button""], [role=""textbox""]').length > 0) return true;
                         await new Promise(r => setTimeout(r, 600));
                     }
                     throw new Error('群组发帖区未加载(未出现 Write something / 写点什么)');
@@ -275,11 +275,8 @@ namespace SocialMatrix.WpfHost.Windows
                     const isPostBoxButton = (btn) => {
                         const text = normalizeLower(btn.textContent);
                         const aria = normalizeLower(btn.getAttribute('aria-label'));
-                        if (/anonymous|匿名/.test(text + ' ' + aria)) return false;
-                        if (text.includes('write something') || text.includes('写点什么') || text.includes('在想什么')) return true;
-                        if (text.includes('create a post') || text.includes('创建帖子')) return true;
-                        if (aria.includes('write something') || aria.includes('写点什么')) return true;
-                        return false;
+                        return !aria && !btn.hasAttribute('aria-expanded') && btn.tabIndex >= 0
+                            && btn.querySelector('span') && text.length > 0 && text.length < 120;
                     };
                     const findPostBoxButton = () => {
                         const roots = [document.querySelector('[role=""main""]'), document.body].filter(Boolean);
@@ -308,27 +305,40 @@ namespace SocialMatrix.WpfHost.Windows
                         return samples;
                     };
 
-                    let postBox = null;
-                    const start = Date.now();
-                    while (Date.now() - start < 25000) {
-                        postBox = findPostBoxButton();
-                        if (postBox) break;
-                        const main = document.querySelector('[role=""main""]');
-                        if (main) main.scrollIntoView({ block: 'start' });
-                        await new Promise(r => setTimeout(r, 600));
-                    }
-                    if (!postBox) {
-                        const samples = collectCandidates();
-                        throw new Error('未找到群组发帖框, url=' + (location.href || '').slice(0, 100) + ', candidates=' + samples.join(' | '));
-                    }
+                    const existingComposer = () => [...document.querySelectorAll('[role=""dialog""]')]
+                        .filter(d => isVisible(d) && d.querySelector('[role=""textbox""]') && d.querySelector('input[type=""file""][multiple]'))
+                        .at(-1);
+                    const hasDraftContent = (composer) => {
+                        const textbox = composer?.querySelector('[role=""textbox""]');
+                        const text = (textbox?.innerText || textbox?.textContent || '').trim();
+                        return !!text || !!composer?.querySelector('img[src^=""blob:""], video, [aria-label*=""Remove post attachment""], [aria-label*=""移除帖子附件""]');
+                    };
 
-                    await humanClick(postBox);
-                    await new Promise(r => setTimeout(r, 2500));
+                    let composer = existingComposer();
+                    if (composer) {
+                        if (hasDraftContent(composer)) throw new Error('检测到已有未发布的群帖草稿，请先手动关闭或发布后再执行任务');
+                    } else {
+                        let postBox = null;
+                        const start = Date.now();
+                        while (Date.now() - start < 25000) {
+                            postBox = findPostBoxButton();
+                            if (postBox) break;
+                            const main = document.querySelector('[role=""main""]');
+                            if (main) main.scrollIntoView({ block: 'start' });
+                            await new Promise(r => setTimeout(r, 600));
+                        }
+                        if (!postBox) {
+                            const samples = collectCandidates();
+                            throw new Error('未找到群组发帖框, url=' + (location.href || '').slice(0, 100) + ', candidates=' + samples.join(' | '));
+                        }
+                        await humanClick(postBox);
+                        await new Promise(r => setTimeout(r, 2500));
+                    }
 
                     const composerStart = Date.now();
-                    while (Date.now() - composerStart < 15000) {
-                        const composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
-                            .find(d => isVisible(d) && d.querySelector('[role=""textbox""]'));
+                    while (Date.now() - composerStart < 35000) {
+                        composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
+                            .find(d => isVisible(d) && d.querySelector('[role=""textbox""]') && d.querySelector('input[type=""file""][multiple]'));
                         if (composer) return true;
                         await new Promise(r => setTimeout(r, 500));
                     }
@@ -345,8 +355,9 @@ namespace SocialMatrix.WpfHost.Windows
             var script = $@"
                 (async function() {{
                     const content = {contentJson};
-                    const composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
-                        .find(d => d.querySelector('[role=""textbox""]'));
+                    const dialogs = [...document.querySelectorAll('[role=""dialog""]')].reverse();
+                    const composer = dialogs.find(d => d.querySelector('[role=""textbox""]') && d.querySelector('input[type=""file""][multiple]'))
+                        || dialogs.find(d => d.querySelector('[role=""textbox""]'));
                     const textbox = composer?.querySelector('[role=""textbox""]');
                     if (!textbox) throw new Error('未找到帖子输入框');
                     textbox.focus();
@@ -354,15 +365,21 @@ namespace SocialMatrix.WpfHost.Windows
                     document.execCommand('selectAll', false, null);
                     document.execCommand('delete', false, null);
                     await new Promise(r => setTimeout(r, 200));
-                    document.execCommand('insertText', false, content);
-                    await new Promise(r => setTimeout(r, 800));
-                    // execCommand 已经会触发编辑器输入事件。不要再次派发带完整文本的
-                    // InputEvent，否则 Facebook composer 可能把内容追加第二次。
+                    // 与私信发送保持一致：逐字输入并带不规则停顿，避免整段粘贴。
+                    for (const ch of content) {{
+                        document.execCommand('insertText', false, ch);
+                        const pause = 45 + Math.random() * 125 + (Math.random() > 0.92 ? 250 + Math.random() * 500 : 0);
+                        await new Promise(r => setTimeout(r, pause));
+                    }}
+                    await new Promise(r => setTimeout(r, 500));
                     const actual = (textbox.innerText || textbox.textContent || '').replace(/\\r\\n/g, '\\n');
                     if (actual === content + content) {{
                         document.execCommand('selectAll', false, null);
                         document.execCommand('delete', false, null);
-                        document.execCommand('insertText', false, content);
+                        for (const ch of content) {{
+                            document.execCommand('insertText', false, ch);
+                            await new Promise(r => setTimeout(r, 35 + Math.random() * 85));
+                        }}
                         await new Promise(r => setTimeout(r, 300));
                     }}
                     textbox.blur();
@@ -373,36 +390,172 @@ namespace SocialMatrix.WpfHost.Windows
             System.Diagnostics.Debug.WriteLine("[发群帖] 内容已输入");
         }
 
-        private async Task UploadGroupMediaFiles(ChromiumWebBrowser browser, string[] mediaUrls)
+        private async Task UploadGroupMediaFiles(ChromiumWebBrowser browser, string[] mediaUrls, string postContent, bool addImageNoise)
         {
             System.Diagnostics.Debug.WriteLine($"[发群帖] 准备上传 {mediaUrls.Length} 个文件");
 
-            var fileHandler = new FileUploadDialogHandler(new List<string>(mediaUrls));
-            browser.DialogHandler = fileHandler;
-            await Task.Delay(500);
-
-            const string triggerScript = @"
-                (function() {
-                    const composer = [...document.querySelectorAll('[role=""dialog""]')].reverse()
-                        .find(d => d.querySelector('[role=""textbox""]') || d.querySelector('input[type=""file""]'));
-                    const root = composer || document;
-                    const photoBtn = root.querySelector('[role=""button""][aria-label=""Photo/video""]:not([aria-disabled=""true""]), [role=""button""][aria-label=""照片/视频""]:not([aria-disabled=""true""])');
-                    if (photoBtn) { photoBtn.click(); return 'photo'; }
-                    const fileInput = root.querySelector('input[type=""file""]');
-                    if (fileInput) { fileInput.click(); return 'file'; }
-                    return '';
-                })();
-            ";
-
-            var triggerResult = await browser.EvaluateScriptAsync(triggerScript);
-            var mode = triggerResult.Result?.ToString() ?? "";
-            if (string.IsNullOrEmpty(mode))
+            var invalidPaths = Array.FindAll(mediaUrls, path => string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path));
+            if (invalidPaths.Length > 0)
             {
-                throw new Exception("未找到 Photo/video 按钮或文件输入框");
+                throw new Exception($"媒体文件不存在或路径无效: {string.Join(", ", invalidPaths)}");
             }
 
-            System.Diagnostics.Debug.WriteLine($"[发群帖] 已触发媒体上传: {mode}");
-            await Task.Delay(4000);
+            var inputNodeId = await FindGroupFileInputNodeAsync(browser);
+            if (inputNodeId <= 0) throw new Exception("未找到已打开群帖 composer 的媒体输入框");
+            var temporaryFiles = new List<string>();
+            var uploadPaths = addImageNoise
+                ? PostMediaRandomizer.CreateNoisyImageCopies(mediaUrls, out temporaryFiles)
+                : mediaUrls;
+            try
+            {
+                await ExecuteDevToolsAsync(browser, "DOM.setFileInputFiles", new Dictionary<string, object>
+                {
+                    ["nodeId"] = inputNodeId,
+                    ["files"] = uploadPaths
+                });
+                System.Diagnostics.Debug.WriteLine("[发群帖] 已通过 CDP 注入媒体文件");
+
+            // Facebook may accept the file dialog immediately but continue uploading
+            // asynchronously. Do not click Post after a fixed short delay: that can
+            // publish the text while silently dropping the selected media.
+            var expectedContentJson = JsonConvert.SerializeObject(postContent ?? "");
+            var waitScript = @"
+                (async function() {
+                    const expectedContent = __POST_CONTENT__;
+                    const visible = (el) => {
+                        if (!el) return false;
+                        const r = el.getBoundingClientRect();
+                        const s = getComputedStyle(el);
+                        return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+                    };
+                    const findComposer = () => {
+                        const composers = [...document.querySelectorAll('[role=""dialog""]')]
+                            .filter(d => visible(d) && d.querySelector('[role=""textbox""]'));
+                        const matching = expectedContent ? composers.filter(d => {
+                            const t = d.querySelector('[role=""textbox""]');
+                            return (t?.innerText || t?.textContent || '').includes(expectedContent);
+                        }) : [];
+                        return (matching.length ? matching : composers).at(-1);
+                    };
+                    const hasMedia = (root) => {
+                        if (!root) return false;
+                        if ([...root.querySelectorAll('input[type=""file""]')].some(i => i.files && i.files.length)) return true;
+                        return [...root.querySelectorAll('img,video,[role=""img""],[style*=""background-image""],[data-visualcompletion*=""media""]')].some(el => {
+                            const src = (el.getAttribute('src') || '').toLowerCase();
+                            return visible(el) && (src.startsWith('blob:') || src.startsWith('data:') || el.tagName === 'VIDEO');
+                        }) || [...root.querySelectorAll('[aria-label]')].some(el => {
+                            const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                            return visible(el) && (label.includes('remove') || label.includes('移除') || label.includes('delete'));
+                        });
+                    };
+                    const start = Date.now();
+                    let stable = 0;
+                    while (Date.now() - start < 60000) {
+                        const composer = findComposer();
+                        if (hasMedia(composer || document)) {
+                            stable += 1;
+                            if (stable >= 3) return true;
+                        } else {
+                            stable = 0;
+                        }
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    throw new Error('媒体上传未完成或未出现在发帖框');
+                })();
+            ".Replace("__POST_CONTENT__", expectedContentJson);
+                await Task.Delay(4000);
+                await RunGroupScript(browser, waitScript, "等待媒体上传");
+                System.Diagnostics.Debug.WriteLine("[发群帖] 媒体已进入发帖框并完成稳定检查");
+            }
+            finally
+            {
+                if (addImageNoise) PostMediaRandomizer.DeleteTemporaryFiles(temporaryFiles);
+            }
+        }
+
+        private async Task<int> FindGroupFileInputNodeAsync(ChromiumWebBrowser browser)
+        {
+            await ExecuteDevToolsAsync(browser, "DOM.enable", new Dictionary<string, object>());
+            for (var attempt = 1; attempt <= 15; attempt++)
+            {
+                var document = await ExecuteDevToolsAsync(browser, "DOM.getDocument", new Dictionary<string, object>
+                {
+                    ["depth"] = 0
+                });
+                var rootNodeId = document.SelectToken("result.root.nodeId")?.Value<int>()
+                    ?? document.SelectToken("root.nodeId")?.Value<int>()
+                    ?? 0;
+                if (rootNodeId > 0)
+                {
+                    var query = await ExecuteDevToolsAsync(browser, "DOM.querySelectorAll", new Dictionary<string, object>
+                    {
+                        ["nodeId"] = rootNodeId,
+                        ["selector"] = "[role=dialog] input[type=file][multiple]"
+                    });
+                    var nodeIds = query.SelectToken("result.nodeIds") as JArray
+                        ?? query["nodeIds"] as JArray;
+                    var nodeId = nodeIds != null && nodeIds.Count > 0
+                        ? nodeIds[nodeIds.Count - 1].Value<int>()
+                        : 0;
+                    if (nodeId > 0) return nodeId;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[发群帖] 等待群帖媒体输入框: {attempt}/15");
+                await Task.Delay(1000);
+            }
+
+            return 0;
+        }
+
+        private async Task<JObject> ExecuteDevToolsAsync(ChromiumWebBrowser browser, string method, IDictionary<string, object> parameters)
+        {
+            var tcs = new TaskCompletionSource<JObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+            DevToolsResultObserver observer = null;
+            IRegistration registration = null;
+            var host = browser.GetBrowser().GetHost();
+
+            // ExecuteDevToolsMethod is restricted to CEF's UI thread, which is
+            // distinct from both the WPF dispatcher and the async continuation.
+            await Cef.UIThreadTaskFactory.StartNew(() =>
+            {
+                var id = host.GetNextDevToolsMessageId();
+                observer = new DevToolsResultObserver(id, tcs);
+                registration = host.AddDevToolsMessageObserver(observer);
+                host.ExecuteDevToolsMethod(id, method, parameters);
+            });
+
+            try
+            {
+                return await tcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            finally
+            {
+                await Cef.UIThreadTaskFactory.StartNew(() =>
+                {
+                    registration?.Dispose();
+                    observer?.Dispose();
+                });
+            }
+        }
+
+        private sealed class DevToolsResultObserver : CefSharp.Callback.IDevToolsMessageObserver
+        {
+            private readonly int _id;
+            private readonly TaskCompletionSource<JObject> _tcs;
+            public DevToolsResultObserver(int id, TaskCompletionSource<JObject> tcs) { _id = id; _tcs = tcs; }
+            public bool OnDevToolsMessage(IBrowser browser, Stream message) => false;
+            public void OnDevToolsMethodResult(IBrowser browser, int messageId, bool success, Stream result)
+            {
+                if (messageId != _id) return;
+                using var reader = new StreamReader(result);
+                var json = reader.ReadToEnd();
+                if (!success) _tcs.TrySetException(new Exception(json));
+                else _tcs.TrySetResult(JsonConvert.DeserializeObject<JObject>(json) ?? new JObject());
+            }
+            public void OnDevToolsEvent(IBrowser browser, string method, Stream parameters) { }
+            public void OnDevToolsAgentAttached(IBrowser browser) { }
+            public void OnDevToolsAgentDetached(IBrowser browser) { }
+            public void Dispose() { }
         }
 
         private async Task SetAnonymousPost(ChromiumWebBrowser browser)

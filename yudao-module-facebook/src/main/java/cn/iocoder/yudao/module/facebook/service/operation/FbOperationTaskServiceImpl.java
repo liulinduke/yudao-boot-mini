@@ -256,6 +256,8 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         task.setActionConfig(taskConfig.toString());
         operationTaskMapper.insert(task);
 
+        int[] intervalRange = resolveFollowIntervalRange(taskConfig);
+        LocalDateTime scheduledTime = LocalDateTime.now();
         for (String accountIdStr : executableAccountIds) {
             Long accountId = Long.valueOf(accountIdStr);
             String fbAccount = accountIdToFbAccountMap.get(accountId);
@@ -274,11 +276,43 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
             detail.setExpectedCount(1);
             detail.setActualCount(0);
             detail.setStatus(0);
+            detail.setScheduledTime(scheduledTime);
             operationTaskDetailMapper.insert(detail);
-            pushOperationDetailToAccountQueue(detail);
+            scheduledTime = scheduledTime.plusSeconds(randomIntervalSeconds(intervalRange[0], intervalRange[1]));
         }
 
         return task.getId();
+    }
+
+    @Override
+    public void enqueueDueFollowDetails() {
+        List<FbOperationTaskDetailDO> dueDetails = operationTaskDetailMapper.selectDueFollowScheduled(500);
+        if (CollUtil.isEmpty(dueDetails)) {
+            return;
+        }
+        List<Long> taskIds = dueDetails.stream().map(FbOperationTaskDetailDO::getTaskId)
+                .filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        Set<Long> activeFollowTaskIds = operationTaskMapper.selectBatchIds(taskIds).stream()
+                .filter(task -> Integer.valueOf(FOLLOW_TASK_TYPE).equals(task.getTaskType()))
+                .filter(task -> !Integer.valueOf(2).equals(task.getStatus())
+                        && !Integer.valueOf(3).equals(task.getStatus())
+                        && !Integer.valueOf(4).equals(task.getStatus()))
+                .map(FbOperationTaskDO::getId).collect(Collectors.toSet());
+        dueDetails.stream().filter(detail -> activeFollowTaskIds.contains(detail.getTaskId()))
+                .forEach(this::pushOperationDetailToAccountQueue);
+    }
+
+    private int[] resolveFollowIntervalRange(JSONObject taskConfig) {
+        JSONArray range = taskConfig.getJSONArray("intervalRangeSeconds");
+        int min = range != null && range.size() > 0 ? range.getInt(0, 30) : 30;
+        int max = range != null && range.size() > 1 ? range.getInt(1, 60) : 60;
+        min = Math.max(30, min);
+        max = Math.max(min, max);
+        return new int[] { min, max };
+    }
+
+    private int randomIntervalSeconds(int min, int max) {
+        return min == max ? min : ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 
     private Long createPostCommentTask(FbOperationTaskSaveReqVO createReqVO) {

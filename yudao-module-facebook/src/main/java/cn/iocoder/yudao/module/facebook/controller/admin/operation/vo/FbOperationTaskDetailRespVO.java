@@ -56,6 +56,9 @@ public class FbOperationTaskDetailRespVO {
         @Schema(description = "状态（0-待执行 1-执行中 2-已完成 3-失败）", example = "0")
         private Integer status;
 
+        @Schema(description = "计划进入账号执行队列的时间")
+        private java.time.LocalDateTime scheduledTime;
+
         @Schema(description = "开始时间")
         private java.time.LocalDateTime startTime;
 

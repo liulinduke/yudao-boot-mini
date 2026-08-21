@@ -30,6 +30,12 @@
           show-word-limit
         />
       </el-form-item>
+
+      <el-form-item label="发布增强">
+        <el-checkbox v-model="formData.randomizeImagesAndAppendEmoji">
+          图片加噪点并在内容末尾追加随机表情
+        </el-checkbox>
+      </el-form-item>
       
       <el-form-item label="图片/视频" prop="mediaUrls">
         <div>
@@ -54,7 +60,7 @@
         </div>
         <div class="text-sm text-gray-500 mt-1 ml-2">最多选择10个图片或视频（本地路径）</div>
       </el-form-item>
-      
+
       <el-form-item label="隐私设置" prop="privacySetting">
         <el-radio-group v-model="formData.privacySetting">
           <el-radio :label="1" @mousedown.prevent>公开</el-radio>
@@ -105,6 +111,7 @@ const formData = ref({
   autoAccountCount: undefined as number | undefined,
   postContent: '',
   mediaUrls: [] as string[],  // 存储本地文件路径
+  randomizeImagesAndAppendEmoji: true,
   privacySetting: 1,
   intervalRange: '4-10'  // 间隔范围
 })
@@ -173,7 +180,7 @@ const handleSelectFiles = async () => {
     console.log('✅ 选择的文件:', formData.value.mediaUrls)
   } catch (error) {
     console.error('❌ 文件选择失败:', error)
-    message.error('文件选择失败')
+    message.error(`文件选择失败: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -200,6 +207,7 @@ const resetForm = () => {
     autoAccountCount: undefined,
     postContent: '',
     mediaUrls: [],
+    randomizeImagesAndAppendEmoji: true,
     privacySetting: 1,
     intervalRange: '4-10'
   }
@@ -239,6 +247,7 @@ const submitForm = async () => {
       actionConfig: JSON.stringify({
         postContent: formData.value.postContent,
         mediaUrls: formData.value.mediaUrls,
+        randomizeImagesAndAppendEmoji: formData.value.randomizeImagesAndAppendEmoji,
         privacySetting: formData.value.privacySetting,
         minIntervalSeconds: minSec,
         maxIntervalSeconds: maxSec

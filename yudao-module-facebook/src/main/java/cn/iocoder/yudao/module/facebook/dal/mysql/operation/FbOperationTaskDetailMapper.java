@@ -25,4 +25,13 @@ public interface FbOperationTaskDetailMapper extends BaseMapperX<FbOperationTask
                 .eq(FbOperationTaskDetailDO::getStatus, 0)); // 0-待执行
     }
 
+    default List<FbOperationTaskDetailDO> selectDueFollowScheduled(Integer limit) {
+        return selectList(new LambdaQueryWrapperX<FbOperationTaskDetailDO>()
+                .eq(FbOperationTaskDetailDO::getStatus, 0)
+                .isNotNull(FbOperationTaskDetailDO::getScheduledTime)
+                .le(FbOperationTaskDetailDO::getScheduledTime, java.time.LocalDateTime.now())
+                .orderByAsc(FbOperationTaskDetailDO::getScheduledTime)
+                .last("LIMIT " + Math.max(1, Math.min(limit == null ? 500 : limit, 1000))));
+    }
+
 }

@@ -651,8 +651,8 @@ namespace SocialMatrix.WpfHost.Services
         public string SelectMediaFiles(string filter = "")
         {
             string[] selectedFiles = Array.Empty<string>();
-            
-            Application.Current.Dispatcher.Invoke(() =>
+            Exception dialogException = null;
+            var dialogThread = new Thread(() =>
             {
                 try
                 {
@@ -681,13 +681,23 @@ namespace SocialMatrix.WpfHost.Services
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ 文件选择失败: {ex.Message}");
-                    MessageBox.Show($"文件选择失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    dialogException = ex;
                 }
             });
+            dialogThread.SetApartmentState(ApartmentState.STA);
+            dialogThread.IsBackground = true;
+            dialogThread.Start();
+            dialogThread.Join();
+
+            if (dialogException != null)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 文件选择失败: {dialogException}");
+                throw new InvalidOperationException("打开文件选择窗口失败", dialogException);
+            }
 
             // 返回 JSON 数组字符串
             return JsonConvert.SerializeObject(selectedFiles);
         }
+
     }
 }

@@ -11,6 +11,9 @@ import java.util.List;
 @Data
 public class FbAiKeywordGenerateReqVO {
 
+    @Schema(description = "AI获客类型：page_lead/post_lead")
+    private String agentType;
+
     @Schema(description = "种子关键词")
     private List<String> seedKeywords;
 
