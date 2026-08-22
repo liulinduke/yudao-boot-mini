@@ -17,6 +17,7 @@ public class FbFollowTaskDispatchJob implements JobHandler {
     @TenantJob
     public String execute(String param) {
         operationTaskService.enqueueDueFollowDetails();
-        return "已检查到期刷粉明细";
+        operationTaskService.enqueueDuePublishDetails();
+        return "已检查到期刷粉、转帖和发帖明细";
     }
 }

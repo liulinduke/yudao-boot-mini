@@ -71,6 +71,9 @@ public interface FbOperationTaskService {
     /** 将到期的刷粉明细投递到账号执行队列。 */
     void enqueueDueFollowDetails();
 
+    /** 将到期的转帖、发个人帖、发群帖明细投递到账号执行队列。 */
+    void enqueueDuePublishDetails();
+
     /**
      * 批量保存转帖结果
      *

@@ -3556,6 +3556,11 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             }
 
             var allResults = new List<object>();
+            var addGroupConfig = string.IsNullOrWhiteSpace(config)
+                ? null
+                : JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JObject>(config);
+            var minIntervalMinutes = Math.Max(5, addGroupConfig?["minIntervalMinutes"]?.Value<int>() ?? 5);
+            var maxIntervalMinutes = Math.Max(minIntervalMinutes, addGroupConfig?["maxIntervalMinutes"]?.Value<int>() ?? 10);
 
             for (int i = 0; i < groups.Count; i++)
             {
@@ -3619,7 +3624,9 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
 
                 if (i < groups.Count - 1)
                 {
-                    await Task.Delay(3000);
+                    var intervalMinutes = new Random().Next(minIntervalMinutes, maxIntervalMinutes + 1);
+                    System.Diagnostics.Debug.WriteLine($"⏱️ 同一账号加组间隔 {intervalMinutes} 分钟后继续");
+                    await Task.Delay(intervalMinutes * 60 * 1000);
                 }
             }
 

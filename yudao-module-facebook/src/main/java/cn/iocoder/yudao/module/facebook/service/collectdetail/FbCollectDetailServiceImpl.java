@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.facebook.dal.dataobject.agent.FbAiAgentDiscoveryL
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.dmtask.FbDmTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.service.dmtask.FbDmTaskService;
+import cn.iocoder.yudao.module.facebook.service.operation.FbOperationTaskService;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDO;
 import cn.iocoder.yudao.module.facebook.dal.dataobject.operation.FbOperationTaskDetailDO;
 import cn.iocoder.yudao.module.facebook.dal.mysql.account.FbAccountMapper;
@@ -64,6 +65,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     @Resource
     private FbDmTaskService dmTaskService;
     @Resource
+    private FbOperationTaskService operationTaskService;
+    @Resource
     private FbOperationTaskMapper operationTaskMapper;
     @Resource
     private FbOperationTaskDetailMapper operationTaskDetailMapper;
@@ -104,6 +107,7 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     public List<FbCollectPendingDetailRespVO> claimPendingDetails(Integer limit, List<String> excludeAccounts) {
         // 私信明细到时间后才入 Redis 账号队列；领取前扫描一次可避免依赖前端外的定时器。
         dmTaskService.enqueueDueDetails();
+        operationTaskService.enqueueDuePublishDetails();
         List<FbAccountTaskQueueItem> queueItems = aiAgentCollectQueueService.popItems(limit, normalizeAccounts(excludeAccounts).stream().collect(Collectors.toList()));
         if (CollUtil.isEmpty(queueItems)) {
             return List.of();

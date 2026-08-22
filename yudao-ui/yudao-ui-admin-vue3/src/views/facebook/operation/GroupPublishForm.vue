@@ -147,13 +147,13 @@
         </el-form-item>
       </template>
 
-      <el-form-item label="发帖间隔" prop="intervalRange">
-        <el-select v-model="formData.intervalRange" placeholder="请选择间隔范围" class="!w-200px">
-          <el-option label="2-4秒" value="2-4" />
-          <el-option label="4-10秒" value="4-10" />
-          <el-option label="10-16秒" value="10-16" />
-        </el-select>
-        <span class="ml-10px text-gray-500">每个群组发帖的随机间隔时间</span>
+      <el-form-item label="发帖间隔">
+        <div class="flex items-center gap-8px flex-nowrap">
+          <el-input-number v-model="formData.minIntervalMinutes" :min="1" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">至</span>
+          <el-input-number v-model="formData.maxIntervalMinutes" :min="formData.minIntervalMinutes" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">分钟（每条帖子依次执行）</span>
+        </div>
       </el-form-item>
     </el-form>
 
@@ -238,7 +238,8 @@ const formData = ref({
   selectedGroups: [] as any[], // 已选择的群组列表（已加入）
   selectedUnjoinedGroups: [] as FbCollectGroup[], // 已选择的群组列表（未加入）
   groupKeywords: '',
-  intervalRange: '4-10' // 间隔范围
+  minIntervalMinutes: 1,
+  maxIntervalMinutes: 5
 })
 
 const formRules = reactive({
@@ -396,7 +397,8 @@ const resetForm = () => {
     selectedGroups: [], // 已选择的群组列表（已加入）
     selectedUnjoinedGroups: [], // 已选择的群组列表（未加入）
     groupKeywords: '',
-    intervalRange: '4-10'
+    minIntervalMinutes: 1,
+    maxIntervalMinutes: 5
   }
   formRef.value?.resetFields()
 }
@@ -414,9 +416,6 @@ const submitForm = async () => {
       message.warning('请输入自动分配的账号数量')
       return
     }
-
-    // 解析间隔范围
-    const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
 
     // 计算期望数量
     let expectedCount = 0
@@ -454,8 +453,8 @@ const submitForm = async () => {
           groupName: g.groupName,
           groupUrl: g.url
         })),
-        minIntervalSeconds: minSec,
-        maxIntervalSeconds: maxSec
+        minIntervalMinutes: formData.value.minIntervalMinutes,
+        maxIntervalMinutes: formData.value.maxIntervalMinutes
       })
     }
 
