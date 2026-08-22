@@ -1,108 +1,111 @@
- <template>
+<template>
   <ContentWrap>
     <div class="mb-4">
       <span class="text-lg font-bold">FB全局配置</span>
     </div>
 
     <el-form :model="formData" label-width="150px" class="max-w-600px">
-        <el-form-item label="每日私信次数">
-          <el-input-number
-            v-model="formData.dm_daily_limit"
-            :min="1"
-            :max="1000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多可发送的私信数量</span>
-        </el-form-item>
+      <el-form-item label="每日私信次数">
+        <el-input-number v-model="formData.dm_daily_limit" :min="1" :max="1000" class="!w-200px" />
+        <span class="ml-10px text-gray-500">每个账号每天最多可发送的私信数量</span>
+      </el-form-item>
 
-        <el-form-item label="每日转帖次数">
-          <el-input-number
-            v-model="formData.repost_daily_limit"
-            :min="1"
-            :max="1000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多可转帖的数量</span>
-        </el-form-item>
+      <el-form-item label="每日转帖次数">
+        <el-input-number
+          v-model="formData.repost_daily_limit"
+          :min="1"
+          :max="1000"
+          class="!w-200px"
+        />
+        <span class="ml-10px text-gray-500">每个账号每天最多可转帖的数量</span>
+      </el-form-item>
 
-        <el-form-item label="每日加组次数">
-          <el-input-number
-            v-model="formData.join_group_daily_limit"
-            :min="1"
-            :max="1000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多可加入的群组数量</span>
-        </el-form-item>
+      <el-form-item label="每日加组次数">
+        <el-input-number
+          v-model="formData.join_group_daily_limit"
+          :min="1"
+          :max="1000"
+          class="!w-200px"
+        />
+        <span class="ml-10px text-gray-500">每个账号每天最多可加入的群组数量</span>
+      </el-form-item>
 
-        <el-form-item label="每日发群帖次数">
-          <el-input-number
-            v-model="formData.group_post_daily_limit"
-            :min="1"
-            :max="1000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多发布的群组帖子数量</span>
-        </el-form-item>
+      <el-form-item label="每日发群帖次数">
+        <el-input-number
+          v-model="formData.group_post_daily_limit"
+          :min="1"
+          :max="1000"
+          class="!w-200px"
+        />
+        <span class="ml-10px text-gray-500">每个账号每天最多发布的群组帖子数量</span>
+      </el-form-item>
 
-        <el-form-item label="每日评论次数">
-          <el-input-number
-            v-model="formData.comment_daily_limit"
-            :min="1"
-            :max="5000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多可评论的数量</span>
-        </el-form-item>
+      <el-form-item label="每日评论次数">
+        <el-input-number
+          v-model="formData.comment_daily_limit"
+          :min="1"
+          :max="5000"
+          class="!w-200px"
+        />
+        <span class="ml-10px text-gray-500">每个账号每天最多可评论的数量</span>
+      </el-form-item>
 
-        <el-form-item label="每日关注次数">
-          <el-input-number
-            v-model="formData.follow_daily_limit"
-            :min="1"
-            :max="5000"
-            class="!w-200px"
-          />
-          <span class="ml-10px text-gray-500">每个账号每天最多可关注的主页数量</span>
-        </el-form-item>
+      <el-form-item label="每日关注次数">
+        <el-input-number
+          v-model="formData.follow_daily_limit"
+          :min="1"
+          :max="5000"
+          class="!w-200px"
+        />
+        <span class="ml-10px text-gray-500">每个账号每天最多可关注的主页数量</span>
+      </el-form-item>
 
-        <el-divider />
+      <el-divider />
 
-        <el-form-item label="指纹浏览器配置">
-          <div class="flex flex-col gap-8px">
-            <el-checkbox v-model="formData.browser_disable_images">
-              不加载图片（提升性能，减少流量）
-            </el-checkbox>
-            <el-checkbox v-model="formData.browser_disable_videos">
-              不加载视频（提升性能，减少流量）
-            </el-checkbox>
-            <div class="mt-4px flex items-center">
-              <el-input-number
-                v-model="formData.browser_max_concurrent"
-                :min="1"
-                :max="50"
-                class="!w-200px"
-              />
-              <span class="ml-10px text-gray-500 whitespace-nowrap">最大并发窗口数（按每个窗口约 200MB 峰值预留）</span>
-            </div>
-            <div class="text-xs text-gray-400 ml-0px">
-              💡 建议值：8GB内存 → 28个窗口 | 16GB内存 → 50个窗口（上限） | 当前系统 {{ Math.floor(getSystemMemory() / 1024) }}GB → {{ getRecommendedConcurrent() }}个。轻负载常驻内存更低，图片、视频和复杂页面会明显增加占用。
-            </div>
-            <div class="mt-8px flex items-center">
-              <el-input-number
-                v-model="formData.message_realtime_reserved_slots"
-                :min="0"
-                :max="50"
-                class="!w-200px"
-              />
-              <span class="ml-10px text-gray-500 whitespace-nowrap">消息实时监控预留窗口数</span>
-            </div>
+      <el-form-item label="指纹浏览器配置">
+        <div class="flex flex-col gap-8px">
+          <el-checkbox v-model="formData.browser_disable_images">
+            不加载图片（提升性能，减少流量）
+          </el-checkbox>
+          <el-checkbox v-model="formData.browser_disable_videos">
+            不加载视频（提升性能，减少流量）
+          </el-checkbox>
+          <div class="mt-4px flex items-center">
+            <el-input-number
+              v-model="formData.browser_max_concurrent"
+              :min="1"
+              :max="50"
+              class="!w-200px"
+            />
+            <span class="ml-10px text-gray-500 whitespace-nowrap"
+              >最大并发窗口数（按每个窗口约 200MB 峰值预留）</span
+            >
           </div>
-        </el-form-item>
+          <div class="text-xs text-gray-400 ml-0px">
+            💡 建议值：8GB内存 → 28个窗口 | 16GB内存 → 50个窗口（上限） | 当前系统
+            {{ Math.floor(getSystemMemory() / 1024) }}GB →
+            {{
+              getRecommendedConcurrent()
+            }}个。轻负载常驻内存更低，图片、视频和复杂页面会明显增加占用。
+          </div>
+          <div class="mt-8px flex items-center">
+            <el-input-number
+              v-model="formData.message_realtime_reserved_slots"
+              :min="0"
+              :max="50"
+              class="!w-200px"
+            />
+            <span class="ml-10px text-gray-500 whitespace-nowrap"
+              >其他任务最低预留窗口数（FB消息管理的实时消息窗口不能占满全部窗口，至少为采集、运营等任务保留此数量的窗口）</span
+            >
+          </div>
+        </div>
+      </el-form-item>
 
-        <el-form-item>
-          <el-button type="primary" @click="handleSubmit" :loading="loading">保存配置</el-button>
-        </el-form-item>
-      </el-form>
+      <el-form-item>
+        <el-button type="primary" @click="handleSubmit" :loading="loading">保存配置</el-button>
+      </el-form-item>
+    </el-form>
   </ContentWrap>
 </template>
 
@@ -157,15 +160,22 @@ const loadConfigs = async () => {
         if (item.configKey in formData) {
           const key = item.configKey as keyof typeof formData
           const value = item.configValue
-          
+
           // 根据字段类型进行转换
           if (key === 'browser_disable_images' || key === 'browser_disable_videos') {
             // 布尔值字段
             formData[key] = value === 'true'
-          } else if (key === 'browser_max_concurrent' || key === 'message_realtime_reserved_slots') {
+          } else if (
+            key === 'browser_max_concurrent' ||
+            key === 'message_realtime_reserved_slots'
+          ) {
             // 数字字段
             const parsed = parseInt(value)
-            formData[key] = Number.isFinite(parsed) ? parsed : key === 'message_realtime_reserved_slots' ? 5 : 12
+            formData[key] = Number.isFinite(parsed)
+              ? parsed
+              : key === 'message_realtime_reserved_slots'
+                ? 5
+                : 12
           } else {
             // 其他数字字段
             formData[key] = parseInt(value) || 0
@@ -189,7 +199,7 @@ const handleSubmit = async () => {
       configValue: String(value),
       description: getConfigDescription(key)
     }))
-    
+
     await GlobalConfigApi.batchSaveConfigs(configs)
     await syncFacebookGlobalConfig(formData)
     message.success('保存成功')

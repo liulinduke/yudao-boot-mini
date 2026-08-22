@@ -73,16 +73,6 @@ export const startAiAgentCollectDetail = async (
       return true
     }
     if (detail.sourceType === 'operation') {
-      const startUrl = detail.searchUrl || detail.actionConfig
-        ? resolveOperationStartUrl(detail)
-        : ''
-      if (!startUrl) {
-        runningAccounts.delete(account)
-        claimedDetailIds.delete(detailId)
-        detailRunningAccounts.delete(detailId)
-        queuedDetailSources.delete(detailId)
-        return false
-      }
       if (Number(detail.taskType) === 13) {
         const bridge = getBridge()
         if (!bridge?.StartGroupPublishTask) {
@@ -106,6 +96,33 @@ export const startAiAgentCollectDetail = async (
         )
         registerQueuedDetailTimeout(account, detail.detailId, 'operation')
         return true
+      }
+      if (Number(detail.taskType) === 12) {
+        const bridge = getBridge()
+        if (!bridge?.StartPublishPostTask) {
+          runningAccounts.delete(account)
+          claimedDetailIds.delete(detailId)
+          detailRunningAccounts.delete(detailId)
+          queuedDetailSources.delete(detailId)
+          return false
+        }
+        const proxyConfigJson = await getFbAccountProxyJson(browserAccount)
+        bridge.StartPublishPostTask(
+          String(detail.taskId || ''), browserAccount, detail.cookie || '', detail.actionConfig || '{}',
+          detail.password, detail.tfa, String(detail.detailId), proxyConfigJson
+        )
+        registerQueuedDetailTimeout(account, detail.detailId, 'operation')
+        return true
+      }
+      const startUrl = detail.searchUrl || detail.actionConfig
+        ? resolveOperationStartUrl(detail)
+        : ''
+      if (!startUrl) {
+        runningAccounts.delete(account)
+        claimedDetailIds.delete(detailId)
+        detailRunningAccounts.delete(detailId)
+        queuedDetailSources.delete(detailId)
+        return false
       }
       startBrowserCollect(
         String(detail.detailId),

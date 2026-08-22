@@ -185,7 +185,7 @@ export function setupWpfOperationSync() {
 }
 
 function isCollectTaskType(taskType?: number) {
-  return [1, 2, 3, 4, 6, 7, 8, 11, 12].includes(Number(taskType || 1))
+  return [1, 2, 3, 4, 6, 7, 8, 11].includes(Number(taskType || 1))
 }
 
 function parseMetricNumber(raw: string): number | null {
@@ -295,14 +295,17 @@ async function saveGroupPublishResult(data: any) {
 
 async function savePublishPostResult(data: any) {
   const detailId = String(data.detailId || '')
-  if (!detailId || handledPublishPostDetailIds.has(detailId)) {
+  if (!detailId || handledPublishPostDetailIds.has(detailId) || !beginQueuedDetailResult(detailId)) {
     return
   }
 
   handledPublishPostDetailIds.add(detailId)
   const accountId = String(data.accountId || '')
   try {
-    const result = data.results && typeof data.results === 'object' ? data.results : {}
+    const rawResult = data.results
+    const result = typeof rawResult === 'string'
+      ? JSON.parse(rawResult || '{}')
+      : rawResult && typeof rawResult === 'object' ? rawResult : {}
     if (result.success === false) {
       throw new Error(result.message || '发个人帖失败')
     }

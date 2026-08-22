@@ -239,16 +239,18 @@
             <el-button type="primary" @click="openGroupSelector" class="mb-2">
               <Icon icon="ep:plus" class="mr-5px" /> 选择群组
             </el-button>
-            <div v-if="selectedGroups.length > 0" class="mt-2">
-              <el-tag
-                v-for="group in selectedGroups"
-                :key="group.id"
-                closable
-                @close="removeSelectedGroup(group.id)"
-                class="mr-2 mb-2"
-              >
-                {{ group.groupName }}
-              </el-tag>
+            <div v-if="selectedGroups.length > 0" class="selected-group-list mt-2">
+              <div class="selected-group-tags">
+                <el-tag
+                  v-for="group in selectedGroups"
+                  :key="group.id"
+                  closable
+                  @close="removeSelectedGroup(group.id)"
+                  class="mr-2 mb-2"
+                >
+                  {{ group.groupName }}
+                </el-tag>
+              </div>
               <div class="text-gray-500 text-sm mt-2">
                 已选择 {{ selectedGroups.length }} 个群组，将自动对每个群组的成员执行加组操作
               </div>
@@ -262,6 +264,15 @@
               />
             </div>
             <div v-else class="text-gray-400 text-sm mt-2"> 暂未选择群组，请点击上方按钮选择 </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="formData.taskType === 9" label="加组间隔">
+          <div class="flex items-center gap-8px flex-nowrap">
+            <el-input-number v-model="formData.minIntervalMinutes" :min="5" :max="60" controls-position="right" class="!w-130px" />
+            <span class="text-gray-500 whitespace-nowrap">至</span>
+            <el-input-number v-model="formData.maxIntervalMinutes" :min="formData.minIntervalMinutes" :max="60" controls-position="right" class="!w-130px" />
+            <span class="text-gray-500 whitespace-nowrap">分钟（同一账号处理多个群组时生效）</span>
           </div>
         </el-form-item>
 
@@ -602,6 +613,8 @@ const formData = ref({
   targetUrls: '',
   targetGroupIds: '',
   expectedCount: 100,
+  minIntervalMinutes: 5,
+  maxIntervalMinutes: 10,
   remark: ''
 })
 
@@ -737,7 +750,9 @@ const submitForm = async () => {
                 groupId: g.id,
                 groupName: g.groupName,
                 groupUrl: g.url
-              }))
+              })),
+              minIntervalMinutes: formData.value.minIntervalMinutes,
+              maxIntervalMinutes: formData.value.maxIntervalMinutes
             })
           : formData.value.actionConfig,
       expectedCount: selectedGroups.value.length // 期望数量 = 选择的群组数量
@@ -764,6 +779,8 @@ const resetForm = () => {
     targetUrls: '',
     targetGroupIds: '',
     expectedCount: 100,
+    minIntervalMinutes: 5,
+    maxIntervalMinutes: 10,
     remark: ''
   }
   selectedGroups.value = []
@@ -833,3 +850,16 @@ const handleGroupConfirm = (groups: FbCollectGroup[]) => {
   }
 }
 </script>
+
+<style scoped>
+.selected-group-list {
+  padding: 8px 10px 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.selected-group-tags {
+  max-height: 180px;
+  overflow-y: auto;
+}
+</style>

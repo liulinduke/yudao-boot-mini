@@ -42,6 +42,15 @@
         />
       </el-form-item>
 
+      <el-form-item label="转帖间隔">
+        <div class="flex items-center gap-8px flex-nowrap">
+          <el-input-number v-model="actionConfig.minIntervalMinutes" :min="1" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">至</span>
+          <el-input-number v-model="actionConfig.maxIntervalMinutes" :min="actionConfig.minIntervalMinutes" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">分钟（每次转发依次执行）</span>
+        </div>
+      </el-form-item>
+
       <!-- 执行项配置 -->
       <el-form-item label="执行项" prop="actionConfig">
         <div class="w-full">
@@ -384,7 +393,9 @@ const formData = ref({
 const selectedActions = ref<number[]>([])
 const actionConfig = ref({
   shareToFriendCount: 10,
-  shareToGroupCount: 1
+  shareToGroupCount: 1,
+  minIntervalMinutes: 1,
+  maxIntervalMinutes: 5
 })
 
 // 群组选择
@@ -555,6 +566,8 @@ const submitForm = async () => {
       // 其他配置
       shareToFriendCount: actionConfig.value.shareToFriendCount,
       shareToGroupCount: actionConfig.value.shareToGroupCount,
+      minIntervalMinutes: actionConfig.value.minIntervalMinutes,
+      maxIntervalMinutes: actionConfig.value.maxIntervalMinutes,
       selectedGroups: selectedGroups.value
     }
 
@@ -589,7 +602,7 @@ const submitForm = async () => {
     } as unknown as FbOperationTaskSaveReqVO
 
     await createFbOperationTask(submitData)
-    message.success('转帖任务已创建，已加入账号串行队列')
+    message.success('转帖任务已创建，将按计划时间进入账号队列')
 
     dialogVisible.value = false
     emit('success')
@@ -610,7 +623,9 @@ const resetForm = () => {
   selectedActions.value = []
   actionConfig.value = {
     shareToFriendCount: 10,
-    shareToGroupCount: 1
+    shareToGroupCount: 1,
+    minIntervalMinutes: 1,
+    maxIntervalMinutes: 5
   }
   selectedGroups.value = []
 

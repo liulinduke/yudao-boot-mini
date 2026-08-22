@@ -46,6 +46,16 @@ declare global {
                 tfa?: string,
                 proxyConfigJson?: string
               ) => void
+              StartPublishPostTask?: (
+                taskId: string,
+                accountId: string,
+                cookie: string,
+                actionConfigJson: string,
+                password?: string,
+                tfa?: string,
+                detailId?: string,
+                proxyConfigJson?: string
+              ) => void
               StartGroupPublishTask?: (
                 taskId: string,
                 accountId: string,

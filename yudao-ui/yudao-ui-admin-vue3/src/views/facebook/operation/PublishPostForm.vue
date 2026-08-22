@@ -69,13 +69,13 @@
         </el-radio-group>
       </el-form-item>
       
-      <el-form-item label="发帖间隔" prop="intervalRange">
-        <el-select v-model="formData.intervalRange" placeholder="请选择间隔范围" class="!w-200px">
-          <el-option label="2-4秒" value="2-4" />
-          <el-option label="4-10秒" value="4-10" />
-          <el-option label="10-16秒" value="10-16" />
-        </el-select>
-        <span class="ml-10px text-gray-500">每个账号发帖的随机间隔时间</span>
+      <el-form-item label="发帖间隔">
+        <div class="flex items-center gap-8px flex-nowrap">
+          <el-input-number v-model="formData.minIntervalMinutes" :min="1" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">至</span>
+          <el-input-number v-model="formData.maxIntervalMinutes" :min="formData.minIntervalMinutes" :max="60" controls-position="right" class="!w-130px" />
+          <span class="text-gray-500 whitespace-nowrap">分钟（每条帖子依次执行）</span>
+        </div>
       </el-form-item>
     </el-form>
     
@@ -113,7 +113,8 @@ const formData = ref({
   mediaUrls: [] as string[],  // 存储本地文件路径
   randomizeImagesAndAppendEmoji: true,
   privacySetting: 1,
-  intervalRange: '4-10'  // 间隔范围
+  minIntervalMinutes: 1,
+  maxIntervalMinutes: 5
 })
 
 const formRules = reactive({
@@ -209,7 +210,8 @@ const resetForm = () => {
     mediaUrls: [],
     randomizeImagesAndAppendEmoji: true,
     privacySetting: 1,
-    intervalRange: '4-10'
+    minIntervalMinutes: 1,
+    maxIntervalMinutes: 5
   }
   formRef.value?.resetFields()
 }
@@ -226,9 +228,6 @@ const submitForm = async () => {
   }
   
   try {
-    // 解析间隔范围
-    const [minSec, maxSec] = formData.value.intervalRange.split('-').map(Number)
-    
     // 构建任务数据
     if (formData.value.accountSelectionMode === 'AUTO' && !formData.value.autoAccountCount) {
       message.warning('请输入自动分配的账号数量')
@@ -249,8 +248,8 @@ const submitForm = async () => {
         mediaUrls: formData.value.mediaUrls,
         randomizeImagesAndAppendEmoji: formData.value.randomizeImagesAndAppendEmoji,
         privacySetting: formData.value.privacySetting,
-        minIntervalSeconds: minSec,
-        maxIntervalSeconds: maxSec
+        minIntervalMinutes: formData.value.minIntervalMinutes,
+        maxIntervalMinutes: formData.value.maxIntervalMinutes
       })
     }
     
@@ -258,70 +257,7 @@ const submitForm = async () => {
     const taskId = await OperationApi.createFbOperationTask(data)
     console.log('✅ 发个人帖任务创建成功, TaskId:', taskId)
 
-    // 从后端明细取得最终账号和明细 ID，WPF 成功后必须用真实明细 ID 回传状态。
-    const taskDetail = await OperationApi.getFbOperationTask(String(taskId))
-    const detailData = (taskDetail as any)?.data || taskDetail
-    const taskDetails = Array.isArray(detailData?.details) ? detailData.details : []
-    const detailByAccountId = new Map<string, any>(
-      taskDetails.map((detail: any) => [String(detail.accountId || '').trim(), detail])
-    )
-
-    // 自动模式下账号由后端最终分配，不能继续使用表单里的空 accountIds。
-    let executionAccountIds = [...formData.value.accountIds]
-    if (formData.value.accountSelectionMode === 'AUTO') {
-      executionAccountIds = taskDetails
-        .map((detail: any) => String(detail.accountId || '').trim())
-        .filter(Boolean)
-    }
-    if (executionAccountIds.length === 0) {
-      throw new Error('任务已创建，但没有获取到后端分配的执行账号')
-    }
-    
-    // 2. 调用 WPF 执行任务（为每个账号启动）
-    // @ts-ignore
-    if (window.chrome?.webview?.hostObjects?.sync?.wpfBridge) {
-      console.log('🚀 开始调用 WPF 执行发个人帖任务...')
-      
-      // 获取账号信息（需要从后端获取cookie）
-      for (const accountId of executionAccountIds) {
-        try {
-          const accountInfo = await FbAccountApi.getFbAccount(accountId)
-          const cookie = accountInfo.cookie || ''
-          
-          console.log(`📝 启动账号 ${accountId} 的发个人帖任务`)
-          const detail = detailByAccountId.get(String(accountId))
-          if (!detail?.id) {
-            throw new Error(`未找到账号 ${accountId} 对应的任务明细`)
-          }
-          
-          // @ts-ignore
-          const proxyConfigJson = accountInfo.runtimeProxy
-            ? JSON.stringify(accountInfo.runtimeProxy)
-            : undefined
-          window.chrome.webview.hostObjects.sync.wpfBridge.StartPublishPostTask(
-            String(taskId),
-            String(accountId),
-            cookie,
-            data.actionConfig,
-            accountInfo.password,
-            accountInfo.tfa,
-            String(detail.id),
-            proxyConfigJson
-          )
-          
-          // 等待间隔时间（防风控）
-          const intervalSeconds = (minSec + maxSec) / 2
-          await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000))
-        } catch (error) {
-          console.error(`❌ 启动账号 ${accountId} 的任务失败:`, error)
-        }
-      }
-      
-      message.success('任务已创建并发送到 WPF 队列')
-    } else {
-      console.warn('⚠️ WPF 桥接对象不存在，任务已创建但未执行')
-      message.warning('任务已创建，但 WPF 未连接')
-    }
+    message.success('任务已创建，将按计划时间进入账号队列')
     
     dialogVisible.value = false
     emit('success')

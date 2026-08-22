@@ -42,8 +42,6 @@ namespace SocialMatrix.WpfHost.Windows
                 var groupType = config["groupType"]?.Value<int>() ?? 1;
                 var selectedGroups = config["selectedGroups"]?.ToObject<JArray>() ?? new JArray();
                 var selectedUnjoinedGroups = config["selectedUnjoinedGroups"]?.ToObject<JArray>() ?? new JArray();
-                var minIntervalSeconds = config["minIntervalSeconds"]?.Value<int>() ?? 10;
-                var maxIntervalSeconds = config["maxIntervalSeconds"]?.Value<int>() ?? 20;
 
                 System.Diagnostics.Debug.WriteLine("[发群帖] 开始执行...");
 
@@ -117,13 +115,6 @@ namespace SocialMatrix.WpfHost.Windows
                         postContent = publishedContent
                     });
 
-                    if (i < targetGroups.Count - 1)
-                    {
-                        var random = new Random();
-                        var intervalMs = random.Next(minIntervalSeconds * 1000, maxIntervalSeconds * 1000);
-                        System.Diagnostics.Debug.WriteLine($"[发群帖] 等待 {intervalMs / 1000} 秒后继续...");
-                        await Task.Delay(intervalMs);
-                    }
                 }
 
                 System.Diagnostics.Debug.WriteLine("[发群帖] 所有操作完成");
