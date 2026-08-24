@@ -680,21 +680,29 @@ namespace SocialMatrix.WpfHost
         /// </summary>
         public void CloseBrowserForAccount(string accountId)
         {
+            _browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow);
+
             // 调试保留模式下，拦截 Vue/队列的自动关闭请求，避免旧前端构建或超时兜底绕过
             // BrowserMatrixWindow 任务 finally 的保留判断。Tab 头部的手动关闭仍直接调用
             // BrowserMatrixWindow.CloseBrowser，不经过这里，因此不影响用户主动排查。
-            if (BrowserMatrixWindow.KeepBrowserAfterTaskForDebug)
+            // 如果用户已经手动关闭了浏览器，必须继续清理失效映射，不能被调试模式拦截。
+            if (BrowserMatrixWindow.KeepBrowserAfterTaskForDebug
+                && browserMatrixWindow != null
+                && browserMatrixWindow.HasActiveBrowser(accountId))
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"🧪 调试保留模式：忽略前端自动关闭账号 {accountId} 的浏览器");
                 return;
             }
 
-            if (_browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow))
+            if (browserMatrixWindow != null)
             {
-                browserMatrixWindow.CloseBrowser(accountId);
+                if (browserMatrixWindow.HasActiveBrowser(accountId))
+                {
+                    browserMatrixWindow.CloseBrowser(accountId);
+                }
                 _browserMatrixWindows.Remove(accountId);
-                UpdateStatus($"已关闭账号 {accountId} 的浏览器");
+                UpdateStatus($"已清理账号 {accountId} 的浏览器状态");
                 
                 // 如果没有活跃浏览器，关闭窗口
                 if (browserMatrixWindow.GetActiveBrowserCount() == 0)

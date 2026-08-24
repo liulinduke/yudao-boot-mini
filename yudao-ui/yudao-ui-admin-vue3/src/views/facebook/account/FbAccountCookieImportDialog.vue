@@ -2,7 +2,7 @@
   <Dialog :title="dialogTitle" v-model="dialogVisible" width="700px">
     <div v-if="!tableView">
       <el-alert
-        title="新账号需进行24–48小时养号，仅进行浏览等基础操作，避免修改资料和执行任务"
+        title="新账号需进行23天以上的养号才更稳定些，仅进行浏览等基础操作，避免修改资料和执行任务"
         type="warning"
         :closable="false"
         show-icon
@@ -181,7 +181,10 @@ const splitCookieEntries = (data: string): string[] => {
     }
   } catch {}
 
-  return data.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return data
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 const handleNext = () => {
@@ -200,7 +203,11 @@ const handleNext = () => {
     let error = ''
     let userId = ''
 
-    if (!trimmedLine.includes('=') && !trimmedLine.trimStart().startsWith('[') && !trimmedLine.trimStart().startsWith('{')) {
+    if (
+      !trimmedLine.includes('=') &&
+      !trimmedLine.trimStart().startsWith('[') &&
+      !trimmedLine.trimStart().startsWith('{')
+    ) {
       error = '无效的Cookie格式'
     } else {
       userId = extractUserIdFromCookie(trimmedLine) || ''

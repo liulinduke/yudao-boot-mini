@@ -228,6 +228,9 @@ public class FbOperationTaskServiceImpl implements FbOperationTaskService {
         if (!Integer.valueOf(REPOST_TASK_TYPE).equals(task.getTaskType())
                 && !Integer.valueOf(12).equals(task.getTaskType()) && !Integer.valueOf(13).equals(task.getTaskType())) {
             pushOperationDetailsToAccountQueue(details);
+        } else if (CollUtil.isNotEmpty(details)) {
+            // 第一条立即进入队列；后续明细由到期扫描按 scheduledTime 逐条放入队列。
+            pushOperationDetailToAccountQueue(details.get(0));
         }
 
         return task.getId();

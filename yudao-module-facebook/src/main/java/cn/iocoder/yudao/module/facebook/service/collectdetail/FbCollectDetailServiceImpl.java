@@ -325,7 +325,12 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private String buildOperationRuntimeConfig(FbOperationTaskDetailDO detail, FbOperationTaskDO task, String startUrl) {
         Integer taskType = task == null ? null : task.getTaskType();
         String actionConfig = StrUtil.blankToDefault(detail.getActionConfig(), task == null ? null : task.getActionConfig());
-        if (Integer.valueOf(9).equals(taskType) || Integer.valueOf(13).equals(taskType)) {
+        // 链接加组、个人帖、群帖的 WPF 执行器都直接读取原始 actionConfig。
+        // 个人帖若被包装为 runtimeConfig，会取不到顶层 postContent/mediaUrls，
+        // 导致发帖框为空且 Post 按钮一直禁用。
+        if (Integer.valueOf(9).equals(taskType)
+                || Integer.valueOf(12).equals(taskType)
+                || Integer.valueOf(13).equals(taskType)) {
             return StrUtil.blankToDefault(actionConfig, "{}");
         }
         cn.hutool.json.JSONObject runtimeConfig = cn.hutool.json.JSONUtil.createObj();

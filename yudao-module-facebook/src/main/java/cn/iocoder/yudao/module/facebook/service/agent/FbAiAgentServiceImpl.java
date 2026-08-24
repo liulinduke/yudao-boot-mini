@@ -1521,7 +1521,13 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         FbCollectDO task = new FbCollectDO();
         task.setTaskType(taskType);
         task.setSearchType(searchType);
-        task.setSearchUrl(searchUrl);
+        log.info("创建Facebook采集主任务 searchUrl长度={}, urlCount={}, preview={}",
+                searchUrl == null ? 0 : searchUrl.length(),
+                StrUtil.isBlank(searchUrl) ? 0 : searchUrl.split("\\R").length,
+                summarizeSearchUrl(searchUrl));
+        // 主任务表只用于列表展示，多个地址或超长模板不能直接写入 varchar(500)。
+        // 明细表仍保存每条完整地址，实际执行使用明细地址。
+        task.setSearchUrl(summarizeSearchUrl(searchUrl));
         task.setExpectedCount(taskType == DEEP_COLLECT_TASK_TYPE ? 1 : DEFAULT_COLLECT_EXPECTED_COUNT);
         task.setIntervalSeconds(5);
         task.setStatus(1);
@@ -1534,6 +1540,20 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         task.setFbAccount(accountMap.get(accountIds.get(0)));
         collectMapper.insert(task);
         return task;
+    }
+
+    private String summarizeSearchUrl(String searchUrl) {
+        if (StrUtil.isBlank(searchUrl)) {
+            return searchUrl;
+        }
+        String normalized = searchUrl.trim();
+        String firstUrl = normalized.split("\\R", 2)[0].trim();
+        if (normalized.indexOf('\n') >= 0 || normalized.indexOf('\r') >= 0) {
+            String suffix = " (共" + normalized.split("\\R").length + "个地址)";
+            int maxUrlLength = Math.max(1, 500 - suffix.length());
+            return StrUtil.maxLength(firstUrl, maxUrlLength) + suffix;
+        }
+        return StrUtil.maxLength(firstUrl, 500);
     }
 
     private int resolveTargetCustomerCount(FbAiAgentConfigDO config) {
@@ -2757,7 +2777,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
                     .in(FbCollectPostDO::getId, postIds));
             setAgentSummary(config, posts.stream()
-                    .filter(item -> item.getProductRelevanceScore() != null)
                     .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
                     .collect(Collectors.toList()));
             return;
@@ -2770,19 +2789,23 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .in(FbCollectUserDO::getId, leadIds));
         setAgentSummary(config, users.stream()
-                .filter(item -> item.getProductRelevanceScore() != null)
                 .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
                 .collect(Collectors.toList()));
     }
 
     private void setAgentSummary(FbAiAgentConfigDO config, List<AgentLeadSummary> leads) {
         int threshold = resolveTouchScoreThreshold(config);
-        long qualifiedCount = leads.stream().filter(item -> item.score >= threshold).count();
+        // 线索数代表实际发现的客户总数，不应因为 AI 尚未完成评分而显示为 0。
+        // 达标、触达和未触达仍只统计已经完成评分的客户。
+        long qualifiedCount = leads.stream()
+                .filter(item -> item.score != null && item.score >= threshold)
+                .count();
         long touchedCount = leads.stream()
+                .filter(item -> item.score != null)
                 .filter(item -> isLeadTouched(item.touchStatus))
                 .count();
         long untouchedCount = leads.stream()
-                .filter(item -> item.score >= threshold)
+                .filter(item -> item.score != null && item.score >= threshold)
                 .filter(item -> !isLeadTouched(item.touchStatus))
                 .count();
         config.setLeadCount((long) leads.size());
@@ -3358,6 +3381,23 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             }
             List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                     .eq(FbCollectUserDO::getTaskId, logDO.getCollectTaskId()));
+            // 深度采集结果可能通过明细的 sourceUserId 关联原始主页，兼容这类历史/分批保存数据。
+            // 发现数必须以实际已保存的客户为准，不能因 task_id 关联不到而回落为 0。
+            if (CollUtil.isEmpty(users)) {
+                List<Long> sourceUserIds = collectDetailMapper.selectList(new LambdaQueryWrapper<FbCollectDetailDO>()
+                                .eq(FbCollectDetailDO::getTaskId, logDO.getCollectTaskId())
+                                .isNotNull(FbCollectDetailDO::getSourceUserId)
+                                .select(FbCollectDetailDO::getSourceUserId))
+                        .stream()
+                        .map(FbCollectDetailDO::getSourceUserId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .collect(Collectors.toList());
+                if (CollUtil.isNotEmpty(sourceUserIds)) {
+                    users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                            .in(FbCollectUserDO::getId, sourceUserIds));
+                }
+            }
             FbAiAgentDiscoveryLogDO updateObj = new FbAiAgentDiscoveryLogDO();
             updateObj.setId(logDO.getId());
             updateObj.setDiscoveredCount(users.size());
