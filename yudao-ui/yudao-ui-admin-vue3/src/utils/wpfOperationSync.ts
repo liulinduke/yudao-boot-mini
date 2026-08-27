@@ -8,6 +8,7 @@ import {
   beginQueuedDmResult,
   claimNextAiAgentDetail,
   finishQueuedAccountTaskAndStartNext,
+  isAiAgentCollectDetail,
   isAiAgentClaimedDetail,
   markAiAgentCollectFinished,
   registerQueuedDetailTimeout,
@@ -63,7 +64,8 @@ export function setupWpfOperationSync() {
       }
       return
     }
-    if (isAiAgentClaimedDetail(data.detailId) && isCollectTaskType(data.taskType)) {
+    if (isAiAgentClaimedDetail(data.detailId)
+      && (isCollectTaskType(data.taskType) || isAiAgentCollectDetail(data.detailId))) {
       await saveCollectResult(data)
       return
     }
@@ -227,11 +229,27 @@ async function saveCollectResult(data: any) {
   const results = parseResultList(data.results).slice(reportedCount)
   handledCollectDetailIds.add(detailId)
   try {
+    if (results.length === 0) {
+      await FbCollectApi.markDetailCompleted(detailId)
+    }
     await saveCollectedItems(detailId, taskType, results)
     markAiAgentCollectFinished(data.accountId, detailId)
+    console.log('[账号队列] 当前明细已完成，按账号FIFO领取下一条', {
+      detailId,
+      accountId: String(data.accountId || '')
+    })
     const nextDetail = await claimNextAiAgentDetail()
+    console.log('[账号队列] 下一条领取结果', {
+      detailId: nextDetail?.detailId || null,
+      taskId: nextDetail?.taskId || null,
+      accountId: nextDetail?.fbAccount || null
+    })
     if (nextDetail) {
-      startAiAgentCollectDetail(nextDetail)
+      await startAiAgentCollectDetail(nextDetail)
+    } else {
+      // 深度采集任务完成后 WPF 会暂留浏览器，便于同账号复用。
+      // 队列没有下一条时由前端明确关闭，避免浏览器长期占用槽位。
+      closeBrowser(String(data.accountId || ''))
     }
     window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))
     window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId, taskType } }))
@@ -262,7 +280,15 @@ async function saveGroupPublishResult(data: any) {
 
   const results = parseResultList(data.results)
   if (results.length === 0) {
-    console.warn('[发群帖结果] 结果为空，跳过保存', data)
+    console.warn('[发群帖结果] 结果为空，标记明细失败并继续队列', data)
+    try {
+      await markOperationDetailFailed({ detailId, errorMsg: '发群帖未返回执行结果' })
+      const nextDetail = await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
+      const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
+      if (!nextDetail || nextAccountId !== String(data.accountId)) closeBrowser(String(data.accountId || ''))
+    } catch (error) {
+      console.error('[发群帖结果] 空结果状态上报失败', error)
+    }
     return
   }
 

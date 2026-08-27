@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -26,6 +28,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class FbAiAgentCollectQueueService {
+
+    private static final Logger log = LoggerFactory.getLogger(FbAiAgentCollectQueueService.class);
 
     private static final String ACCOUNT_SET_KEY_PREFIX = "fb:account-task:accounts:";
     private static final String ACCOUNT_QUEUE_KEY_PREFIX = "fb:account-task:pending:";
@@ -63,6 +67,7 @@ public class FbAiAgentCollectQueueService {
         stringRedisTemplate.expire(key, QUEUE_EXPIRE_DAYS, TimeUnit.DAYS);
         stringRedisTemplate.opsForSet().add(buildAccountSetKey(), account);
         stringRedisTemplate.expire(buildAccountSetKey(), QUEUE_EXPIRE_DAYS, TimeUnit.DAYS);
+        log.info("[账号队列] 入队 account={}, sourceType={}, detailId={}", account, sourceType, detailId);
         // 采集、运营、AI 获客 Agent 共用同一领取入口，由 WPF 根据 claim-pending 返回的
         // sourceType/taskType/actionConfig 分发执行。
         // 任务明细通常还在同一个数据库事务中。必须等事务提交后再通知 WPF，
@@ -130,6 +135,7 @@ public class FbAiAgentCollectQueueService {
                 Long detailId = parseDetailId(value);
                 stringRedisTemplate.opsForSet().remove(buildQueuedSetKey(), value);
                 markRunning(account, detailId);
+                log.info("[账号队列] 出队 account={}, sourceType={}, detailId={}", account, parseSourceType(value), detailId);
                 result.add(new FbAccountTaskQueueItem(parseSourceType(value), detailId, account));
             } catch (NumberFormatException ignored) {
                 // 丢弃异常缓存值

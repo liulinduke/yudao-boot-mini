@@ -92,4 +92,15 @@ public class FbCollectDetailController {
         fbCollectDetailService.markDetailFailed(Long.parseLong(detailId), errorMessage);
         return success(true);
     }
+
+    @PostMapping("/complete")
+    @Operation(summary = "标记采集明细完成")
+    @PreAuthorize("@ss.hasPermission('facebook:fb-collect:update')")
+    public CommonResult<Boolean> markDetailCompleted(@RequestParam("detailId") String detailId) {
+        if (detailId == null || !detailId.matches("\\d+")) {
+            return success(false);
+        }
+        fbCollectDetailService.markDetailCompleted(Long.parseLong(detailId));
+        return success(true);
+    }
 }

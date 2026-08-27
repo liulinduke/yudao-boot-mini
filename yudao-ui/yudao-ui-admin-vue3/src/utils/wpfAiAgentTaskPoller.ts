@@ -201,6 +201,11 @@ export const isAiAgentClaimedDetail = (detailId?: string | number) => {
   return !!detailId && claimedDetailIds.has(String(detailId))
 }
 
+export const isAiAgentCollectDetail = (detailId?: string | number) => {
+  return !!detailId && queuedDetailSources.get(String(detailId)) === 'collect'
+}
+
+
 export const markAiAgentCollectFinished = (accountId?: string | number, detailId?: string | number) => {
   if (detailId) {
     const value = String(detailId)
@@ -244,9 +249,36 @@ async function handleWpfBrowserClosed(event: Event) {
   const accountId = String(detail.accountId || '')
   const sourceType = queuedDetailSources.get(detailId)
   if (!detailId || !accountId || !sourceType || finishedDetailIds.has(detailId)) return
-  // 关闭通知可能先于 WPF 已排队的 collection-complete 事件到达。
-  // 此处不能清理 claimedDetailId、标记失败或清除超时，否则正常完成回调会被丢弃。
-  // 正常完成由 collection-complete 回调释放账号；异常关闭则由原有超时机制回收。
+
+  // 该事件只由 WPF 在账号 Tab 被关闭、浏览器实例已不存在时发送。
+  // 立即释放前端账号占用，否则同一账号会被 runningAccounts 排除到超时，
+  // 下一次立即执行就会误报“没有可启动的 WPF 浏览器窗口”。
+  clearQueuedDetailTimeout(detailId)
+  rememberFinishedDetail(detailId)
+  try {
+    if (sourceType === 'operation') {
+      await markOperationDetailFailed({ detailId, errorMessage: 'WPF 浏览器已被手动关闭，当前任务已停止' })
+      window.dispatchEvent(new CustomEvent('fb:operation:detail-saved', { detail: { detailId } }))
+    } else if (sourceType === 'dm') {
+      await DmTaskApi.reportDetail({
+        detailId,
+        status: 2,
+        errorMsg: 'WPF 浏览器已被手动关闭，当前任务已停止'
+      })
+      window.dispatchEvent(new CustomEvent('fb:dm:result:saved', { detail: { detailId } }))
+    } else {
+      await FbCollectApi.markDetailFailed({ detailId, errorMessage: 'WPF 浏览器已被手动关闭，当前任务已停止' })
+      window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
+    }
+  } catch (error) {
+    console.warn('手动关闭WPF浏览器后上报明细失败', error)
+  } finally {
+    const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+    const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
+    if (!nextDetail || nextAccountId !== accountId) {
+      closeBrowser(accountId)
+    }
+  }
 }
 
 export const finishQueuedAccountTaskAndStartNext = async (
@@ -380,6 +412,7 @@ export const claimNextAiAgentDetail = async () => {
     polling = false
   }
 }
+
 
 export const setupWpfAiAgentTaskPoller = () => {
   window.addEventListener('fb:wpf:browser-closed', (event) => { void handleWpfBrowserClosed(event) })

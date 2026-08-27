@@ -106,7 +106,7 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         // 仅排查浏览器任务时设为 true；正常运行到时必须释放浏览器资源。
-        private const bool KeepBrowserAfterTask = true;
+        private const bool KeepBrowserAfterTask = false;
         internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
 
         /// <summary>
@@ -2196,20 +2196,10 @@ namespace SocialMatrix.WpfHost.Windows
             }
             finally
             {
-                // 采集任务是一次性任务。结果回传事件已发出后关闭当前账号 Tab，
-                // 避免只释放任务锁而遗留浏览器和 RequestContext。
-                if (!KeepBrowserAfterTask
-                    && _browsers.TryGetValue(accountId, out var completedBrowser)
-                    && ReferenceEquals(completedBrowser, browser)
-                    && !completedBrowser.IsDisposed)
-                {
-                    CloseBrowser(accountId);
-                    if (GetActiveBrowserCount() == 0)
-                    {
-                        Application.Current.Dispatcher.Invoke(Close);
-                    }
-                }
-                else if (KeepBrowserAfterTask)
+                // 队列采集任务的结果回传给前端后，前端会先领取同账号下一条明细并复用当前浏览器；
+                // 没有下一条时再主动调用 CloseBrowserForAccount 释放资源。这里不能提前关闭，
+                // 否则主页、帖子、群组和深度采集都会在每条明细之间重复创建浏览器。
+                if (KeepBrowserAfterTask)
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"🧪 全局配置已开启，保留账号 {accountId} 的浏览器用于测试排查");
@@ -3813,6 +3803,16 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         public int GetActiveBrowserCount()
         {
             return _browsers.Values.Count(browser => !browser.IsDisposed);
+        }
+
+        /// <summary>
+        /// 判断指定账号当前是否仍有可用的浏览器实例。
+        /// </summary>
+        public bool HasActiveBrowser(string accountId)
+        {
+            return _browsers.TryGetValue(accountId, out var browser)
+                && browser != null
+                && !browser.IsDisposed;
         }
 
         /// <summary>

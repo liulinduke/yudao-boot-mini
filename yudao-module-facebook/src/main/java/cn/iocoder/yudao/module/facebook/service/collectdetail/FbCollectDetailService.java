@@ -61,4 +61,7 @@ public interface FbCollectDetailService {
      * @param errorMessage 失败原因
      */
     void markDetailFailed(Long detailId, String errorMessage);
+
+    /** 标记采集明细完成，即使本次没有采集到数据。 */
+    void markDetailCompleted(Long detailId);
 }

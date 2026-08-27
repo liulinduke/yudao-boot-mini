@@ -623,6 +623,16 @@ onMounted(() => {
         `📊 采集数据: ${results.length} 条, 明细ID: ${detailId}, 账号ID: ${accountId}, 任务类型: ${taskType}`
       )
 
+      // 空结果也是一次正常完成，不能让明细一直停留在“采集中”直到超时。
+      if (results.length === 0) {
+        await FbCollectApi.markDetailCompleted(detailId)
+        await continueNextCollectDetailOrClose(accountId, detailId)
+        collectBatchChains.delete(String(detailId || ''))
+        savedCollectBatchCounts.delete(String(detailId || ''))
+        await getList()
+        return
+      }
+
       // 根据不同的任务类型调用不同的保存API
       if (taskType === 2) {
         // 帖子采集 - 解析并保存帖子数据

@@ -52,6 +52,9 @@ export const FbCollectApi = {
   markDetailFailed: async (data: { detailId: string | number; errorMessage?: string }) => {
     return await request.post({ url: `/facebook/fb-collect-detail/fail`, params: data })
   },
+  markDetailCompleted: async (detailId: string | number) => {
+    return await request.post({ url: `/facebook/fb-collect-detail/complete`, params: { detailId } })
+  },
 
   // 新增FB采集任务
   createFbCollect: async (data: FbCollect) => {

@@ -1364,9 +1364,9 @@ const handleDispatch = async () => {
     const details = result.details || []
     if (details.length > 0) {
       const started = await claimAndStartPendingAiAgentDetails(details.length)
-      started > 0
-        ? message.info(`已提交 ${started} 个采集明细到WPF浏览器`)
-        : message.warning('已创建采集任务，但没有可启动的WPF浏览器窗口')
+      if (started > 0) {
+        message.info(`已提交 ${started} 个采集明细到WPF浏览器`)
+      }
     } else {
       await claimAndStartPendingAiAgentDetails()
     }

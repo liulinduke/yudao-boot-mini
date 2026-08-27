@@ -2686,7 +2686,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (rawResult instanceof Map) {
                 return JSONUtil.parseObj(rawResult);
             }
-            String text = String.valueOf(rawResult);
+            String text = cleanAiJsonText(String.valueOf(rawResult));
             if (JSONUtil.isTypeJSON(text)) {
                 return JSONUtil.parseObj(text);
             }
@@ -2694,6 +2694,30 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             log.warn("解析AI工作流结果失败，result={}, reason={}", rawResult, ex.getMessage());
         }
         return null;
+    }
+
+    /**
+     * AI 模型有时会把 JSON 放进 Markdown 代码块（```json ... ```）。
+     * 统一在所有工作流解析入口清理包装，兼容正常 JSON 和带 BOM 的返回值。
+     */
+    private String cleanAiJsonText(String text) {
+        if (text == null) {
+            return "";
+        }
+        text = text.replace("\uFEFF", "").trim();
+        if (text.startsWith("```")) {
+            int lineEnd = text.indexOf('\n');
+            if (lineEnd >= 0) {
+                text = text.substring(lineEnd + 1);
+            } else {
+                text = text.substring(3);
+            }
+            int fence = text.lastIndexOf("```");
+            if (fence >= 0) {
+                text = text.substring(0, fence);
+            }
+        }
+        return text.trim();
     }
 
     private Object invokeDefaultAiWorkflow(String workflowCode, Map<String, Object> params) {
@@ -2980,8 +3004,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         List<Object> rows = new ArrayList<>();
         if (rawResult instanceof Collection<?>) {
             rows.addAll((Collection<?>) rawResult);
-        } else if (rawResult instanceof CharSequence && JSONUtil.isTypeJSONArray(String.valueOf(rawResult))) {
-            rows.addAll(JSONUtil.parseArray(String.valueOf(rawResult)));
+        } else if (rawResult instanceof CharSequence) {
+            String text = cleanAiJsonText(String.valueOf(rawResult));
+            if (JSONUtil.isTypeJSONArray(text)) {
+                rows.addAll(JSONUtil.parseArray(text));
+            }
         } else {
             JSONObject object = parseWorkflowResultObject(rawResult);
             if (object != null) {
@@ -3063,8 +3090,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 found = findFirstJsonObjectWithKey((JSONObject) value, key);
             } else if (value instanceof Map) {
                 found = findFirstJsonObjectWithKey(JSONUtil.parseObj(value), key);
-            } else if (value instanceof CharSequence && JSONUtil.isTypeJSON(String.valueOf(value))) {
-                found = findFirstJsonObjectWithKey(JSONUtil.parseObj(String.valueOf(value)), key);
+            } else if (value instanceof CharSequence) {
+                String text = cleanAiJsonText(String.valueOf(value));
+                if (JSONUtil.isTypeJSON(text)) {
+                    found = findFirstJsonObjectWithKey(JSONUtil.parseObj(text), key);
+                }
             }
             if (found != null) {
                 return found;
@@ -3083,15 +3113,21 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             if (value instanceof Collection<?>) {
                 return value;
             }
-            if (value instanceof CharSequence && JSONUtil.isTypeJSONArray(String.valueOf(value))) {
-                return JSONUtil.parseArray(String.valueOf(value));
+            if (value instanceof CharSequence) {
+                String text = cleanAiJsonText(String.valueOf(value));
+                if (JSONUtil.isTypeJSONArray(text)) {
+                    return JSONUtil.parseArray(text);
+                }
             }
             if (value instanceof JSONObject) {
                 found = findFirstJsonArray((JSONObject) value);
             } else if (value instanceof Map) {
                 found = findFirstJsonArray(JSONUtil.parseObj(value));
-            } else if (value instanceof CharSequence && JSONUtil.isTypeJSON(String.valueOf(value))) {
-                found = findFirstJsonArray(JSONUtil.parseObj(String.valueOf(value)));
+            } else if (value instanceof CharSequence) {
+                String text = cleanAiJsonText(String.valueOf(value));
+                if (JSONUtil.isTypeJSON(text)) {
+                    found = findFirstJsonArray(JSONUtil.parseObj(text));
+                }
             }
             if (found != null) {
                 return found;

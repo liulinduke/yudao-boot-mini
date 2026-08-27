@@ -485,6 +485,21 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         updateTaskStatusAfterDetailFailure(detail.getTaskId(), updateObj.getErrorMessage());
     }
 
+    @Override
+    public void markDetailCompleted(Long detailId) {
+        if (detailId == null) return;
+        FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
+        if (detail == null || Objects.equals(detail.getStatus(), 2) || Objects.equals(detail.getStatus(), 3)) return;
+        FbCollectDetailDO updateObj = new FbCollectDetailDO();
+        updateObj.setId(detailId);
+        updateObj.setStatus(2);
+        updateObj.setCollectedCount(Optional.ofNullable(detail.getCollectedCount()).orElse(0));
+        updateObj.setEndTime(LocalDateTime.now());
+        fbCollectDetailMapper.updateById(updateObj);
+        aiAgentCollectQueueService.releaseRunning(detail.getFbAccount());
+        updateTaskStatusAfterDetailFailure(detail.getTaskId(), null);
+    }
+
     /**
      * 明细失败后同步聚合主任务状态，避免所有明细失败时主任务仍显示为采集中。
      */
