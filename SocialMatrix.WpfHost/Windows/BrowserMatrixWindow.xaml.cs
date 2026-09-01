@@ -2859,16 +2859,19 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             const raw = cleanText(text);
             if (!raw) return { date: null, daysAgo: null, raw: '' };
             const now = new Date();
-            const m = raw.match(/^(\d+)\s*(m|min|mins|分钟)$/i);
+            // Facebook 的 aria-label 常包含完整句子，例如 “9h · 12 comments”。
+            // 从文本中提取时间片段，而不是要求整段文本完全匹配。
+            const relative = raw.match(/(?:^|\s)(\d+)\s*(m|min|mins|分钟|h|hr|hrs|小时|d|day|days|天|w|week|weeks|周)(?=\s|$|[·•,.，。])/i);
+            const m = relative && /^(m|min|mins|分钟)$/i.test(relative[2]) ? relative : null;
             if (m) return { date: new Date(now.getTime() - Number(m[1]) * 60000), daysAgo: 0, raw };
-            const h = raw.match(/^(\d+)\s*(h|hr|hrs|小时)$/i);
+            const h = relative && /^(h|hr|hrs|小时)$/i.test(relative[2]) ? relative : null;
             if (h) return { date: new Date(now.getTime() - Number(h[1]) * 3600000), daysAgo: 0, raw };
-            const d = raw.match(/^(\d+)\s*(d|day|days|天)$/i);
+            const d = relative && /^(d|day|days|天)$/i.test(relative[2]) ? relative : null;
             if (d) {
                 const days = Number(d[1]);
                 return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
             }
-            const w = raw.match(/^(\d+)\s*(w|week|weeks|周)$/i);
+            const w = relative && /^(w|week|weeks|周)$/i.test(relative[2]) ? relative : null;
             if (w) {
                 const days = Number(w[1]) * 7;
                 return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
@@ -3097,9 +3100,24 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     ? parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'))
                     : { date: null, daysAgo: null, raw: '' };
                 if (isAiGroupPostCollect && recentDays > 0 && parsedTime.daysAgo !== null && parsedTime.daysAgo > recentDays) {
-                    console.log('[AI群帖采集] 遇到超过最近天数的帖子，停止当前群:', parsedTime.raw, recentDays);
-                    stopCurrentGroup = true;
-                    return null;
+                    // 评论截流不能只看帖子发布时间：旧帖今天仍有新评论时，必须保留该帖子。
+                    // 评论时间锚点通常带 comment_id，优先读取其 aria-label/text 的相对或绝对时间。
+                    const hasRecentComment = Array.from(card.querySelectorAll('a[href*=""comment_id""], abbr[aria-label]'))
+                        .map(node => parsePostTime(node.getAttribute('aria-label') || node.textContent || ''))
+                        .some(time => time.daysAgo !== null && time.daysAgo <= recentDays);
+                    if (!(aiGroupPostConfig.source === 'ai_group_comment_post' && hasRecentComment)) {
+                        if (aiGroupPostConfig.source === 'ai_group_comment_post') {
+                            // 群组帖子按时间倒序排列；遇到超出窗口且无近期评论的帖子后，
+                            // 后续只会更旧，直接结束本组滚动，避免采集到 3 天、4 天前数据。
+                            console.log('[AI群帖评论截流] 已到时间边界，停止当前群:', parsedTime.raw, recentDays);
+                            stopCurrentGroup = true;
+                        } else {
+                            console.log('[AI群帖采集] 跳过超过最近天数的帖子:', parsedTime.raw, recentDays);
+                            stopCurrentGroup = true;
+                        }
+                        return null;
+                    }
+                    console.log('[AI群帖评论截流] 保留旧帖，发现近期评论:', parsedTime.raw, recentDays);
                 }
 
                 const authorLink = findAuthorLink(card);
@@ -3108,7 +3126,27 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const groupName = getGroupName(card);
                 const isGroupPost = !!groupName || url.includes('/groups/') || location.pathname.includes('/groups/');
                 let reactionCount = '', commentCount = '', reshareCount = '';
-                const numberSpans = Array.from(card.querySelectorAll('span[dir=""auto""]'));
+                const numericActionButtons = Array.from(card.querySelectorAll('[role=""button""]'))
+                    .filter(node => {
+                        const text = cleanText(node.textContent || '');
+                        const rect = node.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0
+                            && /^\d[\d,.]*\s*[kKmMrbjtRBJT]*$/.test(text)
+                            && !node.querySelector('input, textarea, [contenteditable=""true""]');
+                    });
+                const commentActionButton = numericActionButtons.find(node => {
+                    const icon = node.querySelector('i[data-visualcompletion=""css-img""]');
+                    const position = icon?.style?.backgroundPosition || '';
+                    // Facebook 评论图标在当前 sprite 中为 -231px；通过图标结构识别，
+                    // 不依赖 aria-label 或界面语言，也不会把时间链接当作计数。
+                    return /-231px/.test(position);
+                });
+                if (commentActionButton) {
+                    const rawCommentText = cleanText(commentActionButton.textContent || '');
+                    const numericComment = rawCommentText.match(/^\d[\d,.]*\s*[kKmMrbjtRBJT]*$/);
+                    commentCount = numericComment ? numericComment[0].trim() : '';
+                }
+                /*
                 for (const span of numberSpans) {
                     const text = span.textContent.trim();
                     if (!text || !/^[\d]/.test(text)) continue;
@@ -3118,12 +3156,30 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
 
                     const rawValue = numMatch[1].trim();
                     const parentText = span.parentElement?.textContent || '';
-                    if (parentText.includes('komentar') || parentText.includes('comment')) {
+                    // 语言无关的结构判断：评论入口通常链接到 comment_id，
+                    // 或数字节点位于带评论链接/评论按钮的同一交互容器内。
+                    const commentLink = span.closest('a[href*=""comment_id""]')
+                        || span.parentElement?.querySelector('a[href*=""comment_id""]');
+                    // 只接受评论链接自身或其直接交互容器中的数字，避免把时间节点
+                    // 因为位于同一张帖子卡片而误判成评论数。
+                    const structuralComment = !!commentLink
+                        && (span.closest('a[href*=""comment_id""]') === commentLink
+                            || span.parentElement === commentLink.parentElement);
+                    if (structuralComment) {
                         commentCount = rawValue;
-                    } else if (parentText.includes('bagikan') || parentText.includes('share')) {
-                        reshareCount = rawValue;
-                    } else if (parentText.includes('suka') || parentText.includes('like') || parentText.includes('reaksi')) {
-                        reactionCount = rawValue;
+                    }
+                }
+                */
+
+                console.log('[帖子评论数] url=', url, 'commentCount=', commentCount || '未识别');
+
+                // AI 群帖评论截流只保留明确识别到评论数且大于 0 的帖子。
+                // 空值和 0 都不回传，避免无评论/无法确认评论数的帖子落库或进入 AI。
+                if (aiGroupPostConfig.source === 'ai_group_comment_post') {
+                    const numericCommentCount = Number(String(commentCount).replace(/[,\s]/g, ''));
+                    if (!Number.isFinite(numericCommentCount) || numericCommentCount <= 0) {
+                        console.log('[AI群帖评论截流] 跳过无有效评论数帖子:', url, commentCount || '未识别');
+                        return null;
                     }
                 }
 

@@ -741,11 +741,11 @@ const wizardForm = reactive<FbAiAgentConfig>({
   executeTime: '09:00',
   targetCountries: '[]',
   targetLanguages: '["English"]',
-  autoCommentEnabled: true,
+  autoCommentEnabled: false,
   autoDmEnabled: true,
   dailyCommentLimit: 50,
   dailyDmLimit: 30,
-  touchScoreThreshold: 85,
+  touchScoreThreshold: 95,
   replyDelayRange: '[1,30]',
   personaType: 'professional_sales',
   personaConfig: '',
@@ -1014,7 +1014,7 @@ const getTouchStatusTagType = (status?: number) => {
 }
 
 const isLeadQualified = (lead: any) => {
-  const threshold = Number(detailAgent.value?.touchScoreThreshold ?? 85)
+  const threshold = Number(detailAgent.value?.touchScoreThreshold ?? 95)
   return Number(lead.productRelevanceScore ?? 0) >= threshold
 }
 
@@ -1028,7 +1028,7 @@ const getLeadTypeLabel = (value?: string) => {
   return value ? map[value] || value : '-'
 }
 
-const normalizeIntentThreshold = (score?: number, defaultValue = 85) => {
+const normalizeIntentThreshold = (score?: number, defaultValue = 95) => {
   const value = Number(score ?? defaultValue)
   if (value >= 95) return 95
   if (value >= 85) return 85
@@ -1081,11 +1081,11 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     executeTime: '09:00',
     targetCountries: '[]',
     targetLanguages: '["English"]',
-    autoCommentEnabled: true,
+    autoCommentEnabled: false,
     autoDmEnabled: true,
     dailyCommentLimit: 50,
     dailyDmLimit: 30,
-    touchScoreThreshold: 85,
+    touchScoreThreshold: 95,
     replyDelayRange: '[180,600]',
     personaType: 'professional_sales',
     personaConfig: '',

@@ -1366,6 +1366,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         List<FbCollectPostDO> pendingPosts = posts.stream()
                 .filter(post -> StrUtil.isNotBlank(post.getUrl()))
                 .filter(post -> isCommentablePostUrl(post.getUrl()))
+                .filter(post -> post.getCommentCount() != null && post.getCommentCount() > 0)
                 .filter(post -> collectQueueService.tryMarkCreated(config.getId(), "group_comment_comment", post.getUrl()))
                 .collect(Collectors.toList());
         if (CollUtil.isEmpty(pendingPosts)) {
@@ -1776,6 +1777,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectPostDO::getId, postIds)
                 .and(wrapper -> wrapper.isNull(FbCollectPostDO::getLastAiAnalyzeTime)
                         .or().isNull(FbCollectPostDO::getProductRelevanceScore))
+                // 评论截流只分析明确存在评论的帖子；NULL 表示采集端未能识别计数，
+                // 也不应把它误当成有评论，避免无评论帖子进入第二轮。
+                .gt(FbCollectPostDO::getCommentCount, 0)
                 .orderByAsc(FbCollectPostDO::getId)
                 .last("LIMIT " + MAX_ANALYZE_PER_RUN));
         if (CollUtil.isEmpty(posts)) {
@@ -3068,7 +3072,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         result.productRelevanceScore = mapIntentToScore(result.intentCode);
         result.intentLevel = buildIntentLevelByIntent(result.intentCode);
         result.leadType = leadType;
-        result.intentReason = "AI分析失败";
+        result.intentReason = "AI分析未达标";
         result.sentiment = "neutral";
         result.aiTags = buildTagsByIntent(result.intentCode, result.leadType, result.intentReason);
         result.touchStatus = "not_touched";
