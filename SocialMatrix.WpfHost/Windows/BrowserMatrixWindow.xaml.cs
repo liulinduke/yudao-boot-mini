@@ -106,7 +106,7 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         // 仅排查浏览器任务时设为 true；正常运行到时必须释放浏览器资源。
-        private const bool KeepBrowserAfterTask = false;
+        private const bool KeepBrowserAfterTask = true;
         internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
 
         /// <summary>
@@ -2746,6 +2746,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
             js.AppendLine("        let stopCurrentGroup = false;");
+            js.AppendLine("        let consecutiveStaleGroupPosts = 0;");
             js.AppendLine("        const seenPostKeys = new Set();");
             js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
@@ -3099,27 +3100,6 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const parsedTime = postLinkEl
                     ? parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'))
                     : { date: null, daysAgo: null, raw: '' };
-                if (isAiGroupPostCollect && recentDays > 0 && parsedTime.daysAgo !== null && parsedTime.daysAgo > recentDays) {
-                    // 评论截流不能只看帖子发布时间：旧帖今天仍有新评论时，必须保留该帖子。
-                    // 评论时间锚点通常带 comment_id，优先读取其 aria-label/text 的相对或绝对时间。
-                    const hasRecentComment = Array.from(card.querySelectorAll('a[href*=""comment_id""], abbr[aria-label]'))
-                        .map(node => parsePostTime(node.getAttribute('aria-label') || node.textContent || ''))
-                        .some(time => time.daysAgo !== null && time.daysAgo <= recentDays);
-                    if (!(aiGroupPostConfig.source === 'ai_group_comment_post' && hasRecentComment)) {
-                        if (aiGroupPostConfig.source === 'ai_group_comment_post') {
-                            // 群组帖子按时间倒序排列；遇到超出窗口且无近期评论的帖子后，
-                            // 后续只会更旧，直接结束本组滚动，避免采集到 3 天、4 天前数据。
-                            console.log('[AI群帖评论截流] 已到时间边界，停止当前群:', parsedTime.raw, recentDays);
-                            stopCurrentGroup = true;
-                        } else {
-                            console.log('[AI群帖采集] 跳过超过最近天数的帖子:', parsedTime.raw, recentDays);
-                            stopCurrentGroup = true;
-                        }
-                        return null;
-                    }
-                    console.log('[AI群帖评论截流] 保留旧帖，发现近期评论:', parsedTime.raw, recentDays);
-                }
-
                 const authorLink = findAuthorLink(card);
                 const authorInfo = parseAuthorFromLink(authorLink);
                 const postUser = getAuthorName(card, postLinkEl);
@@ -3145,6 +3125,35 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     const rawCommentText = cleanText(commentActionButton.textContent || '');
                     const numericComment = rawCommentText.match(/^\d[\d,.]*\s*[kKmMrbjtRBJT]*$/);
                     commentCount = numericComment ? numericComment[0].trim() : '';
+                }
+                const likeActionButton = numericActionButtons.find(node => {
+                    const icon = node.querySelector('i[data-visualcompletion=""css-img""]');
+                    return /-441px/.test(icon?.style?.backgroundPosition || '');
+                });
+                if (likeActionButton) reactionCount = cleanText(likeActionButton.textContent || '');
+                const parsedCommentCount = Number(String(commentCount).replace(/[,\s]/g, '')) || 0;
+                const parsedReactionCount = Number(String(reactionCount).replace(/[,\s]/g, '')) || 0;
+                const clearlyOlderThanWindow = parsedTime.daysAgo !== null
+                    && parsedTime.daysAgo > recentDays
+                    && (/^\d+\s*(d|day|days|w|week|weeks|天|周)$/i.test(parsedTime.raw)
+                        || /\b\d{4}\b/.test(parsedTime.raw)
+                        || /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(parsedTime.raw));
+                if (aiGroupPostConfig.source === 'ai_group_comment_post' && recentDays > 0 && clearlyOlderThanWindow) {
+                    const hasRecentComment = Array.from(card.querySelectorAll('a[href*=""comment_id""], abbr[aria-label]'))
+                        .map(node => parsePostTime(node.getAttribute('aria-label') || node.textContent || ''))
+                        .some(time => time.daysAgo !== null && time.daysAgo <= recentDays);
+                    consecutiveStaleGroupPosts++;
+                    console.log('[AI群帖评论截流] 连续超期帖子计数:', parsedTime.raw, consecutiveStaleGroupPosts, '/6');
+                    if (consecutiveStaleGroupPosts >= 6) {
+                        console.log('[AI群帖评论截流] 连续6个超期帖子，停止当前群:', recentDays);
+                        stopCurrentGroup = true;
+                        return null;
+                    }
+                    if (hasRecentComment || parsedCommentCount > 0 || parsedReactionCount > 0) {
+                        console.log('[AI群帖评论截流] 超期但有评论或点赞，继续保留:', parsedTime.raw, commentCount, reactionCount);
+                    }
+                } else if (aiGroupPostConfig.source === 'ai_group_comment_post') {
+                    consecutiveStaleGroupPosts = 0;
                 }
                 /*
                 for (const span of numberSpans) {

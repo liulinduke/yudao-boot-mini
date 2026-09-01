@@ -698,7 +698,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             int commentTasks = createGroupCommentCollectTasks(config, accountIds, currentPostIds, true);
             refreshDiscoveryStats(config.getId());
             addRunLog(config.getId(), "群帖采集完成",
-                    saveSummary.toLogContent(String.format("分析%s条，广告帖%s条，创建评论采集%s个", analyzedPosts, qualifiedPosts, commentTasks)),
+                saveSummary.toLogContent(String.format("分析%s条，同行帖%s条，创建评论采集%s个", analyzedPosts, qualifiedPosts, commentTasks)),
                     commentTasks > 0 ? "success" : "info");
             return;
         }

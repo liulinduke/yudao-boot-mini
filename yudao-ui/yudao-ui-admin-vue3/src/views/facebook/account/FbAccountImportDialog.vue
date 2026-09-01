@@ -2,7 +2,7 @@
   <Dialog :title="dialogTitle" v-model="dialogVisible" width="700px">
     <div v-if="!tableView">
       <el-alert
-        title="新账号需进行24–48小时养号，仅进行浏览等基础操作，避免修改资料和执行任务"
+        title="新账号需进行3天以上的养号才更稳定些，仅进行浏览等基础操作，避免修改资料和执行任务"
         type="warning"
         :closable="false"
         show-icon
@@ -20,22 +20,20 @@
         </el-form-item>
         <el-form-item class="format-hint">
           <el-text type="info" size="small">
+            <template #default> 格式一：<code>账号----密码</code>（一行一个账号）</template>
+          </el-text>
+        </el-form-item>
+        <el-form-item class="format-hint">
+          <el-text type="info" size="small">
             <template #default>
-              格式一：<code>Facebook用户名----Facebook密码</code>（一行一个账号）</template
+              格式二：<code>账号----密码----双重验证安全码</code>（一行一个账号）</template
             >
           </el-text>
         </el-form-item>
         <el-form-item class="format-hint">
           <el-text type="info" size="small">
             <template #default>
-              格式二：<code>Facebook用户名----Facebook密码----双重验证安全码</code>（一行一个账号）</template
-            >
-          </el-text>
-        </el-form-item>
-        <el-form-item class="format-hint">
-          <el-text type="info" size="small">
-            <template #default>
-              格式三：<code>Facebook用户名----Facebook密码----Cookie JSON</code>（一行一个账号）</template
+              格式三：<code>账号----密码----Cookie JSON</code>（一行一个账号）</template
             >
           </el-text>
         </el-form-item>
@@ -203,8 +201,8 @@ const parseImportRecords = (data: string) => {
       }
       const parts = line.includes('----') ? line.split('----') : line.split('|')
       const third = parts[2]?.trim() || ''
-      const thirdIsCookie = line.includes('----') &&
-        (third.startsWith('[') || third.startsWith('{'))
+      const thirdIsCookie =
+        line.includes('----') && (third.startsWith('[') || third.startsWith('{'))
       return {
         userName: parts[0]?.trim() || '',
         password: parts[1]?.trim() || '',
