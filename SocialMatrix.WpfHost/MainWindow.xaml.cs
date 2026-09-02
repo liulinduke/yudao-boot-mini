@@ -704,15 +704,8 @@ namespace SocialMatrix.WpfHost
                 _browserMatrixWindows.Remove(accountId);
                 UpdateStatus($"已清理账号 {accountId} 的浏览器状态");
                 
-                // 如果没有活跃浏览器，关闭窗口
-                if (browserMatrixWindow.GetActiveBrowserCount() == 0)
-                {
-                    browserMatrixWindow.Close();
-                    if (ReferenceEquals(_browserMatrixWindow, browserMatrixWindow))
-                    {
-                        _browserMatrixWindow = null;
-                    }
-                }
+                // 只关闭完成账号对应的浏览器 Tab，不关闭整个 WPF 矩阵窗口。
+                // 后续任务到达时仍可在同一矩阵窗口中创建新的账号 Tab。
             }
         }
 

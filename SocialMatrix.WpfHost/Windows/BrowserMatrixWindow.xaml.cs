@@ -106,7 +106,7 @@ namespace SocialMatrix.WpfHost.Windows
         }
 
         // 仅排查浏览器任务时设为 true；正常运行到时必须释放浏览器资源。
-        private const bool KeepBrowserAfterTask = true;
+        private const bool KeepBrowserAfterTask = false;
         internal static bool KeepBrowserAfterTaskForDebug => KeepBrowserAfterTask;
 
         /// <summary>

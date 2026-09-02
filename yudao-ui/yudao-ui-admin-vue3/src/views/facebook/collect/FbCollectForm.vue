@@ -1169,7 +1169,14 @@ const emit = defineEmits(['success']) // 定义 success 事件,用于操作成�
 const submitForm = async () => {
   // 校验表单
   if (!formRef.value) return
+  // 自动分配由后端按账号使用情况选择，不要求前端填写账号。
+  // 同步清除旧的动态校验状态，避免从手动模式切换后仍提示“请选择采集账号”。
+  const accountRules = formRules.accountIds
+  formRules.accountIds = formData.value.accountSelectionMode === 'MANUAL'
+    ? [{ required: true, message: '请选择采集账号', trigger: 'change' }]
+    : []
   await formRef.value.validate()
+  formRules.accountIds = accountRules
   // 提交请求
   formLoading.value = true
   try {
