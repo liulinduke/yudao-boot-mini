@@ -332,7 +332,7 @@ const functions = [
   {
     type: 'pages',
     title: '公共主页采集',
-    icon: 'ep:user',
+    icon: 'svg-icon:facebook-collect-page',
     description: '采集Facebook公共主页信息',
     disabled: false
   },
@@ -346,7 +346,7 @@ const functions = [
   {
     type: 'users',
     title: '个人主页采集',
-    icon: 'ep:user-filled',
+    icon: 'svg-icon:facebook-collect-profile',
     description: '采集Facebook个人主页信息',
     disabled: false // 启用个人主页采集
   },
@@ -360,21 +360,21 @@ const functions = [
   {
     type: 'groups',
     title: '群组采集',
-    icon: 'ep:user',
+    icon: 'svg-icon:facebook-collect-group',
     description: '采集Facebook群组信息',
     disabled: false
   },
   {
     type: 'group-members',
     title: '群组成员采集',
-    icon: 'ep:connection',
+    icon: 'svg-icon:facebook-collect-members',
     description: '采集Facebook群组成员',
     disabled: false
   },
   {
     type: 'user-relations',
     title: '同行采集',
-    icon: 'ep:user-group',
+    icon: 'svg-icon:facebook-collect-peer',
     description: '采集粉丝/关注',
     disabled: false
   },

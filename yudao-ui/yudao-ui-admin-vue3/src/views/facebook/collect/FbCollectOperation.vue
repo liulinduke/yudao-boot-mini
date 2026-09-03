@@ -75,7 +75,7 @@ const functions = [
   {
     type: 'pages',
     title: '公共主页采集',
-    icon: 'ep:user',
+    icon: 'svg-icon:facebook-collect-page',
     description: '采集Facebook公共主页信息',
     disabled: false
   },
@@ -89,14 +89,14 @@ const functions = [
   {
     type: 'users',
     title: '个人主页采集',
-    icon: 'ep:user-filled',
+    icon: 'svg-icon:facebook-collect-profile',
     description: '采集Facebook个人主页信息',
     disabled: false
   },
   {
     type: 'groups',
     title: '群组采集',
-    icon: 'ep:user',
+    icon: 'svg-icon:facebook-collect-group',
     description: '采集Facebook群组信息',
     disabled: true
   },
