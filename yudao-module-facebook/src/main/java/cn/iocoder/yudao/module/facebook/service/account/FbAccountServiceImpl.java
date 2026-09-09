@@ -132,7 +132,8 @@ public class FbAccountServiceImpl implements FbAccountService {
 
         SysProxyDO proxy = sysProxyService.getProxyDO(account.getProxyId());
         if (proxy == null) {
-            throw new IllegalStateException("账号绑定的代理不存在: " + account.getProxyId());
+            // 代理记录可能已被删除；不存在的代理按未配置处理，WPF 将使用直连。
+            return null;
         }
         if (!Integer.valueOf(1).equals(proxy.getStatus())) {
             throw new IllegalStateException("账号绑定的代理已禁用: " + account.getProxyId());

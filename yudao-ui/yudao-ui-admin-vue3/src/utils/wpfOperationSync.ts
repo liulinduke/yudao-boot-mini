@@ -246,9 +246,13 @@ async function saveCollectResult(data: any) {
     })
     if (nextDetail) {
       await startAiAgentCollectDetail(nextDetail)
-    } else {
-      // 深度采集任务完成后 WPF 会暂留浏览器，便于同账号复用。
-      // 队列没有下一条时由前端明确关闭，避免浏览器长期占用槽位。
+    }
+    const nextAccountId = nextDetail
+      ? String(nextDetail.accountId || nextDetail.fbAccount || '')
+      : ''
+    if (!nextDetail || nextAccountId !== String(data.accountId || '')) {
+      // 只要当前账号没有下一条任务，就关闭当前账号自己的 Tab；
+      // 其他账号有任务不影响当前账号的收尾。
       closeBrowser(String(data.accountId || ''))
     }
     window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))

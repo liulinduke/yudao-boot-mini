@@ -103,7 +103,11 @@ public class FbAccountTaskAllocationService {
                 .toList();
 
         if (reserve && !selectedIds.isEmpty()) {
-            lastAllocatedAccountByTenant.put(tenantId, selectedIds.get(selectedIds.size() - 1));
+            // 目标数通常大于候选数，采集会一次拿到整个账号池。此时记录本轮起始账号，
+            // 下一轮才能从下一个账号开始；记录最后一个账号会导致每轮又回到同一个起始账号。
+            boolean coveredAllCandidates = selectedIds.size() == candidates.size();
+            lastAllocatedAccountByTenant.put(tenantId,
+                    coveredAllCandidates ? selectedIds.get(0) : selectedIds.get(selectedIds.size() - 1));
             String actionType = firstActionType(actionTypes, scene);
             for (Long accountId : selectedIds) {
                 actionStatService.markStarted(accountId, actionType);

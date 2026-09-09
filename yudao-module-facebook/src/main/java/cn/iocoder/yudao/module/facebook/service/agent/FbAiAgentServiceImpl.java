@@ -212,9 +212,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     @Override
     public void updateStatus(FbAiAgentStatusUpdateReqVO reqVO) {
+        FbAiAgentConfigDO existing = agentConfigMapper.selectById(reqVO.getId());
         FbAiAgentConfigDO updateObj = new FbAiAgentConfigDO();
         updateObj.setId(reqVO.getId());
         updateObj.setStatus(reqVO.getStatus());
+        // 暂停后恢复不补执行已经错过的计划时间：以恢复时刻作为新的周期基准，
+        // 下一次由正常调度在下一个执行周期触发。
+        if (existing != null && Objects.equals(reqVO.getStatus(), 1)
+                && Objects.equals(existing.getStatus(), 2)) {
+            updateObj.setLastExecuteTime(LocalDateTime.now());
+        }
         agentConfigMapper.updateById(updateObj);
     }
 
@@ -1777,9 +1784,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .in(FbCollectPostDO::getId, postIds)
                 .and(wrapper -> wrapper.isNull(FbCollectPostDO::getLastAiAnalyzeTime)
                         .or().isNull(FbCollectPostDO::getProductRelevanceScore))
-                // 评论截流只分析明确存在评论的帖子；NULL 表示采集端未能识别计数，
-                // 也不应把它误当成有评论，避免无评论帖子进入第二轮。
-                .gt(FbCollectPostDO::getCommentCount, 0)
                 .orderByAsc(FbCollectPostDO::getId)
                 .last("LIMIT " + MAX_ANALYZE_PER_RUN));
         if (CollUtil.isEmpty(posts)) {
@@ -2309,9 +2313,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     .in(FbCollectUserDO::getId, leadIds)
                     .select(FbCollectUserDO::getProductRelevanceScore));
             highestScore = users.stream()
-                    .map(FbCollectUserDO::getProductRelevanceScore)
                     .filter(Objects::nonNull)
-                    .mapToInt(Integer::intValue)
+                    .map(FbCollectUserDO::getProductRelevanceScore)
+                    .mapToInt(score -> score == null ? 0 : score)
                     .max()
                     .orElse(0);
         }
@@ -2325,9 +2329,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                     .in(FbCollectPostDO::getId, postIds)
                     .select(FbCollectPostDO::getProductRelevanceScore));
             highestScore = posts.stream()
-                    .map(FbCollectPostDO::getProductRelevanceScore)
                     .filter(Objects::nonNull)
-                    .mapToInt(Integer::intValue)
+                    .map(FbCollectPostDO::getProductRelevanceScore)
+                    .mapToInt(score -> score == null ? 0 : score)
                     .max()
                     .orElse(0);
         }
@@ -2480,7 +2484,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         updateObj.setLeadType(result.leadType);
         updateObj.setCountry(result.country);
         updateObj.setLanguage(result.language);
-        updateObj.setProductRelevanceScore(result.productRelevanceScore);
+        updateObj.setProductRelevanceScore(result.productRelevanceScore == null ? 0 : result.productRelevanceScore);
         updateObj.setAiSummary(result.aiSummary);
         updateObj.setLastAiAnalyzeTime(LocalDateTime.now());
         updateObj.setTouchStatus(result.touchStatus);
@@ -2493,7 +2497,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         updateObj.setSentiment(result.sentiment);
         updateObj.setLeadType(result.leadType);
         updateObj.setCountry(result.country);
-        updateObj.setProductRelevanceScore(result.productRelevanceScore);
+        updateObj.setProductRelevanceScore(result.productRelevanceScore == null ? 0 : result.productRelevanceScore);
         updateObj.setAiSummary(result.aiSummary);
         updateObj.setLastAiAnalyzeTime(LocalDateTime.now());
         updateObj.setTouchStatus(result.touchStatus);
@@ -2805,7 +2809,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             List<FbCollectPostDO> posts = collectPostMapper.selectList(new LambdaQueryWrapper<FbCollectPostDO>()
                     .in(FbCollectPostDO::getId, postIds));
             setAgentSummary(config, posts.stream()
-                    .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
+                    .map(item -> new AgentLeadSummary(item.getProductRelevanceScore() == null ? 0 : item.getProductRelevanceScore(), item.getTouchStatus()))
                     .collect(Collectors.toList()));
             return;
         }
@@ -2817,7 +2821,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                 .in(FbCollectUserDO::getId, leadIds));
         setAgentSummary(config, users.stream()
-                .map(item -> new AgentLeadSummary(item.getProductRelevanceScore(), item.getTouchStatus()))
+                .map(item -> new AgentLeadSummary(item.getProductRelevanceScore() == null ? 0 : item.getProductRelevanceScore(), item.getTouchStatus()))
                 .collect(Collectors.toList()));
     }
 
