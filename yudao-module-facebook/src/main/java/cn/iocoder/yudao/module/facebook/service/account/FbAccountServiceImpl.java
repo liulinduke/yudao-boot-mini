@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 import org.springframework.validation.annotation.Validated;
@@ -39,6 +40,7 @@ import static cn.iocoder.yudao.module.facebook.enums.ErrorCodeConstants.*;
  */
 @Service
 @Validated
+@Slf4j
 public class FbAccountServiceImpl implements FbAccountService {
 
     @Resource
@@ -318,9 +320,13 @@ public class FbAccountServiceImpl implements FbAccountService {
     @Transactional(rollbackFor = Exception.class)
     public void importFbAccount(FbAccountImportReqVO importReqVO) {
         LocalDateTime now = LocalDateTime.now();
-
-        for (String[] parts : parseAccountImportRecords(importReqVO.getData())) {
+        List<String[]> records = parseAccountImportRecords(importReqVO.getData());
+        log.info("FB账号导入解析完成: records={}", records.size());
+        int index = 0;
+        for (String[] parts : records) {
+            index++;
             if (parts.length < 2) {
+                log.warn("FB账号导入跳过第{}条: 字段数量不足, fields={}", index, parts.length);
                 continue;
             }
 
@@ -335,8 +341,12 @@ public class FbAccountServiceImpl implements FbAccountService {
                     : (parts.length > 3 ? parts[3].trim() : null);
 
             if (StrUtil.isEmpty(userName) || (StrUtil.isEmpty(password) && StrUtil.isEmpty(cookie))) {
+                log.warn("FB账号导入跳过第{}条: 用户名或密码/Cookie为空, userName={}", index, userName);
                 continue;
             }
+
+            log.info("FB账号导入第{}条: userName={}, fields={}, hasCookie={}",
+                    index, userName, parts.length, StrUtil.isNotBlank(cookie));
 
             FbAccountDO account = new FbAccountDO();
             account.setFbAccount(userName);
