@@ -157,8 +157,15 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
                 detailId, results == null ? 0 : results.size(), count, duplicateCount);
         FbCollectDetailDO summaryUpdate = new FbCollectDetailDO();
         summaryUpdate.setId(detailId);
-        summaryUpdate.setErrorMessage(String.format("本轮采集：接收 %d 条，新增保存 %d 条，重复跳过 %d 条",
-                results == null ? 0 : results.size(), count, duplicateCount));
+        int receivedTotal = results == null ? 0 : results.size();
+        int newTotal = count;
+        int duplicateTotal = duplicateCount;
+        FbCollectDetailDO previous = fbCollectDetailMapper.selectById(detailId);
+        if (previous != null && previous.getErrorMessage() != null) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("本轮采集：接收\\s*(\\d+)\\s*条，新增保存\\s*(\\d+)\\s*条，重复跳过\\s*(\\d+)\\s*条").matcher(previous.getErrorMessage());
+            if (m.find()) { receivedTotal += Integer.parseInt(m.group(1)); newTotal += Integer.parseInt(m.group(2)); duplicateTotal += Integer.parseInt(m.group(3)); }
+        }
+        summaryUpdate.setErrorMessage(String.format("本轮采集：接收 %d 条，新增保存 %d 条，重复跳过 %d 条", receivedTotal, newTotal, duplicateTotal));
         fbCollectDetailMapper.updateById(summaryUpdate);
         
         // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
@@ -172,10 +179,20 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         SpringUtils.getBean(FbAiAgentService.class)
                 .refreshDiscoveryStatsByCollectTaskId(detail.getTaskId());
 
-        // 4. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
-        updateDetailAndMainTableAsync(detailId);
+        // 帖子采集可能分批回传。批次只同步实时数量，不提前完成明细或清理计数缓存；
+        // 最终完成事件再统一收尾，否则后续批次会继续入库但进度停在首批数量。
+        updateDetailProgress(detailId);
         
         return count;
+    }
+
+    private void updateDetailProgress(Long detailId) {
+        Long collected = countService.getCollectCount(detailId);
+        FbCollectDetailDO update = new FbCollectDetailDO();
+        update.setId(detailId);
+        update.setCollectedCount(collected == null ? 0 : collected.intValue());
+        fbCollectDetailMapper.updateById(update);
+        log.info("实时更新帖子明细 {} 进度: {}", detailId, collected);
     }
 
     private boolean existsAiGroupPost(FbCollectPostSaveReqVO result) {
@@ -261,8 +278,6 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
      */
     private boolean updateMainTaskProgress(Long taskId) {
         // 从 Redis 获取总采集数量(原子操作,并发安全)
-        Long totalCollected = countService.getTaskTotalCount(taskId);
-        
         // 查询所有明细的期望总数和失败数
         Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
         if (stats == null || stats.isEmpty()) {
@@ -270,6 +285,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         }
         
         Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
+        Long totalCollected = stats.get("total_collected") == null ? 0L : ((Number) stats.get("total_collected")).longValue();
         List<FbCollectDetailDO> details = fbCollectDetailMapper.selectListByTaskId(taskId);
         long unfinishedCount = details.stream()
                 .filter(d -> d.getStatus() != null && (d.getStatus() == 0 || d.getStatus() == 1))
@@ -296,7 +312,7 @@ public class FbCollectPostServiceImpl implements FbCollectPostService {
         fbCollectMapper.updateById(task);
         
         log.info("更新主表 {} 完成, 总进度: {}/{}", taskId, totalCollected, totalExpected);
-        return unfinishedCount == 0;
+        return unfinishedCount == 0 && totalCollected > 0;
     }
 
 }

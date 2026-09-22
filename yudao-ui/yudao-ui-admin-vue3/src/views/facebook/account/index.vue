@@ -117,6 +117,17 @@
               <el-option label="网络异常" value="NETWORK_ERROR" />
             </el-select>
           </el-form-item>
+          <el-form-item label="启用状态" prop="status">
+            <el-select
+              v-model="queryParams.status"
+              placeholder="请选择启用状态"
+              clearable
+              class="!w-140px"
+            >
+              <el-option label="启用" :value="true" />
+              <el-option label="禁用" :value="false" />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button @click="handleQuery"
               ><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button
@@ -391,7 +402,8 @@ const queryParams = reactive({
   pageSize: 10,
   fbAccount: undefined,
   proxyId: undefined as number | null | undefined,
-  loginStatus: undefined as string | undefined
+  loginStatus: undefined as string | undefined,
+  status: undefined as boolean | undefined
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
@@ -539,6 +551,7 @@ const resetQuery = () => {
   queryFormRef.value?.resetFields()
   queryParams.proxyId = undefined
   queryParams.loginStatus = undefined
+  queryParams.status = undefined
   handleQuery()
 }
 

@@ -255,9 +255,17 @@ const handleImport = async () => {
   }
 
   try {
+    // 使用预览阶段已解析的记录重新组装，避免原始 Cookie 中的 | 或换行
+    // 在保存前再次规范化时吞掉后续账号。
+    const importData = validItems
+      .map((item) => {
+        const fields = [item.userName, item.password, item.securityKey]
+        if (item.cookie) fields.push(item.cookie)
+        return fields.join('|')
+      })
+      .join('\n')
     const data: FbAccountImportReqVO = {
-      // 连续粘贴的 | 格式先按账号边界拆成多行，避免后端只收到第一条记录。
-      data: normalizePipeRecords(formData.data),
+      data: importData,
       groupId: importSettings.groupId,
       proxyId: importSettings.proxyId
     }

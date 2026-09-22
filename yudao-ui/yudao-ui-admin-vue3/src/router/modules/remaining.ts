@@ -262,6 +262,23 @@ const remainingRouter: AppRouteRecordRaw[] = [
           canTo: true,
           activeMenu: '/facebook/message'
         }
+      },
+      {
+        path: '/ai-search',
+        component: () => import('@/views/facebook/aiSearch/index.vue'),
+        name: 'AiEnterpriseSearch',
+        meta: {
+          title: 'AI全网企业获客',
+          hidden: true,
+          canTo: true,
+          activeMenu: '/ai-search'
+        }
+      },
+      {
+        path: '/ai-search/source',
+        component: () => import('@/views/facebook/aiSearch/source.vue'),
+        name: 'AiSearchSource',
+        meta: { title: 'AI获客渠道', hidden: true, canTo: true, activeMenu: '/ai-search' }
       }
     ]
   },

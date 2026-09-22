@@ -146,10 +146,20 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         // 3. 同时递增主表总采集数量(并发安全)
         countService.incrementTaskTotalCount(detail.getTaskId(), count);
         
-        // 4. 异步更新数据库和主表(避免阻塞) - 即使count=0也要更新状态
-        updateDetailAndMainTableAsync(detailId);
+        // 分批回传时只同步实时数量，不提前完成明细或清理计数缓存。
+        updateDetailProgress(detailId);
+        updateMainTaskProgress(detail.getTaskId());
         
         return count;
+    }
+
+    private void updateDetailProgress(Long detailId) {
+        Long collected = countService.getCollectCount(detailId);
+        FbCollectDetailDO update = new FbCollectDetailDO();
+        update.setId(detailId);
+        update.setCollectedCount(collected == null ? 0 : collected.intValue());
+        fbCollectDetailMapper.updateById(update);
+        log.info("实时更新群组明细 {} 进度: {}", detailId, collected);
     }
     
     /**
@@ -202,8 +212,6 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
      */
     private void updateMainTaskProgress(Long taskId) {
         // 从 Redis 获取总采集数量(原子操作,并发安全)
-        Long totalCollected = countService.getTaskTotalCount(taskId);
-        
         // 查询所有明细的期望总数和失败数
         Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
         if (stats == null || stats.isEmpty()) {
@@ -211,6 +219,7 @@ public class FbCollectGroupServiceImpl implements FbCollectGroupService {
         }
         
         Integer totalExpected = ((Number) stats.get("total_expected")).intValue();
+        Long totalCollected = stats.get("total_collected") == null ? 0L : ((Number) stats.get("total_collected")).longValue();
         List<FbCollectDetailDO> details = fbCollectDetailMapper.selectListByTaskId(taskId);
         long unfinishedCount = details.stream()
                 .filter(d -> d.getStatus() != null && (d.getStatus() == 0 || d.getStatus() == 1))

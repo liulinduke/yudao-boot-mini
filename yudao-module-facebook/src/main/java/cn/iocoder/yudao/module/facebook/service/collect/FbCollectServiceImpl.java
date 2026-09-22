@@ -291,15 +291,34 @@ public class FbCollectServiceImpl implements FbCollectService {
     public void deleteFbCollect(Long id) {
         // 校验存在
         validateFbCollectExists(id);
+        // 主任务采用逻辑删除；先清理账号队列，避免 Redis 中残留的明细继续被 WPF 领取。
+        List<FbCollectDetailDO> details = fbCollectDetailMapper.selectList(
+                new LambdaQueryWrapperX<FbCollectDetailDO>()
+                        .eq(FbCollectDetailDO::getTaskId, id));
+        for (FbCollectDetailDO detail : details) {
+            accountTaskQueueService.remove(detail.getId(), detail.getFbAccount());
+            if (Objects.equals(detail.getStatus(), 0) || Objects.equals(detail.getStatus(), 1)) {
+                FbCollectDetailDO cancelled = new FbCollectDetailDO();
+                cancelled.setId(detail.getId());
+                cancelled.setStatus(3);
+                cancelled.setErrorMessage("主任务已删除");
+                cancelled.setEndTime(LocalDateTime.now());
+                fbCollectDetailMapper.updateById(cancelled);
+            }
+        }
         // 删除
         fbCollectMapper.deleteById(id);
     }
 
     @Override
-        public void deleteFbCollectListByIds(List<Long> ids) {
-        // 删除
-        fbCollectMapper.deleteByIds(ids);
+    public void deleteFbCollectListByIds(List<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            return;
         }
+        for (Long id : ids) {
+            deleteFbCollect(id);
+        }
+    }
 
 
     private void validateFbCollectExists(Long id) {

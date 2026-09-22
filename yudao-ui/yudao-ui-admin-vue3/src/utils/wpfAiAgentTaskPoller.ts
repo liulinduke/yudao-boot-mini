@@ -12,9 +12,13 @@ const detailTimeouts = new Map<string, number>()
 const finishedDetailIds = new Set<string>()
 const queuedDetailSources = new Map<string, string>()
 const detailRunningAccounts = new Map<string, string>()
+// 同一账号的完成/超时/关闭事件可能同时到达；收尾和领取下一条必须串行。
+const accountTransitions = new Set<string>()
 // WPF 帖子搜索会按页面加载进度继续滚动，脚本自身的保护上限是 5 分钟。
 // 队列超时必须比脚本上限长，避免真实结果回传时已被本地 finished 标记丢弃。
-const DETAIL_TIMEOUT_MS = 6 * 60 * 1000
+// 首批数据可能要经历页面加载、滚动和 Facebook 虚拟列表渲染；
+// 批次回传时会重新计时，因此这里保护的是“完全无回传”而不是总执行时长。
+const DETAIL_TIMEOUT_MS = 10 * 60 * 1000
 const FINISHED_DETAIL_KEEP_MS = 10 * 60 * 1000
 
 const getBridge = () => window.chrome?.webview?.hostObjects?.sync?.wpfBridge
@@ -285,12 +289,37 @@ export const finishQueuedAccountTaskAndStartNext = async (
   accountId?: string | number,
   detailId?: string | number
 ) => {
-  markAiAgentCollectFinished(accountId, detailId)
-  const nextDetail = await claimNextAiAgentDetail()
-  if (nextDetail) {
-    startAiAgentCollectDetail(nextDetail)
+  const account = String(accountId || '')
+  if (!account || accountTransitions.has(account)) {
+    console.warn('[账号队列] 忽略重复收尾事件', { accountId: account, detailId })
+    return null
   }
-  return nextDetail || null
+  accountTransitions.add(account)
+  try {
+    markAiAgentCollectFinished(accountId, detailId)
+    // 明细完成回传与下一条明细入队可能存在很短的事务/WebSocket时序差异。
+    // 同一账号按 FIFO 重试几次，避免第一次空领取就关闭浏览器导致后续任务悬挂。
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const nextDetail = await claimNextAiAgentDetail()
+      if (nextDetail) {
+        const nextAccount = String(nextDetail.accountId || nextDetail.fbAccount || '')
+        if (nextAccount === account) {
+          await startAiAgentCollectDetail(nextDetail)
+        } else {
+          // 领取入口通常按账号轮询；其它账号任务不能占用当前账号的收尾链路。
+          await startAiAgentCollectDetail(nextDetail)
+        }
+        return nextDetail
+      }
+      if (attempt < 7) {
+        // 深度采集的下一条明细可能刚由主任务批量创建，给事务提交和入队通知留出时间。
+        await new Promise(resolve => window.setTimeout(resolve, Math.min(1000, 400 + attempt * 100)))
+      }
+    }
+    return null
+  } finally {
+    accountTransitions.delete(account)
+  }
 }
 
 export function registerQueuedDetailTimeout(accountId: string, detailId: string | number, sourceType: string) {
@@ -335,7 +364,7 @@ async function timeoutQueuedDetail(accountId: string, detailId: string, sourceTy
     } else {
       await FbCollectApi.markDetailFailed({
         detailId,
-        errorMessage: '采集执行超过6分钟未回传'
+        errorMessage: '采集执行超过10分钟未回传'
       })
       window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
     }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
@@ -403,6 +404,58 @@ namespace SocialMatrix.WpfHost.Helpers
     /// </summary>
     internal sealed class PopupNavigationLifeSpanHandler : CefSharp.Handler.LifeSpanHandler
     {
+        internal static bool NavigateCurrentTab(IBrowser browser, string targetUrl)
+        {
+            if (browser == null || string.IsNullOrWhiteSpace(targetUrl)) return false;
+
+            var url = targetUrl.Trim();
+            if (url.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
+                || url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                || url.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Facebook external links are wrapped as l.facebook.com/l.php?u=... .
+            // Navigate to the actual destination in the current tab.
+            if (Uri.TryCreate(url, UriKind.Absolute, out var wrapped)
+                && wrapped.Host.EndsWith("facebook.com", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(wrapped.AbsolutePath, "/l.php", StringComparison.OrdinalIgnoreCase))
+            {
+                var query = wrapped.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+                var encoded = query.FirstOrDefault(x => x.StartsWith("u=", StringComparison.OrdinalIgnoreCase));
+                if (encoded != null)
+                {
+                    var destination = Uri.UnescapeDataString(encoded.Substring(2));
+                    if (Uri.TryCreate(destination, UriKind.Absolute, out var parsed)
+                        && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+                    {
+                        url = parsed.AbsoluteUri;
+                    }
+                }
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var finalUri)
+                || (finalUri.Scheme != Uri.UriSchemeHttp && finalUri.Scheme != Uri.UriSchemeHttps))
+            {
+                return false;
+            }
+
+            try
+            {
+                // MainFrame can be usable during an early navigation even when
+                // HasDocument is still false. LoadUrl is the authoritative action
+                // and keeps the navigation in the current account tab.
+                browser.MainFrame.LoadUrl(finalUri.AbsoluteUri);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ 当前 Tab 导航失败: {ex.Message}");
+            }
+            return false;
+        }
+
         protected override bool OnBeforePopup(
             IWebBrowser chromiumWebBrowser,
             IBrowser browser,
@@ -418,23 +471,7 @@ namespace SocialMatrix.WpfHost.Helpers
             out IWebBrowser? newBrowser)
         {
             newBrowser = null;
-            if (!string.IsNullOrWhiteSpace(targetUrl)
-                && !targetUrl.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
-                && !targetUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
-                && !targetUrl.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    if (browser.HasDocument)
-                    {
-                        browser.MainFrame.LoadUrl(targetUrl);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ 拦截弹窗导航失败: {ex.Message}");
-                }
-            }
+            NavigateCurrentTab(browser, targetUrl);
             return true;
         }
     }
@@ -461,27 +498,8 @@ namespace SocialMatrix.WpfHost.Helpers
             // Facebook 页面大量使用 target=_blank/window.open。项目的浏览器由
             // BrowserMatrixWindow 统一管理 Tab，不能让 CefSharp 创建脱离管理的原生弹窗。
             // 复用当前账号 Tab 导航，避免弹窗生命周期与主窗口清理互相冲突。
-            if (string.IsNullOrWhiteSpace(targetUrl)
-                || targetUrl.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
-                || targetUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
-                || targetUrl.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            try
-            {
-                if (browser.HasDocument)
-                {
-                    browser.MainFrame.LoadUrl(targetUrl);
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ 拦截新窗口导航失败: {ex.Message}");
-                return true;
-            }
+            PopupNavigationLifeSpanHandler.NavigateCurrentTab(browser, targetUrl);
+            return true;
         }
         public void OnDocumentAvailableInMainFrame(IWebBrowser browserControl, IBrowser browser) { }
         public bool OnCertificateError(IWebBrowser browserControl, IBrowser browser, CefErrorCode errorCode, string requestUrl, ISslInfo sslInfo, IRequestCallback callback) { callback.Dispose(); return false; }

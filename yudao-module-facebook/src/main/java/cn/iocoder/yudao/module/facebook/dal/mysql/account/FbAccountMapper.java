@@ -30,7 +30,7 @@ public interface FbAccountMapper extends BaseMapperX<FbAccountDO> {
 
     default LambdaQueryWrapperX<FbAccountDO> buildPageQuery(FbAccountPageReqVO reqVO) {
         return new LambdaQueryWrapperX<FbAccountDO>()
-                .eqIfPresent(FbAccountDO::getFbAccount, reqVO.getFbAccount())
+                .likeIfPresent(FbAccountDO::getFbAccount, reqVO.getFbAccount())
                 .eqIfPresent(FbAccountDO::getPassword, reqVO.getPassword())
                 .eqIfPresent(FbAccountDO::getArea, reqVO.getArea())
                 .eqIfPresent(FbAccountDO::getFriends, reqVO.getFriends())

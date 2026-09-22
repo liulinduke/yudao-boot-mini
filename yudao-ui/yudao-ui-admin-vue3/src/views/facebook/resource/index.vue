@@ -2,11 +2,16 @@
   <ContentWrap>
     <!-- Tab切换 -->
     <el-tabs v-model="activeTab" type="card" class="mb-20px">
-      <el-tab-pane label="潜客" name="user">
+      <el-tab-pane label="客户" name="customers">
+        <el-form :inline="true" :model="customerQuery" class="search-form mb-16px"><el-form-item label="任务名称"><el-input v-model="customerQuery.taskName" clearable /></el-form-item><el-form-item label="公司名称"><el-input v-model="customerQuery.companyName" clearable /></el-form-item><el-form-item label="国家/地区"><el-input v-model="customerQuery.country" clearable /></el-form-item><el-form-item label="AI推荐"><el-input v-model="customerQuery.icpLevel" clearable /></el-form-item><el-form-item label="公司规模"><el-input v-model="customerQuery.companySize" clearable /></el-form-item><el-form-item><el-checkbox v-model="customerQuery.hasEmail">有邮箱</el-checkbox><el-checkbox v-model="customerQuery.hasPhone">有电话</el-checkbox></el-form-item><el-form-item><el-button type="primary" @click="handleCustomerQuery">搜索</el-button><el-button @click="resetCustomerQuery">重置</el-button><el-button @click="handleCustomerExport">导出</el-button></el-form-item></el-form>
+        <el-table v-loading="customerLoading" :data="customerList"><el-table-column prop="companyName" label="公司名称" min-width="200" /><el-table-column prop="icpLevel" label="AI推荐等级" width="110" /><el-table-column prop="companySize" label="公司规模" width="120" /><el-table-column prop="companyCountry" label="国家/地区" width="120" /><el-table-column prop="companyIndustry" label="行业" width="140" /><el-table-column prop="companyWebsite" label="公司官网" min-width="220" /><el-table-column prop="name" label="联系人" width="140" /><el-table-column prop="jobTitle" label="职位" width="150" /><el-table-column prop="email" label="邮箱" min-width="210" /><el-table-column prop="phone" label="电话" width="150" /><el-table-column prop="linkedinUrl" label="社交媒体" min-width="180" /></el-table>
+        <Pagination :total="customerTotal" v-model:page="customerQuery.pageNo" v-model:limit="customerQuery.pageSize" @pagination="getCustomerList" />
+      </el-tab-pane>
+      <el-tab-pane label="FB潜客" name="user">
         <template #label>
           <span class="tab-label">
             <Icon icon="ep:user-filled" class="mr-5px" />
-            潜客
+            FB潜客
           </span>
         </template>
 
@@ -296,7 +301,7 @@
         <template #label>
           <span class="tab-label">
             <Icon icon="ep:user" class="mr-5px" />
-            群组
+            FB群组
           </span>
         </template>
 
@@ -460,7 +465,7 @@
         <template #label>
           <span class="tab-label">
             <Icon icon="ep:document" class="mr-5px" />
-            帖子
+            FB帖子
           </span>
         </template>
 
@@ -749,6 +754,7 @@ import { FbResourceGroupApi, type FbResourceGroup } from '@/api/facebook/resourc
 import { useMessage } from '@/hooks/web/useMessage'
 import PostImportForm from './components/PostImportForm.vue'
 import ResourceGroupControl from './components/ResourceGroupControl.vue'
+import { AiSearchApi } from '@/api/facebook/aiSearch'
 
 const message = useMessage()
 const resourceGroupNames = ref<Record<string, string>>({})
@@ -780,6 +786,14 @@ const aiTagOptions = [
 
 // 当前激活的Tab
 const activeTab = ref('user')
+const customerLoading = ref(false)
+const customerList = ref<any[]>([])
+const customerTotal = ref(0)
+const customerQuery = reactive({ pageNo: 1, pageSize: 20, taskName: '', companyName: '', country: '', companySize: '', icpLevel: '', hasEmail: false, hasPhone: false })
+const getCustomerList = async () => { customerLoading.value = true; try { const data: any = await AiSearchApi.customers(customerQuery); customerList.value = data.list || []; customerTotal.value = data.total || 0 } finally { customerLoading.value = false } }
+const handleCustomerQuery = () => { customerQuery.pageNo = 1; getCustomerList() }
+const resetCustomerQuery = () => { Object.assign(customerQuery, { pageNo: 1, taskName: '', companyName: '', country: '', companySize: '', icpLevel: '', hasEmail: false, hasPhone: false }); getCustomerList() }
+const handleCustomerExport = () => AiSearchApi.exportCustomers(customerQuery)
 
 // 帖子导入表单引用
 const postImportFormRef = ref()
@@ -1092,6 +1106,7 @@ onMounted(() => {
 
 /** Tab切换时加载对应数据 */
 watch(activeTab, (newTab) => {
+  if (newTab === 'customers') getCustomerList()
   if (newTab === 'user' && userList.value.length === 0) {
     getUserList()
   } else if (newTab === 'group' && groupList.value.length === 0) {

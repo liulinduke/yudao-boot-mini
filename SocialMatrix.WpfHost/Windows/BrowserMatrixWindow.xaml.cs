@@ -492,17 +492,41 @@ namespace SocialMatrix.WpfHost.Windows
                 Height = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star)
             });
 
-            // 创建 URL 显示标签
-            var urlLabel = new System.Windows.Controls.TextBlock
+            // 创建可编辑地址栏：回车后导航当前账号的浏览器 Tab。
+            var urlLabel = new System.Windows.Controls.TextBox
             {
                 Text = initialUrl,
                 FontSize = 12,
                 Foreground = System.Windows.Media.Brushes.DarkGray,
                 Padding = new System.Windows.Thickness(6, 4, 6, 4),
                 Background = System.Windows.Media.Brushes.WhiteSmoke,
-                TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
-                Height = 28
+                Height = 28,
+                BorderThickness = new System.Windows.Thickness(0),
+                ToolTip = "输入网址后按回车跳转"
+            };
+
+            urlLabel.KeyDown += (_, e) =>
+            {
+                if (e.Key != System.Windows.Input.Key.Enter) return;
+                var target = urlLabel.Text?.Trim();
+                if (string.IsNullOrWhiteSpace(target)) return;
+                if (!target.Contains("://", StringComparison.Ordinal))
+                {
+                    target = "https://" + target;
+                }
+                if (!Uri.TryCreate(target, UriKind.Absolute, out var uri)
+                    || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                {
+                    System.Windows.MessageBox.Show("请输入有效的网址（例如 https://www.facebook.com）", "地址无效",
+                        System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                    e.Handled = true;
+                    return;
+                }
+                urlLabel.Text = uri.AbsoluteUri;
+                urlLabel.CaretIndex = urlLabel.Text.Length;
+                browser.Load(uri.AbsoluteUri);
+                e.Handled = true;
             };
 
             // 监听 URL 变化并更新标签
@@ -510,7 +534,10 @@ namespace SocialMatrix.WpfHost.Windows
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {
-                    urlLabel.Text = browser.Address ?? "";
+                    if (!urlLabel.IsFocused)
+                    {
+                        urlLabel.Text = browser.Address ?? "";
+                    }
                 });
             };
 
@@ -2109,7 +2136,20 @@ namespace SocialMatrix.WpfHost.Windows
                 }
 
                 System.Diagnostics.Debug.WriteLine($"🔍 开始执行 EvaluateScriptAsync...");
-                var result = await browser.EvaluateScriptAsync(collectScript);
+                // CefSharp 的 Promise 如果因特殊主页脚本或页面导航一直不 resolve，
+                // 直接 await 会永久占用账号队列。给每次采集执行加上上限。
+                int evaluateTimeoutMs = taskType == 12
+                    ? 90000
+                    : Math.Min(Math.Max(expectedCount * 1000, 300000), 1800000);
+                var evaluateTask = browser.EvaluateScriptAsync(collectScript);
+                var completed = await Task.WhenAny(evaluateTask, Task.Delay(evaluateTimeoutMs));
+                if (completed != evaluateTask)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ 采集脚本执行超时: taskType={taskType}, timeoutMs={evaluateTimeoutMs}");
+                    OnCollectionError?.Invoke(accountId, $"采集脚本执行超时（{evaluateTimeoutMs / 1000}秒）");
+                    return;
+                }
+                var result = await evaluateTask;
                 System.Diagnostics.Debug.WriteLine($"🔍 EvaluateScriptAsync 执行完成: Success={result.Success}");
                 
                 // 检查脚本执行是否失败

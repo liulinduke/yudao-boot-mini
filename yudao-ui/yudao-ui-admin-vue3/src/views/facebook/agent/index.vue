@@ -270,7 +270,7 @@
 
         <template v-else-if="wizardStep === 1">
           <el-form-item v-if="!isSourceUrlAgent(wizardForm.agentType)" label="目标客户数量" prop="targetCustomerCount">
-            <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="100000" />
+            <el-input-number v-model="wizardForm.targetCustomerCount" :min="1" :max="8000" />
           </el-form-item>
           <el-form-item label="执行频率">
             <el-select v-model="wizardForm.executeFrequency" class="!w-180px">
@@ -1076,7 +1076,7 @@ const syncWizard = (config?: FbAiAgentConfig) => {
     keywordsPerRun: 5,
     aiKeywordExpandEnabled: true,
     aiKeywordExpandCount: 30,
-    targetCustomerCount: 1000,
+    targetCustomerCount: 100,
     executeFrequency: '1',
     executeTime: '09:00',
     targetCountries: '[]',

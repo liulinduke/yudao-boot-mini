@@ -6,13 +6,10 @@ import { batchSaveAddGroupResult, batchSaveRepostResult, markOperationDetailSucc
 import {
   beginQueuedDetailResult,
   beginQueuedDmResult,
-  claimNextAiAgentDetail,
   finishQueuedAccountTaskAndStartNext,
   isAiAgentCollectDetail,
   isAiAgentClaimedDetail,
-  markAiAgentCollectFinished,
   registerQueuedDetailTimeout,
-  startAiAgentCollectDetail
 } from '@/utils/wpfAiAgentTaskPoller'
 import { closeBrowser, onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'
 import { onCollectionError } from '@/utils/wpfBridge'
@@ -224,29 +221,25 @@ async function saveCollectResult(data: any) {
   }
 
   const taskType = Number(data.taskType || 1)
-  await (collectBatchChains.get(detailId) || Promise.resolve())
+    // 最终完成事件可能紧跟最后一个批次到达，必须先等待批次入库，
+    // 再把明细标记完成，否则 AI Agent 不会进入下一阶段分析。
+    await (collectBatchChains.get(detailId) || Promise.resolve())
   const reportedCount = savedCollectBatchCounts.get(detailId) || 0
   const results = parseResultList(data.results).slice(reportedCount)
   handledCollectDetailIds.add(detailId)
   try {
-    if (results.length === 0) {
-      await FbCollectApi.markDetailCompleted(detailId)
-    }
     await saveCollectedItems(detailId, taskType, results)
-    markAiAgentCollectFinished(data.accountId, detailId)
+    await FbCollectApi.markDetailCompleted(detailId)
     console.log('[账号队列] 当前明细已完成，按账号FIFO领取下一条', {
       detailId,
       accountId: String(data.accountId || '')
     })
-    const nextDetail = await claimNextAiAgentDetail()
+    const nextDetail = await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
     console.log('[账号队列] 下一条领取结果', {
       detailId: nextDetail?.detailId || null,
       taskId: nextDetail?.taskId || null,
       accountId: nextDetail?.fbAccount || null
     })
-    if (nextDetail) {
-      await startAiAgentCollectDetail(nextDetail)
-    }
     const nextAccountId = nextDetail
       ? String(nextDetail.accountId || nextDetail.fbAccount || '')
       : ''

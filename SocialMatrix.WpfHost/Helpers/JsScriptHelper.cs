@@ -76,9 +76,13 @@ namespace SocialMatrix.WpfHost.Helpers
         {
             return $@"
         let scrollCount = 0;
-        const maxScrolls = 50;
+        // Facebook 虚拟列表在分页加载期间可能连续几轮不更新 DOM，
+        // 滚动次数不作为业务停止条件，避免大目标数量被固定上限截断。
         let consecutiveNoNewItems = 0;
-        const maxConsecutiveNoNew = 5;
+        const maxConsecutiveNoNew = 10;
+        let stableBottomRounds = 0;
+        let lastScrollHeight = 0;
+        let lastCardCount = 0;
         let finished = false;
         let interval = null;
 
@@ -111,13 +115,30 @@ namespace SocialMatrix.WpfHost.Helpers
                 }} else {{
                     consecutiveNoNewItems++;
                 }}
+                const scrollTop = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+                const scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                const atBottom = scrollTop + viewportHeight >= scrollHeight - 120;
+                const loading = !!document.querySelector(
+                    '[aria-busy=""true""], [role=""progressbar""], [data-visualcompletion=""loading-state""], [data-pagelet*=""Loading"" i]'
+                );
+                if (atBottom && !loading && scrollHeight === lastScrollHeight && cards.length === lastCardCount) {{
+                    stableBottomRounds++;
+                }} else {{
+                    stableBottomRounds = 0;
+                }}
+                lastScrollHeight = scrollHeight;
+                lastCardCount = cards.length;
                 console.log('Collection progress: results=' + results.length + '/' + targetCount
                     + ', cards=' + cards.length
                     + ', newItems=' + newItemsFound
-                    + ', scrollCount=' + scrollCount + '/' + maxScrolls
+                    + ', scrollCount=' + scrollCount
                     + ', noNew=' + consecutiveNoNewItems + '/' + maxConsecutiveNoNew
-                    + ', scrollY=' + Math.round(window.scrollY || document.documentElement.scrollTop || 0)
-                    + ', scrollHeight=' + (document.documentElement.scrollHeight || 0));
+                    + ', scrollY=' + scrollTop
+                    + ', scrollHeight=' + scrollHeight
+                    + ', atBottom=' + atBottom
+                    + ', loading=' + loading
+                    + ', stableBottom=' + stableBottomRounds);
 
                 if (results.length >= targetCount) {{
                     console.log('Collection complete: ' + results.length + '/' + targetCount);
@@ -125,12 +146,12 @@ namespace SocialMatrix.WpfHost.Helpers
                     return;
                 }}
 
-                if (consecutiveNoNewItems >= maxConsecutiveNoNew || scrollCount >= maxScrolls) {{
-                    const stopReason = consecutiveNoNewItems >= maxConsecutiveNoNew ? 'no_new_items' : 'max_scrolls';
+                if (stableBottomRounds >= 2 || (atBottom && !loading && consecutiveNoNewItems >= maxConsecutiveNoNew)) {{
+                    const stopReason = stableBottomRounds >= 2 ? 'bottom_without_loading' : 'no_new_items_at_bottom';
                     console.log('Collection ended: reason=' + stopReason
                         + ', results=' + results.length + '/' + targetCount
                         + ', cards=' + cards.length
-                        + ', scrollCount=' + scrollCount + '/' + maxScrolls
+                        + ', scrollCount=' + scrollCount
                         + ', noNew=' + consecutiveNoNewItems + '/' + maxConsecutiveNoNew
                         + ', scrollY=' + Math.round(window.scrollY || document.documentElement.scrollTop || 0)
                         + ', scrollHeight=' + (document.documentElement.scrollHeight || 0));
@@ -148,7 +169,9 @@ namespace SocialMatrix.WpfHost.Helpers
             }}
         }};
         
-        interval = setInterval(doScroll, 2000);
+        // 只允许一条串行滚动链。原先 setInterval 与 doScroll 内部的
+        // setTimeout 叠加，会并发检查 DOM，导致无新数据计数快速累满。
+        doScroll();
 
         setTimeout(() => {{
             if (finished) return;
@@ -170,9 +193,9 @@ namespace SocialMatrix.WpfHost.Helpers
             return $@"(function() {{
     return new Promise((resolve, reject) => {{
         const results = [];
-        // 采集脚本可能运行很久。每满 50 条即通过 CefSharp 回传，不等待整轮滚动结束。
+        // 采集脚本可能运行很久。每满 10 条即通过 CefSharp 回传，及时刷新前端无响应保护。
         // 最终 resolve 前再发送不足一批的尾数据；页面不支持消息桥接时仍保持原有完整回传。
-        const batchSize = 50;
+        const batchSize = 20;
         let reportedCount = 0;
         const reportCollectionBatch = () => {{
             const batch = results.slice(reportedCount);

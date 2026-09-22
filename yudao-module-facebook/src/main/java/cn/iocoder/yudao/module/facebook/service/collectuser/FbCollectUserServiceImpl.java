@@ -197,17 +197,38 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
         
         // 2. 使用 Redis 原子递增采集数量(即使为0也要记录)
         countService.incrementCollectCount(detailId, count);
+        // 主任务列表显示的是所有明细汇总；用户/主页采集批次也必须同步任务总数。
+        countService.incrementTaskTotalCount(detail.getTaskId(), count);
 
         // AI 主页、深度采集及评论采集同样可能分批回传，发现记录按已入库用户实时校正。
         aiAgentService.refreshDiscoveryStatsByCollectTaskId(detail.getTaskId());
         
-        // 3. 更新数据库和主表。AI Agent 只在整个采集任务完成后继续下一步，避免每条深度采集都触发一次分析/触达。
-        boolean taskFinished = updateDetailAndMainTableAsync(detailId);
-        if (taskFinished) {
-            aiAgentService.continueAfterCollectTaskFinished(detail.getTaskId());
-        }
+        // 主页/用户采集可能分批回传。这里只同步实时数量，不提前完成明细或清理计数缓存；
+        // 最终完成事件再统一收尾，避免结果已入库但“已采”停在首批数量。
+        updateDetailProgress(detailId);
+        updateMainTaskProgressRealtime(detail.getTaskId());
         
         return count;
+    }
+
+    private void updateDetailProgress(Long detailId) {
+        Long collected = countService.getCollectCount(detailId);
+        FbCollectDetailDO update = new FbCollectDetailDO();
+        update.setId(detailId);
+        update.setCollectedCount(collected == null ? 0 : collected.intValue());
+        fbCollectDetailMapper.updateById(update);
+        log.info("实时更新用户明细 {} 进度: {}", detailId, collected);
+    }
+
+    private void updateMainTaskProgressRealtime(Long taskId) {
+        Map<String, Object> stats = fbCollectDetailMapper.selectTaskStats(taskId);
+        if (stats == null || stats.get("total_collected") == null) return;
+        int total = ((Number) stats.get("total_collected")).intValue();
+        FbCollectDO update = new FbCollectDO();
+        update.setId(taskId);
+        update.setTotalCollectedCount(total);
+        fbCollectMapper.updateById(update);
+        log.info("实时更新采集主任务进度: taskId={}, totalCollected={}", taskId, total);
     }
 
     private void upsertAiGroupCommentUser(FbCollectUserDO incoming) {

@@ -655,6 +655,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_GROUP_POST.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
             CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
+            if (currentPostIds.isEmpty()) {
+                addRunLog(config.getId(), "群帖采集完成", saveSummary.toSimpleLogContent("本轮没有可分析帖子，跳过AI分析"), "info");
+                refreshDiscoveryStats(config.getId());
+                return;
+            }
             addRunLog(config.getId(), "群帖采集完成",
                     saveSummary.toSimpleLogContent("进入AI分析"),
                     saveSummary.duplicateCount > 0 ? "warning" : "success");
@@ -677,6 +682,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_POST_LEAD.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
             CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
+            if (currentPostIds.isEmpty()) {
+                addRunLog(config.getId(), "帖子采集完成", saveSummary.toSimpleLogContent("本轮没有可分析帖子，跳过AI分析"), "info");
+                refreshDiscoveryStats(config.getId());
+                return;
+            }
             int analyzedPosts = analyzePendingPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
@@ -699,6 +709,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
             CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
+            if (currentPostIds.isEmpty()) {
+                addRunLog(config.getId(), "群帖采集完成", saveSummary.toLogContent("没有可分析帖子，跳过AI分析"), "info");
+                refreshDiscoveryStats(config.getId());
+                return;
+            }
             int analyzedPosts = analyzeGroupCommentPosts(config, currentPostIds);
             int threshold = resolveTouchScoreThreshold(config);
             long qualifiedPosts = countQualifiedPostLeads(currentPostIds, threshold);
@@ -713,6 +728,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (Objects.equals(task.getTaskType(), POST_COLLECT_TASK_TYPE) && AGENT_TYPE_COMPETITOR_BUYER.equals(config.getAgentType())) {
             List<Long> currentPostIds = getCollectTaskPostIds(collectTaskId);
             CollectionSaveSummary saveSummary = getCollectionSaveSummary(collectTaskId, currentPostIds.size());
+            if (currentPostIds.isEmpty()) {
+                addRunLog(config.getId(), "主页帖子采集完成", saveSummary.toLogContent("没有可分析帖子，跳过AI分析"), "info");
+                refreshDiscoveryStats(config.getId());
+                return;
+            }
             int commentTasks = createCompetitorCommentCollectTasks(config, accountIds, currentPostIds, true);
             refreshDiscoveryStats(config.getId());
             addRunLog(config.getId(), "主页帖子采集完成",
@@ -723,6 +743,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
         if (Objects.equals(task.getTaskType(), COMMENT_LIKE_COLLECT_TASK_TYPE) && AGENT_TYPE_GROUP_COMMENT.equals(config.getAgentType())) {
             List<Long> currentCommentLeadIds = getCollectTaskLeadIds(collectTaskId);
+            if (currentCommentLeadIds.isEmpty()) {
+                addRunLog(config.getId(), "评论采集完成", "本轮没有采集到评论，跳过AI分析", "info");
+                refreshDiscoveryStats(config.getId());
+                return;
+            }
             addRunLog(config.getId(), "评论采集完成",
                     String.format("采集评论%s条，进入AI分析", currentCommentLeadIds.size()), "success");
             int analyzedUsers = analyzePendingCommentUsers(config, currentCommentLeadIds);
@@ -3423,25 +3448,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 discoveryLogMapper.updateById(updateObj);
                 continue;
             }
-            List<FbCollectUserDO> users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                    .eq(FbCollectUserDO::getTaskId, logDO.getCollectTaskId()));
-            // 深度采集结果可能通过明细的 sourceUserId 关联原始主页，兼容这类历史/分批保存数据。
-            // 发现数必须以实际已保存的客户为准，不能因 task_id 关联不到而回落为 0。
-            if (CollUtil.isEmpty(users)) {
-                List<Long> sourceUserIds = collectDetailMapper.selectList(new LambdaQueryWrapper<FbCollectDetailDO>()
-                                .eq(FbCollectDetailDO::getTaskId, logDO.getCollectTaskId())
-                                .isNotNull(FbCollectDetailDO::getSourceUserId)
-                                .select(FbCollectDetailDO::getSourceUserId))
-                        .stream()
-                        .map(FbCollectDetailDO::getSourceUserId)
-                        .filter(Objects::nonNull)
-                        .distinct()
-                        .collect(Collectors.toList());
-                if (CollUtil.isNotEmpty(sourceUserIds)) {
-                    users = collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
-                            .in(FbCollectUserDO::getId, sourceUserIds));
-                }
-            }
+            // 与线索列表保持完全一致：主页采集后的深度明细通过 sourceUserId
+            // 回写原始主页用户，AI 分析结果也保存在该用户记录上，不能只按深度任务 task_id 查询。
+            // 公共主页获客的 page 日志对应首轮主页采集，真正的用户通常落在后续
+            // deep 任务中；页面隐藏 deep 日志，因此 page 行必须统计该 Agent 的
+            // 完整用户集合，才能和“线索列表”保持一致。
+            List<Long> userIds = "page".equals(logDO.getSourceType())
+                    ? getPageDiscoveryLeadIds(agentConfigId, logDO.getCollectTaskId())
+                    : getCollectTaskLeadIds(logDO.getCollectTaskId());
+            List<FbCollectUserDO> users = CollUtil.isEmpty(userIds)
+                    ? Collections.emptyList()
+                    : collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                            .in(FbCollectUserDO::getId, userIds));
             FbAiAgentDiscoveryLogDO updateObj = new FbAiAgentDiscoveryLogDO();
             updateObj.setId(logDO.getId());
             updateObj.setDiscoveredCount(users.size());
@@ -3456,6 +3474,41 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             updateObj.setFinalLeadCount((int) qualified);
             discoveryLogMapper.updateById(updateObj);
         }
+    }
+
+    /**
+     * 返回单条主页关键词日志对应的用户：首轮主页任务产生的用户，
+     * 加上这些用户后续创建的深度采集明细 sourceUserId，避免每条关键词
+     * 日志都重复显示整个 Agent 的汇总数据。
+     */
+    private List<Long> getPageDiscoveryLeadIds(Long agentConfigId, Long pageTaskId) {
+        if (pageTaskId == null) {
+            return Collections.emptyList();
+        }
+        Set<Long> baseIds = new LinkedHashSet<>(getCollectTaskLeadIds(pageTaskId));
+        if (baseIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> deepTaskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
+                        .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
+                        .eq(FbAiAgentDiscoveryLogDO::getSourceType, "deep")
+                        .select(FbAiAgentDiscoveryLogDO::getCollectTaskId))
+                .stream()
+                .map(FbAiAgentDiscoveryLogDO::getCollectTaskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isNotEmpty(deepTaskIds)) {
+            collectDetailMapper.selectList(new LambdaQueryWrapper<FbCollectDetailDO>()
+                            .in(FbCollectDetailDO::getTaskId, deepTaskIds)
+                            .isNotNull(FbCollectDetailDO::getSourceUserId)
+                            .select(FbCollectDetailDO::getSourceUserId))
+                    .stream()
+                    .map(FbCollectDetailDO::getSourceUserId)
+                    .filter(baseIds::contains)
+                    .forEach(baseIds::add);
+        }
+        return new ArrayList<>(baseIds);
     }
 
     private record AgentLeadSummary(Integer score, String touchStatus) {

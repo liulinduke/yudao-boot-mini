@@ -26,6 +26,8 @@ import cn.iocoder.yudao.module.facebook.dal.mysql.operation.FbOperationTaskMappe
 import cn.iocoder.yudao.module.facebook.service.agent.FbAccountTaskQueueItem;
 import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentCollectQueueService;
 import cn.iocoder.yudao.module.facebook.service.account.FbAccountActionStatService;
+import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
+import cn.iocoder.yudao.module.facebook.service.agent.FbAiAgentService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -74,7 +76,8 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     private FbAiAgentDiscoveryLogMapper discoveryLogMapper;
     @Resource
     private FbAiAgentConfigMapper agentConfigMapper;
-
+    @Resource
+    private FbCollectCountService countService;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
     @Override
@@ -175,13 +178,18 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
         List<FbCollectPendingDetailRespVO> result = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
         for (FbCollectDetailDO detail : details) {
+            // Redis 可能残留已删除主任务的明细；主任务不存在时绝不能启动浏览器。
+            FbCollectDO task = taskMap.get(detail.getTaskId());
+            if (task == null) {
+                aiAgentCollectQueueService.remove(detail.getId(), detail.getFbAccount());
+                continue;
+            }
             FbCollectDetailDO updateObj = new FbCollectDetailDO();
             updateObj.setId(detail.getId());
             updateObj.setStatus(1);
             updateObj.setStartTime(now);
             fbCollectDetailMapper.updateById(updateObj);
 
-            FbCollectDO task = taskMap.get(detail.getTaskId());
             FbAccountDO account = accountMap.get(detail.getFbAccount());
             if (account != null) actionStatService.markStarted(account.getId(), "collect");
             FbCollectPendingDetailRespVO item = buildPendingDetailResp(detail, task, account);
@@ -489,15 +497,25 @@ public class FbCollectDetailServiceImpl implements FbCollectDetailService {
     public void markDetailCompleted(Long detailId) {
         if (detailId == null) return;
         FbCollectDetailDO detail = fbCollectDetailMapper.selectById(detailId);
-        if (detail == null || Objects.equals(detail.getStatus(), 2) || Objects.equals(detail.getStatus(), 3)) return;
+        if (detail == null) return;
+        if (Objects.equals(detail.getStatus(), 2) || Objects.equals(detail.getStatus(), 3)) return;
         FbCollectDetailDO updateObj = new FbCollectDetailDO();
         updateObj.setId(detailId);
         updateObj.setStatus(2);
-        updateObj.setCollectedCount(Optional.ofNullable(detail.getCollectedCount()).orElse(0));
+        Long cachedCount = countService.getCollectCount(detailId);
+        updateObj.setCollectedCount(cachedCount == null
+                ? Optional.ofNullable(detail.getCollectedCount()).orElse(0)
+                : cachedCount.intValue());
         updateObj.setEndTime(LocalDateTime.now());
         fbCollectDetailMapper.updateById(updateObj);
+        countService.removeCountCache(detailId);
         aiAgentCollectQueueService.releaseRunning(detail.getFbAccount());
         updateTaskStatusAfterDetailFailure(detail.getTaskId(), null);
+        FbCollectDO task = fbCollectMapper.selectById(detail.getTaskId());
+        if (task != null && Objects.equals(task.getStatus(), 2)
+                && Optional.ofNullable(task.getTotalCollectedCount()).orElse(0) > 0) {
+            SpringUtils.getBean(FbAiAgentService.class).continueAfterCollectTaskFinished(detail.getTaskId());
+        }
     }
 
     /**

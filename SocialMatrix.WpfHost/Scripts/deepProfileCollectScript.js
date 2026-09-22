@@ -245,6 +245,18 @@
 
     try {
       await sleep(1200);
+      // 深度采集资料通常在主页首屏及前几屏即可加载完成；限制滚动次数，
+      // 避免特殊主页没有新的 DOM 内容时持续滚动而无法结束。
+      const maxProfileScrolls = 1;
+      for (let scrollIndex = 0; scrollIndex < maxProfileScrolls; scrollIndex += 1) {
+        const beforeHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+        const beforeTop = window.scrollY || document.documentElement.scrollTop || 0;
+        window.scrollBy({ top: Math.max(500, Math.floor((window.innerHeight || 800) * 0.9)), behavior: 'auto' });
+        await sleep(700);
+        const afterHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+        const afterTop = window.scrollY || document.documentElement.scrollTop || 0;
+        if (afterTop === beforeTop && afterHeight === beforeHeight) break;
+      }
       result.userName = getProfileHeaderName() || getMeta('og:title') || document.title.replace(/\| Facebook.*$/i, '').trim();
       result.syncTime = toLocalDateTime(new Date());
       result.avatar = getMeta('og:image') || getProfileAvatar();

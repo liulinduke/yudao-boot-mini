@@ -11,6 +11,8 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReq
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
+import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
 import cn.iocoder.yudao.module.ai.dal.mysql.model.AiChatMapper;
 import com.agentsflex.llm.deepseek.DeepseekConfig;
 import com.agentsflex.llm.deepseek.DeepseekLlm;
@@ -36,6 +38,12 @@ import org.springframework.validation.annotation.Validated;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.net.URI;
+import org.springframework.web.reactive.function.client.WebClient;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -59,6 +67,67 @@ public class AiModelServiceImpl implements AiModelService {
 
     @Resource
     private AiModelFactory modelFactory;
+
+    @Override
+    public AiWebSearchResponse webSearch(String query, Integer count) {
+        AiModelDO model = getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
+        AiApiKeyDO key = apiKeyService.validateApiKey(model.getKeyId());
+        String baseUrl = key.getUrl();
+        if (baseUrl == null || baseUrl.isBlank()) baseUrl = "https://api.openai.com/v1";
+        baseUrl = baseUrl.replaceAll("/+$", "");
+        if (!baseUrl.endsWith("/v1")) baseUrl += "/v1";
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", model.getModel());
+        body.put("input", query);
+        boolean nativeWebSearch = AiPlatformEnum.OPENAI.getPlatform().equalsIgnoreCase(model.getPlatform());
+        if (nativeWebSearch) {
+            body.put("tools", List.of(Map.of("type", "web_search")));
+            body.put("include", List.of("web_search_call.action.sources"));
+        } else {
+            // DeepSeek 等兼容 Responses API 的模型不支持 OpenAI 内置工具，使用标准 function tool。
+            body.put("tools", List.of(Map.of(
+                    "type", "function",
+                    "name", "web_search",
+                    "description", "搜索互联网并返回带来源的网页结果",
+                    "parameters", Map.of("type", "object", "properties", Map.of(
+                            "query", Map.of("type", "string"), "count", Map.of("type", "integer")),
+                            "required", List.of("query"), "additionalProperties", false),
+                    "strict", true)));
+        }
+        String raw = WebClient.builder().baseUrl(baseUrl).defaultHeaders(h -> h.setBearerAuth(key.getApiKey())).build()
+                .post().uri("/responses").bodyValue(body).retrieve().bodyToMono(String.class).block();
+        return parseResponsesSearch(raw);
+    }
+
+    private AiWebSearchResponse parseResponsesSearch(String raw) {
+        if (raw == null || raw.isBlank()) return new AiWebSearchResponse().setTotal(0L).setLists(Collections.emptyList());
+        try {
+            JsonNode root = new ObjectMapper().readTree(raw);
+            List<AiWebSearchResponse.WebPage> pages = new ArrayList<>();
+            JsonNode output = root.path("output");
+            if (output.isArray()) for (JsonNode item : output) {
+                JsonNode content = item.path("content");
+                if (!content.isArray()) continue;
+                for (JsonNode part : content) {
+                    JsonNode annotations = part.path("annotations");
+                    if (!annotations.isArray()) continue;
+                    for (JsonNode a : annotations) {
+                        String url = a.path("url").asText("");
+                        if (url.isBlank()) continue;
+                        pages.add(new AiWebSearchResponse.WebPage()
+                                .setName(a.path("title").asText(url))
+                                .setTitle(a.path("title").asText(url))
+                                .setUrl(url)
+                                .setSnippet(part.path("text").asText(""))
+                                .setSummary(part.path("text").asText("")));
+                    }
+                }
+            }
+            return new AiWebSearchResponse().setTotal((long) pages.size()).setLists(pages);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Responses web_search 响应解析失败", ex);
+        }
+    }
 
     @Override
     public Long createModel(AiModelSaveReqVO createReqVO) {

@@ -6,6 +6,7 @@ import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
 import dev.tinyflow.core.Tinyflow;
 import jakarta.validation.Valid;
 import org.springframework.ai.chat.model.ChatModel;
@@ -23,6 +24,9 @@ import java.util.Map;
  * @since 2024/4/24 19:42
  */
 public interface AiModelService {
+
+    /** 使用当前租户默认 OpenAI 模型的 Responses API web_search 工具联网搜索。 */
+    AiWebSearchResponse webSearch(String query, Integer count);
 
     /**
      * 创建模型

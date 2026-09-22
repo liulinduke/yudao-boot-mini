@@ -81,7 +81,8 @@ public class AiTenantConfigServiceImpl implements AiTenantConfigService {
                         .apiKey("")
                         .platform(template.getPlatform())
                         .url(template.getUrl())
-                        .status(CommonStatusEnum.DISABLE.getStatus())
+                        // 初始化后允许租户直接补充密钥使用；密钥本身保持为空。
+                        .status(CommonStatusEnum.ENABLE.getStatus())
                         .build();
                 apiKeyMapper.insert(target);
             }
@@ -110,7 +111,7 @@ public class AiTenantConfigServiceImpl implements AiTenantConfigService {
                         .platform(template.getPlatform())
                         .type(template.getType())
                         .sort(template.getSort())
-                        .status(CommonStatusEnum.DISABLE.getStatus())
+                        .status(CommonStatusEnum.ENABLE.getStatus())
                         .temperature(template.getTemperature())
                         .maxTokens(template.getMaxTokens())
                         .maxContexts(template.getMaxContexts())

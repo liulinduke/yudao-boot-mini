@@ -1,0 +1,3 @@
+package cn.iocoder.yudao.module.facebook.controller.admin.aisearch.vo;
+import cn.iocoder.yudao.module.facebook.dal.dataobject.aisearch.AiSearchCompanyEvidenceDO; import lombok.Data;
+@Data public class AiSearchEvidenceRespVO { private Long id; private Long companyId; private String url; private String evidenceType; private String evidenceText; private java.math.BigDecimal confidence; public static AiSearchEvidenceRespVO from(AiSearchCompanyEvidenceDO d){AiSearchEvidenceRespVO v=new AiSearchEvidenceRespVO();v.id=d.getId();v.companyId=d.getCompanyId();v.url=d.getUrl();v.evidenceType=d.getEvidenceType();v.evidenceText=d.getEvidenceText();v.confidence=d.getConfidence();return v;} }

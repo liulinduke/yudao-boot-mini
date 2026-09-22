@@ -1,0 +1,3 @@
+package cn.iocoder.yudao.module.facebook.dal.dataobject.aisearch;
+import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO; import com.baomidou.mybatisplus.annotation.*; import lombok.Data; import lombok.EqualsAndHashCode;
+@Data @EqualsAndHashCode(callSuper=true) @TableName("ai_search_round") public class AiSearchRoundDO extends TenantBaseDO { @TableId(type=IdType.ASSIGN_ID) private Long id; private Long taskId; private Long runId; private Integer roundNo; private String strategy; private Integer queryCount; private Integer resultCount; private Integer newCompanyCount; private Integer qualifiedCompanyCount; private Integer duplicateCount; private Integer tradeCheckCount; private Integer tradeFoundCount; private Integer newSourceCount; }
