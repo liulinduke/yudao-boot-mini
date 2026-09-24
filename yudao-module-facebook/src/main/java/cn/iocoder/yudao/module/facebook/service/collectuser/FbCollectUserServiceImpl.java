@@ -189,6 +189,10 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
                 } else {
                     // 清空id字段,让数据库自动生成主键
                     fbCollectUser.setId(null);
+                    // 主页采集任务保留原始 task_id：后续深度采集 upsertDeepCollectedUser
+                    // 会把 user.task_id 改写为 deep 任务 id，original_task_id 用于按关键词行
+                    // 统计发现客户数（getPageDiscoveryLeadIds）。
+                    fbCollectUser.setOriginalTaskId(detail.getTaskId());
                     fbCollectUserMapper.insert(fbCollectUser);
                 }
                 count++;
@@ -271,6 +275,13 @@ public class FbCollectUserServiceImpl implements FbCollectUserService {
             return;
         }
         incoming.setId(existing.getId());
+        // 深度采集会把 task_id 改为深度任务，但保留首次主页任务，
+        // 使客户发现按关键词行统计时仍能找到该客户。
+        if (existing.getOriginalTaskId() != null) {
+            incoming.setOriginalTaskId(existing.getOriginalTaskId());
+        } else if (existing.getTaskId() != null) {
+            incoming.setOriginalTaskId(existing.getTaskId());
+        }
         // 深度采集命中已有潜客时仍归属当前任务，否则本次任务按 taskId 查询不到更新后的记录。
         // 记录本身继续复用旧主键，避免重复新增。
         if (StrUtil.isBlank(incoming.getFbUserId())) {

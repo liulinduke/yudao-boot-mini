@@ -166,6 +166,11 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             addRunLog(config.getId(), "Agent创建完成", "已创建" + getAgentTypeLabel(config.getAgentType()) + "：" + config.getAgentName(), "success");
             return config.getId();
         }
+        FbAiAgentConfigDO existingConfig = agentConfigMapper.selectById(config.getId());
+        if (existingConfig != null && !parseJsonStringList(existingConfig.getKeywordPool())
+                .equals(parseJsonStringList(config.getKeywordPool()))) {
+            config.setKeywordCursor(0);
+        }
         agentConfigMapper.updateById(config);
         addRunLog(config.getId(), "Agent配置已更新", "已保存Agent配置", "info");
         return config.getId();
@@ -521,6 +526,12 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 skippedReasons.add(config.getAgentName() + "：暂不支持该Agent类型");
                 continue;
             }
+            if (hasUnfinishedCollectTask(config.getId())) {
+                String reason = config.getAgentName() + "：已有采集任务正在运行，请完成后再执行";
+                skippedReasons.add(reason);
+                addRunLog(config.getId(), "立即执行", reason, "warning");
+                continue;
+            }
 
             List<String> accountIds = resolveAgentAccountIds(config, resolveTargetCustomerCount(config));
             if (CollUtil.isEmpty(accountIds)) {
@@ -536,7 +547,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 }
                 addRunLog(config.getId(), "立即执行",
                         String.format("竞品主页%s个，采集最近%s天", pageUrls.size(), resolveCompetitorRecentDays(config)), "info");
-                created = createCompetitorPostCollectTasks(config, pageUrls, accountIds, launchDetails, true);
+                created = createCompetitorPostCollectTasks(config, pageUrls, accountIds, launchDetails, true, true);
             } else if (isGroupMonitorAgent(config.getAgentType())) {
                 List<String> groupUrls = resolveGroupPostUrls(config);
                 if (CollUtil.isEmpty(groupUrls)) {
@@ -556,8 +567,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 }
                 addRunLog(config.getId(), "立即执行",
                         String.format("帖子关键词%s个，目标%s个", runKeywords.size(), resolveTargetCustomerCount(config)), "info");
-                created = createPostLeadCollectTasks(config, runKeywords, accountIds, launchDetails, true);
-                advanceKeywordCursor(config, runKeywords.size());
+                created = createPostLeadCollectTasks(config, runKeywords, accountIds, launchDetails, true, true);
+                if (created > 0) {
+                    advanceKeywordCursor(config, runKeywords.size());
+                }
             } else {
                 List<String> runKeywords = pickRunKeywords(config);
                 if (CollUtil.isEmpty(runKeywords)) {
@@ -566,8 +579,10 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 }
                 addRunLog(config.getId(), "立即执行",
                         String.format("关键词%s个，目标%s个", runKeywords.size(), resolveTargetCustomerCount(config)), "info");
-                created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails, true);
-                advanceKeywordCursor(config, runKeywords.size());
+                created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails, true, true);
+                if (created > 0) {
+                    advanceKeywordCursor(config, runKeywords.size());
+                }
             }
             if (created <= 0) {
                 skippedReasons.add(config.getAgentName() + "：未创建采集任务");
@@ -824,7 +839,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 }
                 addRunLog(config.getId(), "开始执行",
                         String.format("竞品主页%s个，采集最近%s天", pageUrls.size(), resolveCompetitorRecentDays(config)), "info");
-                int created = createCompetitorPostCollectTasks(config, pageUrls, accountIds, launchDetails, enqueueForVuePoller);
+                int created = createCompetitorPostCollectTasks(config, pageUrls, accountIds, launchDetails, enqueueForVuePoller, false);
                 TouchActivateResult activatedTouches = activateDueTouchRecords(config, null);
                 stats.createdCollectTasks += created;
                 stats.activatedTouches += activatedTouches.totalDetails();
@@ -852,16 +867,18 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 List<String> runKeywords = pickRunKeywords(config);
                 addRunLog(config.getId(), "开始执行",
                         String.format("帖子关键词%s个，目标%s个", runKeywords.size(), resolveTargetCustomerCount(config)), "info");
-                int created = createPostLeadCollectTasks(config, runKeywords, accountIds, launchDetails, enqueueForVuePoller);
+                int created = createPostLeadCollectTasks(config, runKeywords, accountIds, launchDetails, enqueueForVuePoller, false);
                 stats.createdCollectTasks += created;
-                advanceKeywordCursor(config, runKeywords.size());
+                if (created > 0) {
+                    advanceKeywordCursor(config, runKeywords.size());
+                }
             } else {
                 List<String> targetCountries = parseJsonStringList(config.getTargetCountries());
                 List<String> targetLanguages = parseJsonStringList(config.getTargetLanguages());
                 List<String> runKeywords = pickRunKeywords(config);
                 addRunLog(config.getId(), "开始执行",
                         String.format("关键词%s个，目标%s个", runKeywords.size(), resolveTargetCustomerCount(config)), "info");
-                int created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails, enqueueForVuePoller);
+                int created = createPageLeadCollectTasks(config, runKeywords, accountIds, launchDetails, enqueueForVuePoller, false);
                 int deepCreated = createDeepCollectTasks(config, accountIds, launchDetails, enqueueForVuePoller);
                 int analyzedUsers = analyzePendingUsers(config, runKeywords, targetCountries, targetLanguages, null);
                 int queuedTouches = queueHighIntentTouches(config, accountIds, null);
@@ -871,7 +888,9 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 stats.analyzedUsers += analyzedUsers;
                 stats.queuedTouches += queuedTouches;
                 stats.activatedTouches += activatedTouches.totalDetails();
-                advanceKeywordCursor(config, runKeywords.size());
+                if (created > 0) {
+                    advanceKeywordCursor(config, runKeywords.size());
+                }
             }
             if (scheduledOnly) {
                 markAgentExecuted(config.getId());
@@ -1138,7 +1157,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private int createPageLeadCollectTasks(FbAiAgentConfigDO config, List<String> keywords, List<String> accountIds,
                                            List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
-                                           boolean enqueueForVuePoller) {
+                                           boolean enqueueForVuePoller, boolean forceCreate) {
         if (CollUtil.isEmpty(keywords) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "采集异常", "关键词池或账号池为空", "warning");
             return 0;
@@ -1159,7 +1178,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
             int expectedCount = distributeExpectedCount(targetTotal, keywords.size(), i);
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
             String searchUrl = buildKeywordSearchUrl(config, keyword, true, false);
-            if (!collectQueueService.tryMarkCreated(config.getId(), "page", searchUrl)) {
+            if (!forceCreate && !collectQueueService.tryMarkCreated(config.getId(), "page", searchUrl)) {
                 continue;
             }
             FbCollectDO task = createCollectTask(PAGE_COLLECT_TASK_TYPE, searchUrl, 1,
@@ -1236,7 +1255,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
 
     private int createPostLeadCollectTasks(FbAiAgentConfigDO config, List<String> keywords, List<String> accountIds,
                                            List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
-                                           boolean enqueueForVuePoller) {
+                                           boolean enqueueForVuePoller, boolean forceCreate) {
         if (CollUtil.isEmpty(keywords) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "采集异常", "关键词池或账号池为空", "warning");
             return 0;
@@ -1255,7 +1274,7 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 continue;
             }
             String searchUrl = buildKeywordSearchUrl(config, keyword, false, isPostLeadLatestPosts(config));
-            if (!collectQueueService.tryMarkCreated(config.getId(), "post_lead", searchUrl)) {
+            if (!forceCreate && !collectQueueService.tryMarkCreated(config.getId(), "post_lead", searchUrl)) {
                 continue;
             }
             int expectedCount = distributeExpectedCount(targetTotal, keywords.size(), i);
@@ -1428,8 +1447,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
     }
 
     private int createCompetitorPostCollectTasks(FbAiAgentConfigDO config, List<String> pageUrls, List<String> accountIds,
-                                                 List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
-                                                 boolean enqueueForVuePoller) {
+                                                  List<FbAiAgentDispatchRespVO.CollectDetail> launchDetails,
+                                                  boolean enqueueForVuePoller, boolean forceCreate) {
         if (CollUtil.isEmpty(pageUrls) || CollUtil.isEmpty(accountIds)) {
             addRunLog(config.getId(), "采集异常", "竞品主页或账号池为空", "warning");
             return 0;
@@ -1447,22 +1466,25 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
         if (CollUtil.isEmpty(normalizedUrls)) {
             return 0;
         }
+        List<String> pendingUrls = normalizedUrls.stream()
+                .filter(pageUrl -> forceCreate || collectQueueService.tryMarkCreated(config.getId(), "competitor_post", pageUrl))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(pendingUrls)) {
+            return 0;
+        }
         List<Long> accountIdLongs = new ArrayList<>(accountMap.keySet());
-        int expectedTotal = normalizedUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
-        String searchUrls = String.join("\n", normalizedUrls);
+        int expectedTotal = pendingUrls.size() * GROUP_POST_COLLECT_SAFETY_LIMIT;
+        String searchUrls = String.join("\n", pendingUrls);
         FbCollectDO task = createCollectTask(POST_COLLECT_TASK_TYPE, searchUrls, 2,
-                "AI竞品监控-帖子采集:" + config.getAgentName() + ":" + normalizedUrls.size() + "个主页",
-                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), normalizedUrls.size())),
+                "AI竞品监控-帖子采集:" + config.getAgentName() + ":" + pendingUrls.size() + "个主页",
+                accountIdLongs.subList(0, Math.min(accountIdLongs.size(), pendingUrls.size())),
                 accountMap);
-        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, normalizedUrls.size());
+        updateCollectTaskExpected(task.getId(), GROUP_POST_COLLECT_SAFETY_LIMIT, expectedTotal, pendingUrls.size());
         createDiscoveryLog(config.getId(), "主页帖子采集", task.getId(), "competitor_post");
 
         int created = 0;
-        for (int i = 0; i < normalizedUrls.size(); i++) {
-            String pageUrl = normalizedUrls.get(i);
-            if (!collectQueueService.tryMarkCreated(config.getId(), "competitor_post", pageUrl)) {
-                continue;
-            }
+        for (int i = 0; i < pendingUrls.size(); i++) {
+            String pageUrl = pendingUrls.get(i);
             Long accountId = accountIdLongs.get(i % accountIdLongs.size());
             FbCollectDetailDO detail = createCollectDetail(task.getId(), accountId, accountMap.get(accountId), pageUrl, GROUP_POST_COLLECT_SAFETY_LIMIT);
             if (enqueueForVuePoller) {
@@ -3277,6 +3299,16 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .collect(Collectors.toList());
     }
 
+    private boolean hasUnfinishedCollectTask(Long agentConfigId) {
+        List<Long> taskIds = getAgentDiscoveryTaskIds(agentConfigId);
+        if (CollUtil.isEmpty(taskIds)) {
+            return false;
+        }
+        return collectDetailMapper.selectCount(new LambdaQueryWrapper<FbCollectDetailDO>()
+                .in(FbCollectDetailDO::getTaskId, taskIds)
+                .in(FbCollectDetailDO::getStatus, 0, 1)) > 0;
+    }
+
     private List<Long> getAgentLeadIds(Long agentConfigId) {
         List<Long> taskIds = getAgentDiscoveryTaskIds(agentConfigId);
         if (CollUtil.isEmpty(taskIds)) {
@@ -3448,47 +3480,75 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 discoveryLogMapper.updateById(updateObj);
                 continue;
             }
-            // 与线索列表保持完全一致：主页采集后的深度明细通过 sourceUserId
-            // 回写原始主页用户，AI 分析结果也保存在该用户记录上，不能只按深度任务 task_id 查询。
-            // 公共主页获客的 page 日志对应首轮主页采集，真正的用户通常落在后续
-            // deep 任务中；页面隐藏 deep 日志，因此 page 行必须统计该 Agent 的
-            // 完整用户集合，才能和“线索列表”保持一致。
-            List<Long> userIds = "page".equals(logDO.getSourceType())
+            // 主页行按原始关键词任务统计；深度采集会改写 user.task_id，
+            // getPageDiscoveryLeadIds 负责通过原始任务关联回本行。
+            boolean isPageRow = "page".equals(logDO.getSourceType());
+            List<Long> userIds = isPageRow
                     ? getPageDiscoveryLeadIds(agentConfigId, logDO.getCollectTaskId())
                     : getCollectTaskLeadIds(logDO.getCollectTaskId());
             List<FbCollectUserDO> users = CollUtil.isEmpty(userIds)
                     ? Collections.emptyList()
                     : collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
                             .in(FbCollectUserDO::getId, userIds));
+            // 历史数据 original_task_id 为 NULL，深度采集后用户全部迁移到 deep 任务，
+            // 按 original_task_id 查不到记录。此时回退到 collectDetail.collected_count
+            // （明细进度回写时不会随深度采集改写），保留首轮实际采集数量。
+            int discoveredCount = users.size();
+            if (isPageRow) {
+                FbCollectDetailDO pageDetail = collectDetailMapper.selectOne(new LambdaQueryWrapper<FbCollectDetailDO>()
+                        .eq(FbCollectDetailDO::getTaskId, logDO.getCollectTaskId())
+                        .orderByDesc(FbCollectDetailDO::getId)
+                        .last("LIMIT 1"));
+                if (pageDetail != null && pageDetail.getCollectedCount() != null
+                        && pageDetail.getCollectedCount() > discoveredCount) {
+                    discoveredCount = pageDetail.getCollectedCount();
+                }
+            }
             FbAiAgentDiscoveryLogDO updateObj = new FbAiAgentDiscoveryLogDO();
             updateObj.setId(logDO.getId());
-            updateObj.setDiscoveredCount(users.size());
-            updateObj.setPageCollectCount(users.size());
+            updateObj.setDiscoveredCount(discoveredCount);
+            updateObj.setPageCollectCount(discoveredCount);
             long analyzed = users.stream().filter(item -> item.getLastAiAnalyzeTime() != null).count();
             long qualified = users.stream()
                     .filter(item -> Optional.ofNullable(item.getProductRelevanceScore()).orElse(0) >= threshold)
                     .count();
             updateObj.setAiAnalyzeCount((int) analyzed);
             updateObj.setHighIntentCount((int) qualified);
-            updateObj.setFilteredCount((int) Math.max(users.size() - qualified, 0));
+            updateObj.setFilteredCount((int) Math.max(discoveredCount - qualified, 0));
             updateObj.setFinalLeadCount((int) qualified);
             discoveryLogMapper.updateById(updateObj);
         }
     }
 
     /**
-     * 返回单条主页关键词日志对应的用户：首轮主页任务产生的用户，
-     * 加上这些用户后续创建的深度采集明细 sourceUserId，避免每条关键词
-     * 日志都重复显示整个 Agent 的汇总数据。
+     * 返回单条主页关键词日志对应的用户：首轮主页任务产生、且后续深度采集
+     * upsertDeepCollectedUser 把 user.task_id 改写为 deep 任务 id 时仍能通过
+     * original_task_id 关联回该 page 任务的客户。历史数据 original_task_id 为 NULL，
+     * 此时退化为 task_id=pageTaskId（即未被深度采集改写的剩余用户）。
      */
     private List<Long> getPageDiscoveryLeadIds(Long agentConfigId, Long pageTaskId) {
         if (pageTaskId == null) {
             return Collections.emptyList();
         }
-        Set<Long> baseIds = new LinkedHashSet<>(getCollectTaskLeadIds(pageTaskId));
-        if (baseIds.isEmpty()) {
-            return Collections.emptyList();
-        }
+        Set<Long> baseIds = new LinkedHashSet<>();
+        // 新数据优先使用 original_task_id；深度采集会把 task_id 改成深度任务。
+        collectUserMapper.selectList(new LambdaQueryWrapper<FbCollectUserDO>()
+                        .and(w -> w.eq(FbCollectUserDO::getTaskId, pageTaskId)
+                                .or().eq(FbCollectUserDO::getOriginalTaskId, pageTaskId))
+                        .select(FbCollectUserDO::getId))
+                .stream()
+                .map(FbCollectUserDO::getId)
+                .filter(Objects::nonNull)
+                .forEach(baseIds::add);
+        // 主页采集明细本身记录的 source_user_id 是历史数据的稳定关联。
+        collectDetailMapper.selectList(new LambdaQueryWrapper<FbCollectDetailDO>()
+                        .eq(FbCollectDetailDO::getTaskId, pageTaskId)
+                        .isNotNull(FbCollectDetailDO::getSourceUserId)
+                        .select(FbCollectDetailDO::getSourceUserId))
+                .stream()
+                .map(FbCollectDetailDO::getSourceUserId)
+                .filter(Objects::nonNull)
+                .forEach(baseIds::add);
         List<Long> deepTaskIds = discoveryLogMapper.selectList(new LambdaQueryWrapper<FbAiAgentDiscoveryLogDO>()
                         .eq(FbAiAgentDiscoveryLogDO::getAgentConfigId, agentConfigId)
                         .eq(FbAiAgentDiscoveryLogDO::getSourceType, "deep")
@@ -3505,6 +3565,8 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                             .select(FbCollectDetailDO::getSourceUserId))
                     .stream()
                     .map(FbCollectDetailDO::getSourceUserId)
+                    // 深度任务是 Agent 级批次，必须限制为当前关键词行的客户，
+                    // 否则所有主页关键词行都会显示同一组统计数据。
                     .filter(baseIds::contains)
                     .forEach(baseIds::add);
         }

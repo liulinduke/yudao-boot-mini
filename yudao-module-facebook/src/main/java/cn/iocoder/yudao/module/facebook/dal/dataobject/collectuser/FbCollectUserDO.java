@@ -34,6 +34,11 @@ public class FbCollectUserDO extends BaseDO {
      */
     private Long taskId;
     /**
+     * 首轮主页采集任务ID（深度采集命中已有潜客时 task_id 会被改写为 deep 任务 id，
+     * original_task_id 保留原始 page 任务 id，供按关键词统计发现客户数）
+     */
+    private Long originalTaskId;
+    /**
      * 系统用户ID
      */
     private Long userId;

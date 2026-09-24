@@ -12,6 +12,8 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReq
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
+import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchClient;
+import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchRequest;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
 import cn.iocoder.yudao.module.ai.dal.mysql.model.AiChatMapper;
 import com.agentsflex.llm.deepseek.DeepseekConfig;
@@ -26,6 +28,7 @@ import com.agentsflex.llm.qwen.QwenLlm;
 import com.agentsflex.llm.qwen.QwenLlmConfig;
 import dev.tinyflow.core.Tinyflow;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -65,6 +68,9 @@ public class AiModelServiceImpl implements AiModelService {
     @Resource
     private AiChatMapper modelMapper;
 
+    @Autowired(required = false)
+    private AiWebSearchClient webSearchClient;
+
     @Resource
     private AiModelFactory modelFactory;
 
@@ -96,16 +102,30 @@ public class AiModelServiceImpl implements AiModelService {
         }
         String raw = WebClient.builder().baseUrl(baseUrl).defaultHeaders(h -> h.setBearerAuth(key.getApiKey())).build()
                 .post().uri("/responses").bodyValue(body).retrieve().bodyToMono(String.class).block();
-        return parseResponsesSearch(raw);
+        return parseResponsesSearch(raw, query, count);
     }
 
-    private AiWebSearchResponse parseResponsesSearch(String raw) {
+    private AiWebSearchResponse parseResponsesSearch(String raw, String fallbackQuery, Integer fallbackCount) {
         if (raw == null || raw.isBlank()) return new AiWebSearchResponse().setTotal(0L).setLists(Collections.emptyList());
         try {
             JsonNode root = new ObjectMapper().readTree(raw);
             List<AiWebSearchResponse.WebPage> pages = new ArrayList<>();
             JsonNode output = root.path("output");
             if (output.isArray()) for (JsonNode item : output) {
+                if ("function_call".equals(item.path("type").asText())
+                        && "web_search".equals(item.path("name").asText())) {
+                    JsonNode arguments = new ObjectMapper().readTree(item.path("arguments").asText("{}"));
+                    String searchQuery = arguments.path("query").asText(fallbackQuery);
+                    int resultCount = arguments.path("count").canConvertToInt()
+                            ? arguments.path("count").asInt() : fallbackCount == null ? 10 : fallbackCount;
+                    if (webSearchClient == null) {
+                        throw new IllegalStateException("当前模型返回了 web_search function_call，但未启用实际搜索服务（yudao.ai.web-search.enable）");
+                    }
+                    return webSearchClient.search(new AiWebSearchRequest()
+                            .setQuery(searchQuery)
+                            .setCount(Math.min(Math.max(resultCount, 1), 50))
+                            .setSummary(true));
+                }
                 JsonNode content = item.path("content");
                 if (!content.isArray()) continue;
                 for (JsonNode part : content) {

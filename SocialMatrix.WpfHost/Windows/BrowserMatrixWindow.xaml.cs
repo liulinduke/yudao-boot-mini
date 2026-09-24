@@ -31,6 +31,7 @@ namespace SocialMatrix.WpfHost.Windows
         private readonly object _browserLoadErrorLock = new();
         private readonly ConcurrentDictionary<string, int> _accountTaskTypes = new(); // 账号 -> 任务类型映射
         private readonly ConcurrentDictionary<string, string> _accountDetailIds = new(); // 账号 -> 任务明细ID
+        private readonly ConcurrentDictionary<string, long> _collectionBatchActivityTicks = new();
         // 一个账号只有一个浏览器 Tab，也只能同时执行一个业务任务。
         // 采集、AI 获客、运营、私信和资料任务都必须经过这里。
         private readonly ConcurrentDictionary<string, string> _activeAccountTasks = new(); // 账号 -> 当前任务明细ID
@@ -447,8 +448,30 @@ namespace SocialMatrix.WpfHost.Windows
                     if (!string.Equals(payload["type"]?.ToString(), "collection-batch", StringComparison.Ordinal)) return;
                     var results = payload["results"] as JArray;
                     if (results == null || results.Count == 0) return;
-                    var activeDetailId = _accountDetailIds.TryGetValue(accountId, out var value) ? value : "";
+                    var mappedDetailId = _accountDetailIds.TryGetValue(accountId, out var value) ? value : "";
+                    var messageDetailId = payload["detailId"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(messageDetailId)
+                        && (!_activeAccountTasks.TryGetValue(accountId, out var activeTaskDetailId)
+                            || !string.Equals(messageDetailId, activeTaskDetailId, StringComparison.Ordinal)))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⏭️ 丢弃已结束任务的采集批次: account={accountId}, batchDetailId={messageDetailId}");
+                        return;
+                    }
+                    if (!string.IsNullOrWhiteSpace(messageDetailId)
+                        && !string.Equals(messageDetailId, mappedDetailId, StringComparison.Ordinal))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⏭️ 忽略旧采集脚本批次: account={accountId}, batchDetailId={messageDetailId}, activeDetailId={mappedDetailId}");
+                        return;
+                    }
+                    var activeDetailId = string.IsNullOrWhiteSpace(messageDetailId) ? mappedDetailId : messageDetailId;
                     var activeTaskType = _accountTaskTypes.TryGetValue(accountId, out var type) ? type : 1;
+                    if (!string.IsNullOrWhiteSpace(activeDetailId)
+                        && _collectionBatchActivityTicks.ContainsKey(activeDetailId))
+                    {
+                        _collectionBatchActivityTicks[activeDetailId] = Environment.TickCount64;
+                    }
                     OnCollectionBatch?.Invoke(activeDetailId, accountId, results.ToString(Formatting.None), activeTaskType);
                 }
                 catch (Exception ex)
@@ -586,7 +609,7 @@ namespace SocialMatrix.WpfHost.Windows
                 {
                     OnCollectionError?.Invoke(accountId, "浏览器已被手动关闭，当前任务已停止");
                 }
-                CloseBrowser(accountId);
+                CloseBrowser(accountId, notifyTaskBrowserClosed: true);
                 if (GetActiveBrowserCount() == 0)
                 {
                     Close();
@@ -1013,26 +1036,27 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 关闭浏览器实例
         /// </summary>
-        public void CloseBrowser(string accountId)
+        public void CloseBrowser(string accountId, bool notifyTaskBrowserClosed = false)
         {
             if (Application.Current?.Dispatcher != null
                 && !Application.Current.Dispatcher.CheckAccess())
             {
-                Application.Current.Dispatcher.Invoke(() => CloseBrowser(accountId));
+                Application.Current.Dispatcher.Invoke(() => CloseBrowser(accountId, notifyTaskBrowserClosed));
                 return;
             }
 
             if (!_browsers.ContainsKey(accountId)) return;
-            RemoveBrowserState(accountId, disposeBrowser: true);
+            RemoveBrowserState(accountId, disposeBrowser: true, notifyTaskBrowserClosed: notifyTaskBrowserClosed);
             System.Diagnostics.Debug.WriteLine($"✅ 已关闭账号 {accountId} 的浏览器");
         }
 
-        private void RemoveBrowserState(string accountId, bool disposeBrowser)
+        private void RemoveBrowserState(string accountId, bool disposeBrowser, bool notifyTaskBrowserClosed = false)
         {
             // 手动关闭或异常清理必须立即释放账号任务锁；旧任务稍后返回时会按明细ID校验，不能误释放新任务。
             ReleaseAccountTask(accountId);
 
-            if (_accountTaskTypes.TryGetValue(accountId, out var taskType)
+            if (notifyTaskBrowserClosed
+                && _accountTaskTypes.TryGetValue(accountId, out var taskType)
                 && _accountDetailIds.TryGetValue(accountId, out var detailId)
                 && Application.Current?.MainWindow is MainWindow mainWindow)
             {
@@ -1916,6 +1940,7 @@ namespace SocialMatrix.WpfHost.Windows
         private async Task StartAutoCollect(ChromiumWebBrowser browser, string accountId,
             string searchUrl, int expectedCount, int taskType = 1, string? config = null, string? detailId = null)
         {
+            string? batchProgressDetailId = null;
             System.Diagnostics.Debug.WriteLine(
                 $"🚀 开始采集任务: account={accountId}, detailId={detailId}, taskType={taskType}, " +
                 $"activeAccounts={_activeAccountTasks.Count}, thread={Environment.CurrentManagedThreadId}, url={searchUrl}");
@@ -2086,7 +2111,7 @@ namespace SocialMatrix.WpfHost.Windows
 
                 // 3. 注入采集脚本(根据任务类型)
                 System.Diagnostics.Debug.WriteLine($"🔍 调用 GenerateCollectScript, taskType={taskType}");
-                var collectScript = GenerateCollectScript(accountId, expectedCount, taskType, config);
+                var collectScript = GenerateCollectScript(accountId, expectedCount, taskType, config, detailId);
                 // 对于帖子评论点赞采集，显示实际目标数量
                 if (taskType == 11 && !string.IsNullOrEmpty(config))
                 {
@@ -2141,11 +2166,42 @@ namespace SocialMatrix.WpfHost.Windows
                 int evaluateTimeoutMs = taskType == 12
                     ? 90000
                     : Math.Min(Math.Max(expectedCount * 1000, 300000), 1800000);
-                var evaluateTask = browser.EvaluateScriptAsync(collectScript);
-                var completed = await Task.WhenAny(evaluateTask, Task.Delay(evaluateTimeoutMs));
-                if (completed != evaluateTask)
+                batchProgressDetailId = !string.IsNullOrWhiteSpace(detailId)
+                    ? detailId
+                    : _accountDetailIds.TryGetValue(accountId, out var currentDetailId) ? currentDetailId : null;
+                var lastCollectionActivityTicks = Environment.TickCount64;
+                if (!string.IsNullOrWhiteSpace(batchProgressDetailId))
                 {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ 采集脚本执行超时: taskType={taskType}, timeoutMs={evaluateTimeoutMs}");
+                    _collectionBatchActivityTicks[batchProgressDetailId] = lastCollectionActivityTicks;
+                }
+                var evaluateTask = browser.EvaluateScriptAsync(collectScript);
+                var evaluationTimedOut = false;
+                while (!evaluateTask.IsCompleted)
+                {
+                    if (taskType == 2 && !string.IsNullOrWhiteSpace(batchProgressDetailId)
+                        && _collectionBatchActivityTicks.TryGetValue(batchProgressDetailId, out var latestActivityTicks)
+                        && latestActivityTicks > lastCollectionActivityTicks)
+                    {
+                        lastCollectionActivityTicks = latestActivityTicks;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"🔄 采集批次已回传，重置脚本空闲超时: detailId={batchProgressDetailId}, timeoutMs={evaluateTimeoutMs}");
+                    }
+
+                    var elapsedMs = Environment.TickCount64 - lastCollectionActivityTicks;
+                    var remainingMs = evaluateTimeoutMs - elapsedMs;
+                    if (remainingMs <= 0)
+                    {
+                        evaluationTimedOut = true;
+                        break;
+                    }
+
+                    await Task.WhenAny(evaluateTask, Task.Delay((int)Math.Min(remainingMs, 250)));
+                }
+
+                if (evaluationTimedOut && !evaluateTask.IsCompleted)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"⚠️ 采集脚本空闲超时: taskType={taskType}, timeoutMs={evaluateTimeoutMs}, detailId={batchProgressDetailId}");
                     OnCollectionError?.Invoke(accountId, $"采集脚本执行超时（{evaluateTimeoutMs / 1000}秒）");
                     return;
                 }
@@ -2236,6 +2292,10 @@ namespace SocialMatrix.WpfHost.Windows
             }
             finally
             {
+                if (!string.IsNullOrWhiteSpace(batchProgressDetailId))
+                {
+                    _collectionBatchActivityTicks.TryRemove(batchProgressDetailId, out _);
+                }
                 // 队列采集任务的结果回传给前端后，前端会先领取同账号下一条明细并复用当前浏览器；
                 // 没有下一条时再主动调用 CloseBrowserForAccount 释放资源。这里不能提前关闭，
                 // 否则主页、帖子、群组和深度采集都会在每条明细之间重复创建浏览器。
@@ -2327,7 +2387,8 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         /// <summary>
         /// 生成采集脚本（根据任务类型）
         /// </summary>
-        private string GenerateCollectScript(string accountId, int expectedCount, int taskType = 1, string? config = null)
+        private string GenerateCollectScript(string accountId, int expectedCount, int taskType = 1,
+            string? config = null, string? detailId = null)
         {
             System.Diagnostics.Debug.WriteLine($"🔍 GenerateCollectScript 被调用: taskType={taskType}, expectedCount={expectedCount}");
 
@@ -2335,7 +2396,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             if (taskType == 2) // 帖子采集
             {
                 System.Diagnostics.Debug.WriteLine("✅ 进入帖子采集分支，调用 GeneratePostCollectScript");
-                return GeneratePostCollectScript(expectedCount, config);
+                return GeneratePostCollectScript(expectedCount, config, detailId);
             }
             else if (taskType == 3) // 用户采集
             {
@@ -2770,7 +2831,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         /// <summary>
         /// 生成帖子采集脚本（简化版）
         /// </summary>
-        private string GeneratePostCollectScript(int expectedCount, string? config = null)
+        private string GeneratePostCollectScript(int expectedCount, string? config = null, string? detailId = null)
         {
             var js = new System.Text.StringBuilder();
             var safeConfig = string.IsNullOrWhiteSpace(config) ? "{}" : config;
@@ -2785,13 +2846,14 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("        if (isSearchLatestPostCollect) console.log('[帖子采集] 使用最新帖子过滤');");
             js.AppendLine("        if (isAiGroupPostCollect) targetCount = Number(aiGroupPostConfig.maxPostsPerGroup || aiGroupPostConfig.maxPostsPerPage || 1000);");
             js.AppendLine("        const recentDays = Number(aiGroupPostConfig.recentDays || 0);");
+            js.AppendLine("        console.log('[帖子采集] 日期筛选配置:', aiGroupPostConfig.source || 'default', recentDays, '天');");
             js.AppendLine("        let stopCurrentGroup = false;");
-            js.AppendLine("        let consecutiveStaleGroupPosts = 0;");
+            js.AppendLine("        let consecutiveOutOfWindowPosts = 0;");
             js.AppendLine("        const seenPostKeys = new Set();");
             js.AppendLine($"        const maxScrolls = isAiGroupPostCollect ? Number(aiGroupPostConfig.maxScrolls || 240) : {Math.Max(expectedCount * 3, 10)};");
             js.AppendLine("        let consecutiveNoNewItems = 0;");
             // 部分 Facebook 搜索会话会延迟数十秒才追加下一批。页面有新卡片或扩展时计数会归零。
-            js.AppendLine("        const maxConsecutiveNoNew = 10;");
+            js.AppendLine("        const maxConsecutiveNoNew = 5;");
         js.AppendLine("        let lastScrollHeight = document.documentElement.scrollHeight || 0;");
             js.AppendLine("        let lastCardsSignature = '';");
             js.AppendLine("        let scrollCount = 0;");
@@ -2902,7 +2964,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             const now = new Date();
             // Facebook 的 aria-label 常包含完整句子，例如 “9h · 12 comments”。
             // 从文本中提取时间片段，而不是要求整段文本完全匹配。
-            const relative = raw.match(/(?:^|\s)(\d+)\s*(m|min|mins|分钟|h|hr|hrs|小时|d|day|days|天|w|week|weeks|周)(?=\s|$|[·•,.，。])/i);
+            const relative = raw.match(/(?:^|\s)(\d+)\s*(m|min|mins|分钟|h|hr|hrs|小时|d|day|days|天|w|week|weeks|周|mo|month|months|月|y|yr|yrs|year|years|年)(?=\s|$|[·•,.，。])/i);
             const m = relative && /^(m|min|mins|分钟)$/i.test(relative[2]) ? relative : null;
             if (m) return { date: new Date(now.getTime() - Number(m[1]) * 60000), daysAgo: 0, raw };
             const h = relative && /^(h|hr|hrs|小时)$/i.test(relative[2]) ? relative : null;
@@ -2915,6 +2977,16 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             const w = relative && /^(w|week|weeks|周)$/i.test(relative[2]) ? relative : null;
             if (w) {
                 const days = Number(w[1]) * 7;
+                return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
+            }
+            const mo = relative && /^(mo|month|months|月)$/i.test(relative[2]) ? relative : null;
+            if (mo) {
+                const days = Number(mo[1]) * 30;
+                return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
+            }
+            const y = relative && /^(y|yr|yrs|year|years|年)$/i.test(relative[2]) ? relative : null;
+            if (y) {
+                const days = Number(y[1]) * 365;
                 return { date: new Date(now.getTime() - days * 86400000), daysAgo: days, raw };
             }
             if (/^Yesterday|昨天$/i.test(raw)) return { date: new Date(now.getTime() - 86400000), daysAgo: 1, raw };
@@ -3173,28 +3245,23 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 if (likeActionButton) reactionCount = cleanText(likeActionButton.textContent || '');
                 const parsedCommentCount = Number(String(commentCount).replace(/[,\s]/g, '')) || 0;
                 const parsedReactionCount = Number(String(reactionCount).replace(/[,\s]/g, '')) || 0;
-                const clearlyOlderThanWindow = parsedTime.daysAgo !== null
-                    && parsedTime.daysAgo > recentDays
-                    && (/^\d+\s*(d|day|days|w|week|weeks|天|周)$/i.test(parsedTime.raw)
-                        || /\b\d{4}\b/.test(parsedTime.raw)
-                        || /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(parsedTime.raw));
-                if (aiGroupPostConfig.source === 'ai_group_comment_post' && recentDays > 0 && clearlyOlderThanWindow) {
-                    const hasRecentComment = Array.from(card.querySelectorAll('a[href*=""comment_id""], abbr[aria-label]'))
-                        .map(node => parsePostTime(node.getAttribute('aria-label') || node.textContent || ''))
-                        .some(time => time.daysAgo !== null && time.daysAgo <= recentDays);
-                    consecutiveStaleGroupPosts++;
-                    console.log('[AI群帖评论截流] 连续超期帖子计数:', parsedTime.raw, consecutiveStaleGroupPosts, '/6');
-                    if (consecutiveStaleGroupPosts >= 6) {
-                        console.log('[AI群帖评论截流] 连续6个超期帖子，停止当前群:', recentDays);
+                const dateLimitedPostSource = recentDays > 0
+                    && ['ai_group_post', 'ai_group_comment_post', 'ai_competitor_post'].includes(aiGroupPostConfig.source);
+                const outOfWindowOrUnknownDate = parsedTime.daysAgo === null || parsedTime.daysAgo > recentDays;
+                if (dateLimitedPostSource && outOfWindowOrUnknownDate) {
+                    seenPostKeys.add(postKey);
+                    consecutiveOutOfWindowPosts++;
+                    const sourceLabel = aiGroupPostConfig.source === 'ai_competitor_post'
+                        ? 'AI竞品监控'
+                        : aiGroupPostConfig.source === 'ai_group_comment_post' ? '群帖评论截流' : 'AI群帖获客';
+                    console.log('[' + sourceLabel + '] 连续超期或无法解析日期:', parsedTime.raw || '日期未知', consecutiveOutOfWindowPosts, '/3');
+                    if (consecutiveOutOfWindowPosts >= 3) {
+                        console.log('[' + sourceLabel + '] 连续3条帖子超期或日期未知，停止当前来源:', recentDays);
                         stopCurrentGroup = true;
-                        return null;
                     }
-                    if (hasRecentComment || parsedCommentCount > 0 || parsedReactionCount > 0) {
-                        console.log('[AI群帖评论截流] 超期但有评论或点赞，继续保留:', parsedTime.raw, commentCount, reactionCount);
-                    }
-                } else if (aiGroupPostConfig.source === 'ai_group_comment_post') {
-                    consecutiveStaleGroupPosts = 0;
+                    return null;
                 }
+                if (dateLimitedPostSource) consecutiveOutOfWindowPosts = 0;
                 /*
                 for (const span of numberSpans) {
                     const text = span.textContent.trim();
@@ -3340,13 +3407,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
         doScroll();
 ");
 
-            // 大任务按批次已经持续落库，允许长时间滚动；没有任何数据时仍由前端无响应保护兜底。
-            js.AppendLine("        setTimeout(() => {");
-            js.AppendLine("            if (results.length > 0) resolve(JSON.stringify(results));");
-            js.AppendLine("            else reject(new Error('Collection timeout with no data'));");
-            js.AppendLine($"        }}, {Math.Min(Math.Max(expectedCount * 1000, 300000), 1800000)});");
-
-            return JsScriptHelper.CreatePromiseWrapper(js.ToString());
+            return JsScriptHelper.CreatePromiseWrapper(js.ToString(), detailId);
         }
 
         /// <summary>

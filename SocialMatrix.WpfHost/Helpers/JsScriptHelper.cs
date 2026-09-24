@@ -1,4 +1,5 @@
 using System.Text;
+using Newtonsoft.Json;
 
 namespace SocialMatrix.WpfHost.Helpers
 {
@@ -79,7 +80,7 @@ namespace SocialMatrix.WpfHost.Helpers
         // Facebook 虚拟列表在分页加载期间可能连续几轮不更新 DOM，
         // 滚动次数不作为业务停止条件，避免大目标数量被固定上限截断。
         let consecutiveNoNewItems = 0;
-        const maxConsecutiveNoNew = 10;
+        const maxConsecutiveNoNew = 5;
         let stableBottomRounds = 0;
         let lastScrollHeight = 0;
         let lastCardCount = 0;
@@ -188,12 +189,12 @@ namespace SocialMatrix.WpfHost.Helpers
         /// <summary>
         /// 创建 Promise 包装器
         /// </summary>
-        public static string CreatePromiseWrapper(string body)
+        public static string CreatePromiseWrapper(string body, string? batchDetailId = null)
         {
             return $@"(function() {{
     return new Promise((resolve, reject) => {{
         const results = [];
-        // 采集脚本可能运行很久。每满 10 条即通过 CefSharp 回传，及时刷新前端无响应保护。
+        // 采集脚本可能运行很久。每满 20 条即通过 CefSharp 回传，及时刷新前端无响应保护。
         // 最终 resolve 前再发送不足一批的尾数据；页面不支持消息桥接时仍保持原有完整回传。
         const batchSize = 20;
         let reportedCount = 0;
@@ -201,7 +202,7 @@ namespace SocialMatrix.WpfHost.Helpers
             const batch = results.slice(reportedCount);
             if (!batch.length || !window.CefSharp || typeof window.CefSharp.PostMessage !== 'function') return;
             reportedCount += batch.length;
-            window.CefSharp.PostMessage(JSON.stringify({{ type: 'collection-batch', results: batch }}));
+            window.CefSharp.PostMessage(JSON.stringify({{ type: 'collection-batch', detailId: {JsonConvert.SerializeObject(batchDetailId)}, results: batch }}));
         }};
         const nativeResolve = resolve;
         resolve = (payload) => {{
