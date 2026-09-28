@@ -105,11 +105,11 @@ namespace SocialMatrix.WpfHost.Services
         /// <summary>
         /// Vue 调用此方法关闭浏览器
         /// </summary>
-        public void StopBrowser(string accountId)
+        public void StopBrowser(string accountId, string detailId = null)
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                _mainWindow.CloseBrowserForAccount(accountId);
+                _mainWindow.CloseBrowserForAccount(accountId, detailId);
             });
         }
 

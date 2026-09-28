@@ -57,6 +57,8 @@ public class AiWebSearchResponse {
          */
         private String summary;
 
+        private String source;
+
     }
 
 }

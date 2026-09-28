@@ -32,6 +32,7 @@ public enum AiPlatformEnum implements ArrayValuable<String> {
     // ========== 国外平台 ==========
 
     OPENAI("OpenAI", "OpenAI"), // OpenAI 官方
+    AIHUBMIX("AIHubMix", "AIHubMix"), // AIHubMix OpenAI 兼容接口
     AZURE_OPENAI("AzureOpenAI", "AzureOpenAI"), // OpenAI 微软
     ANTHROPIC("Anthropic", "Anthropic"), // Anthropic Claude
     GEMINI("Gemini", "Gemini"), // 谷歌 Gemini

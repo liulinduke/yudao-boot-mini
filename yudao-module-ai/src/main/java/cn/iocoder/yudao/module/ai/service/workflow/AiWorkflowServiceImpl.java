@@ -129,6 +129,15 @@ public class AiWorkflowServiceImpl implements AiWorkflowService {
         return executeWorkflowGraph(workflow.getGraph(), params, id);
     }
 
+    @Override
+    public Object executeWorkflowByCode(String code, Map<String, Object> params) {
+        AiWorkflowDO workflow = workflowMapper.selectByCode(code);
+        if (workflow == null) {
+            throw exception(WORKFLOW_NOT_EXISTS);
+        }
+        return executeWorkflowGraph(workflow.getGraph(), params, workflow.getId());
+    }
+
     private Object executeWorkflowGraph(String graph, Map<String, Object> params, Long workflowId) {
         graph = normalizeWorkflowGraphParameters(workflowId, graph);
         logWorkflowPrompts(workflowId, graph, params);

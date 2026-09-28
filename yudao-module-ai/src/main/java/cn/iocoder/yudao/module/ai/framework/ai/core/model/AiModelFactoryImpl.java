@@ -170,6 +170,8 @@ public class AiModelFactoryImpl implements AiModelFactory {
                     return buildBaiChuanChatModel(apiKey);
                 case OPENAI:
                     return buildOpenAiChatModel(apiKey, url);
+                case AIHUBMIX:
+                    return buildOpenAiChatModel(apiKey, StrUtil.blankToDefault(url, "https://aihubmix.com/v1"));
                 case AZURE_OPENAI:
                     return buildAzureOpenAiChatModel(apiKey, url);
                 case ANTHROPIC:
@@ -302,6 +304,9 @@ public class AiModelFactoryImpl implements AiModelFactory {
                     return buildMiniMaxEmbeddingModel(apiKey, url, model);
                 case OPENAI:
                     return buildOpenAiEmbeddingModel(apiKey, url, model);
+                case AIHUBMIX:
+                    return buildOpenAiEmbeddingModel(apiKey,
+                            StrUtil.blankToDefault(url, "https://aihubmix.com/v1"), model);
                 case AZURE_OPENAI:
                     return buildAzureOpenAiEmbeddingModel(apiKey, url, model);
                 case OLLAMA:

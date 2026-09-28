@@ -6,6 +6,8 @@ import { closeBrowser, startBrowserCollect } from '@/utils/wpfBridge'
 import { getFbAccountProxyJson } from '@/utils/fbAccountProxy'
 
 let polling = false
+let claimQueuedWhilePolling = false
+let queuedClaimForceLimit: number | undefined
 const claimedDetailIds = new Set<string>()
 const runningAccounts = new Set<string>()
 const detailTimeouts = new Map<string, number>()
@@ -280,7 +282,7 @@ async function handleWpfBrowserClosed(event: Event) {
     const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
     const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
     if (!nextDetail || nextAccountId !== accountId) {
-      closeBrowser(accountId)
+      closeBrowser(accountId, detailId)
     }
   }
 }
@@ -374,7 +376,7 @@ async function timeoutQueuedDetail(accountId: string, detailId: string, sourceTy
     const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
     const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
     if (!nextDetail || nextAccountId !== accountId) {
-      closeBrowser(accountId)
+      closeBrowser(accountId, detailId)
     }
   }
 }
@@ -385,7 +387,17 @@ function rememberFinishedDetail(detailId: string) {
 }
 
 export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) => {
-  if (polling || !getBridge()) return 0
+  if (polling) {
+    claimQueuedWhilePolling = true
+    if (typeof forceLimit === 'number') {
+      queuedClaimForceLimit = Math.max(queuedClaimForceLimit || 0, forceLimit)
+    }
+    return 0
+  }
+  if (!getBridge()) {
+    console.warn('[AI获客领取] WPF 桥接未就绪，本次不能启动采集浏览器')
+    return 0
+  }
   const availableSlots = typeof forceLimit === 'number' ? forceLimit : getAvailableSlots()
   if (availableSlots <= 0) return 0
 
@@ -413,6 +425,14 @@ export const claimAndStartPendingAiAgentDetails = async (forceLimit?: number) =>
     return 0
   } finally {
     polling = false
+    if (claimQueuedWhilePolling) {
+      const retryLimit = queuedClaimForceLimit
+      claimQueuedWhilePolling = false
+      queuedClaimForceLimit = undefined
+      window.setTimeout(() => {
+        void claimAndStartPendingAiAgentDetails(retryLimit)
+      }, 0)
+    }
   }
 }
 

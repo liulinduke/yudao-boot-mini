@@ -70,4 +70,6 @@ public interface AiWorkflowService {
      */
     Object executeWorkflow(Long id, Map<String, Object> params);
 
+    Object executeWorkflowByCode(String code, Map<String, Object> params);
+
 }

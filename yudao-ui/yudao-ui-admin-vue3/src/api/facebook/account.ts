@@ -173,6 +173,15 @@ export interface FbAccount {
   createTime?: string
 }
 
+export const isFbAccountLoginStatusUnconfirmed = (reason?: string | null) =>
+  /暂未判定|尚未判定|暂时无法确认|无法确认|网络异常|页面仍在加载/i.test(String(reason || ''))
+
+export const isFbAccountLoginFailureReason = (reason?: string | null) => {
+  const value = String(reason || '')
+  if (isFbAccountLoginStatusUnconfirmed(value)) return false
+  return /cookie\s*(?:(?:已|已经)\s*)?失效|cookie\s*(?:is\s*)?(?:expired|invalid)|invalid\s*cookie|登录页|重新登录|checkpoint|账号被封/i.test(value)
+}
+
 /** 已启用且正常或尚未检测的账号可用于采集、运营、私信、AI 获客。 */
 export const isFbAccountSelectable = (
   account?: Pick<FbAccount, 'status' | 'loginStatus' | 'loginErrorReason'> | null
@@ -196,7 +205,7 @@ export const isFbAccountSelectable = (
   ]
   return (
     !unavailableStatuses.includes(status) &&
-    !/cookie\s*(已)?失效|cookie\s*expired|登录页|checkpoint|账号被封/i.test(reason)
+    !isFbAccountLoginFailureReason(reason)
   )
 }
 

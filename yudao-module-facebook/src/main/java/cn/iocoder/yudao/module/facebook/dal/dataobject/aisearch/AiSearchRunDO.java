@@ -28,4 +28,6 @@ public class AiSearchRunDO extends TenantBaseDO {
     private Integer tradeFoundCount;
     private Integer contactCount;
     private Integer errorCount;
+    private Integer targetQualifiedCount;
+    private Integer qualifiedCountBefore;
 }

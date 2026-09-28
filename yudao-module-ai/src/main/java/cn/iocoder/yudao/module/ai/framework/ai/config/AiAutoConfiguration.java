@@ -15,7 +15,8 @@ import cn.iocoder.yudao.module.ai.framework.ai.core.model.siliconflow.SiliconFlo
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.suno.api.SunoApi;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.xinghuo.XingHuoChatModel;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchClient;
-import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.bocha.AiBoChaWebSearchClient;
+import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.workflow.AiWorkflowWebSearchClient;
+import cn.iocoder.yudao.module.ai.service.workflow.AiWorkflowService;
 import cn.iocoder.yudao.module.ai.tool.method.PersonService;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.ai.vectorstore.milvus.autoconfigure.MilvusServiceClientProperties;
 import org.springframework.ai.vectorstore.milvus.autoconfigure.MilvusVectorStoreProperties;
 import org.springframework.ai.vectorstore.qdrant.autoconfigure.QdrantVectorStoreProperties;
@@ -306,8 +308,10 @@ public class AiAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty(value = "yudao.ai.web-search.enable", havingValue = "true")
-    public AiWebSearchClient webSearchClient(YudaoAiProperties yudaoAiProperties) {
-        return new AiBoChaWebSearchClient(yudaoAiProperties.getWebSearch().getApiKey());
+    public AiWebSearchClient webSearchClient(YudaoAiProperties yudaoAiProperties,
+                                             ObjectProvider<AiWorkflowService> workflowServiceProvider) {
+        return new AiWorkflowWebSearchClient(workflowServiceProvider,
+                yudaoAiProperties.getWebSearch().getWorkflowCode());
     }
 
     // ========== MCP 相关 ==========

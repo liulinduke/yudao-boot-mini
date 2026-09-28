@@ -177,11 +177,11 @@ export function onCollectionError(callback: (data: { accountId?: string; detailI
   window.addEventListener('fb:collection:error', (event: any) => callback(event.detail || {}))
 }
 
-export function closeBrowser(accountId: string): void {
+export function closeBrowser(accountId: string, detailId?: string): void {
   try {
     const bridge = window.chrome?.webview?.hostObjects?.sync?.wpfBridge
     if (bridge?.StopBrowser) {
-      bridge.StopBrowser(accountId)
+      bridge.StopBrowser(accountId, detailId || '')
     } else {
       console.warn('WPF 桥接未就绪或不支持关闭浏览器')
     }

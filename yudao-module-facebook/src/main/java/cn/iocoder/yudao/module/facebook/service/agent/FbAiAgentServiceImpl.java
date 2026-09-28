@@ -526,13 +526,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 skippedReasons.add(config.getAgentName() + "：暂不支持该Agent类型");
                 continue;
             }
-            if (hasUnfinishedCollectTask(config.getId())) {
-                String reason = config.getAgentName() + "：已有采集任务正在运行，请完成后再执行";
-                skippedReasons.add(reason);
-                addRunLog(config.getId(), "立即执行", reason, "warning");
-                continue;
-            }
-
             List<String> accountIds = resolveAgentAccountIds(config, resolveTargetCustomerCount(config));
             if (CollUtil.isEmpty(accountIds)) {
                 skippedReasons.add(config.getAgentName() + "：账号池为空");
@@ -3297,16 +3290,6 @@ public class FbAiAgentServiceImpl implements FbAiAgentService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
-    }
-
-    private boolean hasUnfinishedCollectTask(Long agentConfigId) {
-        List<Long> taskIds = getAgentDiscoveryTaskIds(agentConfigId);
-        if (CollUtil.isEmpty(taskIds)) {
-            return false;
-        }
-        return collectDetailMapper.selectCount(new LambdaQueryWrapper<FbCollectDetailDO>()
-                .in(FbCollectDetailDO::getTaskId, taskIds)
-                .in(FbCollectDetailDO::getStatus, 0, 1)) > 0;
     }
 
     private List<Long> getAgentLeadIds(Long agentConfigId) {

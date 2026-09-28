@@ -66,6 +66,7 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
     private static final int DEFAULT_RESULT_COUNT = 20;
     private static final int MAX_RESULT_COUNT = 50;
     private static final int MAX_SEARCH_ROUNDS = 20;
+    private static final int MAX_TOOL_CALLS = 20;
     private static final long MAX_RUN_MILLIS = 10 * 60 * 1000L;
 
     @Resource
@@ -96,6 +97,8 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
     @Resource private AiWorkflowMapper aiWorkflowMapper;
     @Resource
     private AiSearchTradeService tradeService;
+    @Resource
+    private AiSearchAgentService searchAgentService;
 
     @Override
     public AiSearchExpansionRespVO expand(AiSearchExpansionReqVO req) {
@@ -112,6 +115,8 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         String text = extractWorkflowText(raw);
         List<String> keywords = new ArrayList<>(); List<String> scenes = new ArrayList<>();
         List<String> productTerms = new ArrayList<>(); List<String> customerRoles = new ArrayList<>(); List<String> localTerms = new ArrayList<>();
+        List<String> purchasingTerms = new ArrayList<>(); List<String> applications = new ArrayList<>();
+        List<String> ecommerceChannelTerms = new ArrayList<>(); List<String> upstreamDownstreamTerms = new ArrayList<>();
         try {
             JsonNode node = new ObjectMapper().readTree(stripJsonFence(text));
             node.path("keywords").elements().forEachRemaining(n -> keywords.add(n.asText()));
@@ -119,12 +124,20 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
             node.path("productTerms").elements().forEachRemaining(n -> productTerms.add(n.asText()));
             node.path("customerRoles").elements().forEachRemaining(n -> customerRoles.add(n.asText()));
             node.path("localTerms").elements().forEachRemaining(n -> localTerms.add(n.asText()));
+            node.path("purchasingTerms").elements().forEachRemaining(n -> purchasingTerms.add(n.asText()));
+            node.path("applications").elements().forEachRemaining(n -> applications.add(n.asText()));
+            node.path("ecommerceChannelTerms").elements().forEachRemaining(n -> ecommerceChannelTerms.add(n.asText()));
+            node.path("upstreamDownstreamTerms").elements().forEachRemaining(n -> upstreamDownstreamTerms.add(n.asText()));
         } catch (Exception ignored) { }
         response.setKeywords(keywords.stream().filter(s -> s != null && !s.isBlank()).distinct().limit(keywordLimit).toList());
         response.setScenes(scenes.stream().filter(s -> s != null && !s.isBlank()).distinct().limit(sceneLimit).toList());
         response.setProductTerms(productTerms.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
         response.setCustomerRoles(customerRoles.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
         response.setLocalTerms(localTerms.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
+        response.setPurchasingTerms(purchasingTerms.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
+        response.setApplications(applications.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
+        response.setEcommerceChannelTerms(ecommerceChannelTerms.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
+        response.setUpstreamDownstreamTerms(upstreamDownstreamTerms.stream().filter(s -> s != null && !s.isBlank()).distinct().toList());
         return response;
     }
 
@@ -144,6 +157,9 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
     @Override
     public Long create(AiSearchTaskSaveReqVO req) {
         AiSearchTaskDO task = BeanUtils.toBean(req, AiSearchTaskDO.class);
+        task.setCompanyProduct(req.getCompany());
+        task.setLeadKeywords(req.getKeywords());
+        task.setSearchSnapshotJson(serializeSearchSnapshot(req.getSearchSnapshot()));
         if (task.getName() == null || task.getName().isBlank()) {
             task.setName(task.getUserGoal());
         }
@@ -174,7 +190,23 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
 
     @Override
     public void update(AiSearchTaskSaveReqVO req) {
-        taskMapper.updateById(BeanUtils.toBean(req, AiSearchTaskDO.class));
+        AiSearchTaskDO task = BeanUtils.toBean(req, AiSearchTaskDO.class);
+        task.setCompanyProduct(req.getCompany());
+        task.setLeadKeywords(req.getKeywords());
+        task.setSearchSnapshotJson(serializeSearchSnapshot(req.getSearchSnapshot()));
+        taskMapper.updateById(task);
+    }
+
+    private String serializeSearchSnapshot(cn.iocoder.yudao.module.facebook.controller.admin.aisearch.vo.AiSearchSnapshotVO snapshot) {
+        if (snapshot == null) return null;
+        snapshot.setVersion(1);
+        if (snapshot.getSelectedKeywords() != null && snapshot.getSelectedKeywords().size() > 6) {
+            snapshot.setSelectedKeywords(snapshot.getSelectedKeywords().subList(0, 6));
+        }
+        if (snapshot.getScenarios() != null && snapshot.getScenarios().size() > 4) {
+            snapshot.setScenarios(snapshot.getScenarios().subList(0, 4));
+        }
+        return cn.hutool.json.JSONUtil.toJsonStr(snapshot);
     }
 
     @Override
@@ -217,6 +249,12 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         if ("STOPPED".equals(task.getStatus())) {
             throw new IllegalStateException("已停止的任务不能直接重新启动，请先复制任务");
         }
+        if ("RUNNING".equals(task.getStatus())) {
+            throw new IllegalStateException("任务正在运行，请勿重复启动");
+        }
+        searchAgentService.assertSearchReady();
+        int companyBaseline = companyCount(task.getId());
+        int qualifiedBaseline = qualifiedCompanyCount(task.getId());
         task.setStatus("RUNNING");
         task.setStartedAt(LocalDateTime.now());
         task.setCompletedAt(null);
@@ -225,42 +263,55 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         run.setTaskId(task.getId());
         run.setStatus("RUNNING");
         run.setStartedAt(LocalDateTime.now());
-        run.setRoundCount(1);
-        run.setQueryCount(1);
+        run.setRoundCount(0);
+        run.setQueryCount(0);
         run.setNewCompanyCount(0);
         run.setQualifiedCompanyCount(0);
         run.setErrorCount(0);
+        int target = task.getTargetCount() == null ? DEFAULT_RESULT_COUNT : task.getTargetCount();
+        run.setTargetQualifiedCount(target);
+        run.setQualifiedCountBefore(qualifiedBaseline);
         runMapper.insert(run);
         try {
-            int before = companyCount(task.getId());
             ensureFrontier(task);
             int rounds = 0;
             int lowYieldRounds = 0;
+            int toolCalls = 0;
             long runDeadline = System.currentTimeMillis() + MAX_RUN_MILLIS;
-            int target = task.getTargetCount() == null ? DEFAULT_RESULT_COUNT : task.getTargetCount();
-            boolean incrementalRun = task.getScheduleType() != null && !"ONCE".equalsIgnoreCase(task.getScheduleType());
-            while ((incrementalRun ? companyCount(task.getId()) - before : companyCount(task.getId())) < target
+            while (qualifiedCompanyCount(task.getId()) - qualifiedBaseline < target
                     && rounds < MAX_SEARCH_ROUNDS
+                    && toolCalls < MAX_TOOL_CALLS
                     && lowYieldRounds < 2 && System.currentTimeMillis() < runDeadline) {
-                int addedThisRound = searchOnce(task, run.getId());
+                int round = nextRound(task.getId());
+                int qualifiedAddedThisRun = qualifiedCompanyCount(task.getId()) - qualifiedBaseline;
+                int remainingQualifiedTarget = Math.max(0, target - qualifiedAddedThisRun);
+                AiSearchAgentService.AgentTurn turn = searchAgentService.search(task, round,
+                        MAX_TOOL_CALLS - toolCalls, qualifiedAddedThisRun, remainingQualifiedTarget);
                 rounds++;
-                lowYieldRounds = addedThisRound == 0 ? lowYieldRounds + 1 : 0;
+                int qualifiedAddedThisRound = 0;
+                for (AiSearchAgentService.SearchInvocation invocation : turn.getInvocations()) {
+                    toolCalls++;
+                    qualifiedAddedThisRound += searchOnce(task, run.getId(), round, invocation);
+                }
+                lowYieldRounds = qualifiedAddedThisRound == 0 ? lowYieldRounds + 1 : 0;
             }
-            int added = companyCount(task.getId()) - before;
-            remember(task, added);
+            int added = companyCount(task.getId()) - companyBaseline;
+            int qualifiedAdded = qualifiedCompanyCount(task.getId()) - qualifiedBaseline;
+            remember(task, qualifiedAdded);
             run.setNewCompanyCount(added);
-            run.setQualifiedCompanyCount(qualifiedCompanyCount(task.getId()));
+            run.setQualifiedCompanyCount(qualifiedAdded);
             run.setContactCount(Math.toIntExact(contactMapper.selectCount(Wrappers.lambdaQuery(AiSearchContactDO.class)
                     .eq(AiSearchContactDO::getTaskId, task.getId()))));
             run.setTradeVerificationCount(task.getHsCodes() == null || task.getHsCodes().isBlank() ? 0 : added);
             run.setTradeFoundCount(Math.toIntExact(tradeEvidenceMapper.selectCount(Wrappers.lambdaQuery(AiSearchTradeEvidenceDO.class)
                     .inSql(AiSearchTradeEvidenceDO::getCompanyId, "SELECT id FROM ai_search_company WHERE task_id = " + task.getId()))));
             run.setRoundCount(rounds);
-            run.setQueryCount(rounds);
-            run.setStatus("COMPLETED");
+            run.setQueryCount(toolCalls);
+            boolean targetReached = qualifiedAdded >= target;
+            run.setStatus(targetReached ? "COMPLETED" : "SEARCH_SPACE_EXHAUSTED");
             run.setCompletedAt(LocalDateTime.now());
             runMapper.updateById(run);
-            task.setStatus(companyCount(task.getId()) >= target ? "COMPLETED" : "SEARCH_SPACE_EXHAUSTED");
+            task.setStatus(targetReached ? "COMPLETED" : "SEARCH_SPACE_EXHAUSTED");
             task.setCompletedAt(LocalDateTime.now());
             taskMapper.updateById(task);
         } catch (RuntimeException ex) {
@@ -351,30 +402,26 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
                 .in(AiSearchCompanyDO::getIcpLevel, "A", "B")));
     }
 
-    private int searchOnce(AiSearchTaskDO task, Long runId) {
-        AiWebSearchRequest request = new AiWebSearchRequest();
-        int round = nextRound(task.getId());
-        request.setQuery(planQuery(task, round, buildQuery(task, round)));
+    private int searchOnce(AiSearchTaskDO task, Long runId, int round,
+                           AiSearchAgentService.SearchInvocation invocation) {
+        String queryText = invocation.getQuery();
+        List<AiWebSearchResponse.WebPage> pages = invocation.getPages();
         frontierMapper.update(null, Wrappers.lambdaUpdate(AiSearchFrontierDO.class)
-                .eq(AiSearchFrontierDO::getTaskId, task.getId()).set(AiSearchFrontierDO::getLastRoundNo, round));
-        request.setCount(Math.min(Math.max(task.getTargetCount() == null
-                ? DEFAULT_RESULT_COUNT : task.getTargetCount(), 1), MAX_RESULT_COUNT));
-        request.setSummary(true);
-        AiWebSearchResponse response = aiModelService.webSearch(request.getQuery(), request.getCount());
-        List<AiWebSearchResponse.WebPage> pages = response == null || response.getLists() == null
-                ? Collections.emptyList() : response.getLists();
-        int target = task.getTargetCount() == null ? DEFAULT_RESULT_COUNT : task.getTargetCount();
+                .eq(AiSearchFrontierDO::getTaskId, task.getId())
+                .set(AiSearchFrontierDO::getLastRoundNo, round));
         int before = companyCount(task.getId());
         int qualifiedBefore = qualifiedCompanyCount(task.getId());
         int duplicates = 0;
+        Long sourceId = sourceIdFromQuery(queryText);
         int newSources = registerDiscoveredSources(task, pages);
         for (AiWebSearchResponse.WebPage page : pages) {
             if (page == null || page.getUrl() == null || page.getUrl().isBlank()) {
                 duplicates++;
                 continue;
             }
-            if (companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
-                    .eq(AiSearchCompanyDO::getNormalizedName, normalize(canonicalDomain(page.getUrl())))) > 0) {
+            String domain = canonicalDomain(page.getUrl());
+            if (domain.isBlank() || companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
+                    .eq(AiSearchCompanyDO::getNormalizedName, normalize(domain))) > 0) {
                 duplicates++;
                 continue;
             }
@@ -392,7 +439,7 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
             company.setVerificationStatus("UNKNOWN");
             evaluateIcp(task, company);
             companyMapper.insert(company);
-            saveEvidence(company, page);
+            saveEvidence(company, page, sourceId, runId);
             if (Boolean.TRUE.equals(task.getContactEnrichment())) {
                 saveBasicContact(task, company, page);
                 discoverAdditionalContacts(task, company, page);
@@ -401,27 +448,30 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
                 String hsCode = task.getHsCodes().split(",")[0].trim();
                 tradeService.verify(company.getId(), hsCode, task.getUserGoal());
             }
-            if (companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
-                    .eq(AiSearchCompanyDO::getTaskId, task.getId())) >= target) {
-                break;
-            }
         }
         int added = companyCount(task.getId()) - before;
-        AiSearchQueryDO query = new AiSearchQueryDO(); query.setTaskId(task.getId()); query.setRoundNo(round);
-        query.setQuery(request.getQuery()); query.setCountry(task.getTargetCountry()); query.setLanguage(languageFor(task.getTargetCountry())); query.setResultCount(pages.size());
         int qualifiedAdded = Math.max(0, qualifiedCompanyCount(task.getId()) - qualifiedBefore);
+        AiSearchQueryDO query = new AiSearchQueryDO(); query.setTaskId(task.getId()); query.setRoundNo(round);
+        query.setRunId(runId);
+        query.setQuery(queryText); query.setCountry(task.getTargetCountry()); query.setLanguage(languageFor(task.getTargetCountry())); query.setResultCount(pages.size());
+        Map<String, Object> dimensions = new java.util.LinkedHashMap<>();
+        dimensions.put("snapshot", task.getSearchSnapshotJson() == null ? Map.of()
+                : cn.hutool.json.JSONUtil.parseObj(task.getSearchSnapshotJson()));
+        dimensions.put("query", queryText);
+        dimensions.put("language", languageFor(task.getTargetCountry()));
+        dimensions.put("sourceId", sourceId);
+        query.setDimensionsJson(cn.hutool.json.JSONUtil.toJsonStr(dimensions));
         query.setNewCompanyCount(added); query.setDuplicateCount(duplicates); query.setQualifiedCount(qualifiedAdded);
-        sourceMapper.selectList(Wrappers.lambdaQuery(AiSearchSourceDO.class)
-                .in(AiSearchSourceDO::getStatus, "ACTIVE", "CANDIDATE").orderByDesc(AiSearchSourceDO::getPriority).last("LIMIT 20"))
-                .stream().filter(source -> source.getDomain() != null && request.getQuery().contains(source.getDomain()))
-                .findFirst().ifPresent(source -> query.setSourceId(source.getId()));
+        query.setSourceId(sourceId);
         query.setYieldScore(java.math.BigDecimal.valueOf(added)); query.setStatus("COMPLETED"); queryMapper.insert(query);
-        updateSourceYield(request.getQuery(), pages.size(), added, qualifiedAdded);
+        saveFrontier(task, queryText, round, sourceId);
+        rememberSearchQuery(task, queryText, qualifiedAdded, pages.size(), duplicates);
+        updateSourceYield(queryText, pages.size(), added, qualifiedAdded);
         AiSearchRoundDO searchRound = new AiSearchRoundDO(); searchRound.setTaskId(task.getId()); searchRound.setRunId(runId);
-        searchRound.setRoundNo(round); searchRound.setStrategy(request.getQuery()); searchRound.setQueryCount(1);
+        searchRound.setRoundNo(round); searchRound.setStrategy(queryText); searchRound.setQueryCount(1);
         searchRound.setResultCount(pages.size()); searchRound.setNewCompanyCount(added); searchRound.setQualifiedCompanyCount(qualifiedAdded);
         searchRound.setDuplicateCount(duplicates); searchRound.setNewSourceCount(newSources); roundMapper.insert(searchRound);
-        return added;
+        return qualifiedAdded;
     }
 
     private int registerDiscoveredSources(AiSearchTaskDO task, List<AiWebSearchResponse.WebPage> pages) {
@@ -438,6 +488,49 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
             source.setCompanyCount(0); source.setQualifiedCompanyCount(0); sourceMapper.insert(source); added++;
         }
         return added;
+    }
+
+    private Long sourceIdFromQuery(String query) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\bsite:([^\\s]+)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(query == null ? "" : query);
+        if (!matcher.find()) return null;
+        String domain = canonicalDomain(matcher.group(1));
+        if (domain.isBlank()) return null;
+        AiSearchSourceDO source = sourceMapper.selectOne(Wrappers.lambdaQuery(AiSearchSourceDO.class)
+                .eq(AiSearchSourceDO::getDomain, domain).last("LIMIT 1"));
+        return source == null ? null : source.getId();
+    }
+
+    private void saveFrontier(AiSearchTaskDO task, String query, int round, Long sourceId) {
+        AiSearchFrontierDO frontier = new AiSearchFrontierDO();
+        frontier.setTaskId(task.getId());
+        frontier.setCountry(task.getTargetCountry());
+        frontier.setProduct(task.getCompanyProduct());
+        frontier.setCustomerType(task.getCustomerType());
+        frontier.setLanguage(languageFor(task.getTargetCountry()));
+        frontier.setKeyword(query.length() > 500 ? query.substring(0, 500) : query);
+        frontier.setSourceId(sourceId);
+        frontier.setStatus("EXPLORED");
+        frontier.setLastRoundNo(round);
+        frontierMapper.insert(frontier);
+    }
+
+    private void rememberSearchQuery(AiSearchTaskDO task, String query, int qualified, int results, int duplicates) {
+        String key = "query:" + Integer.toUnsignedString(query.trim().toLowerCase(Locale.ROOT).hashCode(), 36);
+        AiSearchMemoryDO memory = memoryMapper.selectOne(Wrappers.lambdaQuery(AiSearchMemoryDO.class)
+                .eq(AiSearchMemoryDO::getScopeType, "TASK").eq(AiSearchMemoryDO::getScopeId, task.getId())
+                .eq(AiSearchMemoryDO::getMemoryKey, key).last("LIMIT 1"));
+        if (memory == null) {
+            memory = new AiSearchMemoryDO();
+            memory.setScopeType("TASK"); memory.setScopeId(task.getId()); memory.setMemoryKey(key);
+            memory.setUsageCount(0);
+        }
+        java.util.Map<String, Object> value = new java.util.LinkedHashMap<>();
+        value.put("query", query); value.put("qualified", qualified); value.put("results", results); value.put("duplicates", duplicates);
+        memory.setMemoryValue(cn.hutool.json.JSONUtil.toJsonStr(value));
+        memory.setScore(java.math.BigDecimal.valueOf(qualified));
+        memory.setUsageCount(memory.getUsageCount() + 1);
+        if (memory.getId() == null) memoryMapper.insert(memory); else memoryMapper.updateById(memory);
     }
 
     /** Fetches only the public landing page to improve entity evidence; failures keep search-engine evidence. */
@@ -497,6 +590,7 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         source.setYieldScore(java.math.BigDecimal.valueOf((qualified * 100.0) / Math.max(1, usage)));
         source.setAvgNewCompany(java.math.BigDecimal.valueOf(companies * 1.0 / usage));
         source.setAvgQualifiedCompany(java.math.BigDecimal.valueOf(qualified * 1.0 / usage));
+        if (usage >= 3 && qualifiedAdded > 0 && "CANDIDATE".equals(source.getStatus())) source.setStatus("ACTIVE");
         if (usage >= 3 && added == 0 && qualifiedAdded == 0 && ("ACTIVE".equals(source.getStatus()) || "CANDIDATE".equals(source.getStatus()))) source.setStatus("LOW_YIELD");
         source.setLastUsedAt(LocalDateTime.now()); source.setLastTestedAt(LocalDateTime.now()); sourceMapper.updateById(source);
     }
@@ -507,9 +601,10 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         return frontier == null || frontier.getLastRoundNo() == null ? 1 : frontier.getLastRoundNo() + 1;
     }
 
-    private void saveEvidence(AiSearchCompanyDO company, AiWebSearchResponse.WebPage page) {
+    private void saveEvidence(AiSearchCompanyDO company, AiWebSearchResponse.WebPage page, Long sourceId, Long runId) {
         AiSearchCompanyEvidenceDO evidence = new AiSearchCompanyEvidenceDO();
-        evidence.setCompanyId(company.getId()); evidence.setUrl(page.getUrl()); evidence.setEvidenceType("WEB_SEARCH");
+        evidence.setCompanyId(company.getId()); evidence.setSourceId(sourceId); evidence.setRunId(runId);
+        evidence.setUrl(page.getUrl()); evidence.setEvidenceType("WEB_SEARCH");
         evidence.setEvidenceText(firstNonBlank(page.getSummary(), page.getSnippet(), page.getTitle()));
         evidence.setCollectedAt(LocalDateTime.now()); evidenceMapper.insert(evidence);
     }
@@ -612,88 +707,6 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
             text = text.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "");
         }
         return text;
-    }
-
-    private String buildQuery(AiSearchTaskDO task, int round) {
-        StringBuilder query = new StringBuilder(task.getUserGoal() == null ? "" : task.getUserGoal());
-        appendQueryPart(query, task.getTargetCountry());
-        appendQueryPart(query, task.getCustomerType());
-        if (round > 1) {
-            List<String> variants = expandKeywords(task);
-            if (!variants.isEmpty()) query.append(' ').append(variants.get((round - 2) % variants.size()));
-        }
-        List<AiSearchSourceDO> sources = sourceMapper.selectList(Wrappers.lambdaQuery(AiSearchSourceDO.class)
-                .eq(AiSearchSourceDO::getStatus, "ACTIVE")
-                .and(task.getTargetCountry() != null && !task.getTargetCountry().isBlank(), w -> w.isNull(AiSearchSourceDO::getCountries).or().eq(AiSearchSourceDO::getCountries, "")
-                        .or().like(AiSearchSourceDO::getCountries, task.getTargetCountry()))
-                .and(task.getCustomerType() != null && !task.getCustomerType().isBlank(), w -> w.isNull(AiSearchSourceDO::getCustomerTypes).or().eq(AiSearchSourceDO::getCustomerTypes, "")
-                        .or().like(AiSearchSourceDO::getCustomerTypes, task.getCustomerType()))
-                .orderByDesc(AiSearchSourceDO::getPriority)
-                .orderByDesc(AiSearchSourceDO::getYieldScore)
-                .last("LIMIT 5"));
-        if (sources.isEmpty()) {
-            sources = sourceMapper.selectList(Wrappers.lambdaQuery(AiSearchSourceDO.class)
-                    .eq(AiSearchSourceDO::getStatus, "CANDIDATE")
-                    .orderByDesc(AiSearchSourceDO::getPriority)
-                    .orderByDesc(AiSearchSourceDO::getYieldScore).last("LIMIT 5"));
-        }
-        // Keep one source per query so result ownership and yield metrics are attributable.
-        if (!sources.isEmpty()) {
-            AiSearchSourceDO source = sources.get(Math.floorMod(round - 1, sources.size()));
-            if (source.getDomain() != null && !source.getDomain().isBlank()) {
-                query.append(" site:").append(source.getDomain().trim());
-            }
-        }
-        if (task.getReferenceWebsite() != null && !task.getReferenceWebsite().isBlank()) {
-            String referenceDomain = canonicalDomain(task.getReferenceWebsite());
-            if (!referenceDomain.isBlank() && !query.toString().contains(referenceDomain)) {
-                query.append(" similar companies to ").append(referenceDomain);
-            }
-        }
-        return query.toString();
-    }
-
-    private String planQuery(AiSearchTaskDO task, int round, String fallback) {
-        try {
-            var model = aiModelService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
-            String prompt = "为企业获客生成一条网页搜索查询。只输出查询文本，不要解释。目标="
-                    + task.getUserGoal() + ";国家=" + firstNonBlank(task.getTargetCountry())
-                    + ";客户类型=" + firstNonBlank(task.getCustomerType()) + ";第" + round + "轮。"
-                    + "必须保留目标产品和客户类型，不要输出site:以外的特殊语法。默认查询=" + fallback;
-            String planned = aiModelService.getChatModel(model.getId())
-                    .call(new Prompt(new UserMessage(prompt))).getResult().getOutput().getText();
-            planned = stripJsonFence(planned).replaceAll("[\\r\\n]+", " ").trim();
-            if (planned.length() >= 8 && planned.length() <= 900 && !planned.startsWith("{")) {
-                int siteAt = fallback.indexOf(" site:");
-                if (siteAt >= 0 && !planned.toLowerCase(Locale.ROOT).contains("site:")) {
-                    planned = planned + fallback.substring(siteAt);
-                }
-                return planned;
-            }
-        } catch (Exception ignored) {
-            // The deterministic query remains available when the planner is unavailable.
-        }
-        return fallback;
-    }
-
-    private List<String> expandKeywords(AiSearchTaskDO task) {
-        if (!Boolean.TRUE.equals(task.getAiKeywordExpand())) return List.of("importer", "distributor", "wholesaler", "procurement");
-        try {
-            var model = aiModelService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
-            String prompt = "根据以下外贸获客目标，生成4个简短英文搜索表达，分别覆盖产品别名、应用场景、客户类型和采购角色。只输出JSON字符串数组，不要解释：" + task.getUserGoal();
-            String text = aiModelService.getChatModel(model.getId()).call(new Prompt(new UserMessage(prompt))).getResult().getOutput().getText();
-            JsonNode node = new ObjectMapper().readTree(stripJsonFence(text));
-            List<String> values = new ArrayList<>();
-            if (node.isArray()) for (JsonNode item : node) if (item.isTextual() && !item.asText().isBlank()) values.add(item.asText().trim());
-            return values;
-        } catch (Exception ignored) { return List.of("importer", "distributor", "wholesaler", "procurement"); }
-    }
-
-    private void appendQueryPart(StringBuilder query, String value) {
-        if (value != null && !value.isBlank() && !query.toString().toLowerCase(Locale.ROOT)
-                .contains(value.toLowerCase(Locale.ROOT))) {
-            query.append(' ').append(value.trim());
-        }
     }
 
     private String languageFor(String country) {

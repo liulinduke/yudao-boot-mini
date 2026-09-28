@@ -8,4 +8,8 @@ public class AiSearchExpansionRespVO {
     private List<String> productTerms;
     private List<String> customerRoles;
     private List<String> localTerms;
+    private List<String> purchasingTerms;
+    private List<String> applications;
+    private List<String> ecommerceChannelTerms;
+    private List<String> upstreamDownstreamTerms;
 }

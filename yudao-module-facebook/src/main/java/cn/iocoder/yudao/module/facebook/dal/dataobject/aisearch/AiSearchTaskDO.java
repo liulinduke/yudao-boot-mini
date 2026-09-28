@@ -15,6 +15,8 @@ public class AiSearchTaskDO extends TenantBaseDO {
     private Long id;
     private String name;
     private String userGoal;
+    private String companyProduct;
+    private String leadKeywords;
     private String targetCountry;
     private Integer targetCount;
     private String customerType;
@@ -26,6 +28,7 @@ public class AiSearchTaskDO extends TenantBaseDO {
     private String status;
     private String scheduleType;
     private String scheduleInterval;
+    private String searchSnapshotJson;
     private java.time.LocalDateTime startedAt;
     private java.time.LocalDateTime completedAt;
 }

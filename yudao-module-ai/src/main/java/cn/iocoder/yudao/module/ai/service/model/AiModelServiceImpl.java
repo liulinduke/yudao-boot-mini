@@ -41,13 +41,6 @@ import org.springframework.validation.annotation.Validated;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.net.URI;
-import org.springframework.web.reactive.function.client.WebClient;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
@@ -76,77 +69,13 @@ public class AiModelServiceImpl implements AiModelService {
 
     @Override
     public AiWebSearchResponse webSearch(String query, Integer count) {
-        AiModelDO model = getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
-        AiApiKeyDO key = apiKeyService.validateApiKey(model.getKeyId());
-        String baseUrl = key.getUrl();
-        if (baseUrl == null || baseUrl.isBlank()) baseUrl = "https://api.openai.com/v1";
-        baseUrl = baseUrl.replaceAll("/+$", "");
-        if (!baseUrl.endsWith("/v1")) baseUrl += "/v1";
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("model", model.getModel());
-        body.put("input", query);
-        boolean nativeWebSearch = AiPlatformEnum.OPENAI.getPlatform().equalsIgnoreCase(model.getPlatform());
-        if (nativeWebSearch) {
-            body.put("tools", List.of(Map.of("type", "web_search")));
-            body.put("include", List.of("web_search_call.action.sources"));
-        } else {
-            // DeepSeek 等兼容 Responses API 的模型不支持 OpenAI 内置工具，使用标准 function tool。
-            body.put("tools", List.of(Map.of(
-                    "type", "function",
-                    "name", "web_search",
-                    "description", "搜索互联网并返回带来源的网页结果",
-                    "parameters", Map.of("type", "object", "properties", Map.of(
-                            "query", Map.of("type", "string"), "count", Map.of("type", "integer")),
-                            "required", List.of("query"), "additionalProperties", false),
-                    "strict", true)));
+        if (webSearchClient == null) {
+            throw new IllegalStateException("AI 工作流联网搜索未启用（yudao.ai.web-search.enable）");
         }
-        String raw = WebClient.builder().baseUrl(baseUrl).defaultHeaders(h -> h.setBearerAuth(key.getApiKey())).build()
-                .post().uri("/responses").bodyValue(body).retrieve().bodyToMono(String.class).block();
-        return parseResponsesSearch(raw, query, count);
-    }
-
-    private AiWebSearchResponse parseResponsesSearch(String raw, String fallbackQuery, Integer fallbackCount) {
-        if (raw == null || raw.isBlank()) return new AiWebSearchResponse().setTotal(0L).setLists(Collections.emptyList());
-        try {
-            JsonNode root = new ObjectMapper().readTree(raw);
-            List<AiWebSearchResponse.WebPage> pages = new ArrayList<>();
-            JsonNode output = root.path("output");
-            if (output.isArray()) for (JsonNode item : output) {
-                if ("function_call".equals(item.path("type").asText())
-                        && "web_search".equals(item.path("name").asText())) {
-                    JsonNode arguments = new ObjectMapper().readTree(item.path("arguments").asText("{}"));
-                    String searchQuery = arguments.path("query").asText(fallbackQuery);
-                    int resultCount = arguments.path("count").canConvertToInt()
-                            ? arguments.path("count").asInt() : fallbackCount == null ? 10 : fallbackCount;
-                    if (webSearchClient == null) {
-                        throw new IllegalStateException("当前模型返回了 web_search function_call，但未启用实际搜索服务（yudao.ai.web-search.enable）");
-                    }
-                    return webSearchClient.search(new AiWebSearchRequest()
-                            .setQuery(searchQuery)
-                            .setCount(Math.min(Math.max(resultCount, 1), 50))
-                            .setSummary(true));
-                }
-                JsonNode content = item.path("content");
-                if (!content.isArray()) continue;
-                for (JsonNode part : content) {
-                    JsonNode annotations = part.path("annotations");
-                    if (!annotations.isArray()) continue;
-                    for (JsonNode a : annotations) {
-                        String url = a.path("url").asText("");
-                        if (url.isBlank()) continue;
-                        pages.add(new AiWebSearchResponse.WebPage()
-                                .setName(a.path("title").asText(url))
-                                .setTitle(a.path("title").asText(url))
-                                .setUrl(url)
-                                .setSnippet(part.path("text").asText(""))
-                                .setSummary(part.path("text").asText("")));
-                    }
-                }
-            }
-            return new AiWebSearchResponse().setTotal((long) pages.size()).setLists(pages);
-        } catch (Exception ex) {
-            throw new IllegalStateException("Responses web_search 响应解析失败", ex);
-        }
+        return webSearchClient.search(new AiWebSearchRequest()
+                .setQuery(query)
+                .setCount(count)
+                .setSummary(true));
     }
 
     @Override
@@ -292,11 +221,16 @@ public class AiModelServiceImpl implements AiModelService {
                 tinyflow.setLlmProvider(id -> new QwenLlm(qwenLlmConfig));
                 break;
             case DEEP_SEEK:
+            case AIHUBMIX:
                 DeepseekConfig deepseekConfig = new DeepseekConfig();
                 deepseekConfig.setApiKey(apiKey.getApiKey());
                 deepseekConfig.setModel(model.getModel());
-                if (apiKey.getUrl() != null && !apiKey.getUrl().isBlank()) {
-                    deepseekConfig.setEndpoint(apiKey.getUrl());
+                String endpoint = apiKey.getUrl();
+                if (platform == AiPlatformEnum.AIHUBMIX && (endpoint == null || endpoint.isBlank())) {
+                    endpoint = "https://aihubmix.com/v1";
+                }
+                if (endpoint != null && !endpoint.isBlank()) {
+                    deepseekConfig.setEndpoint(endpoint);
                 }
                 tinyflow.setLlmProvider(id -> new LoggingDeepseekLlm(deepseekConfig));
                 break;
@@ -308,7 +242,7 @@ public class AiModelServiceImpl implements AiModelService {
                 break;
             default:
                 throw exception0(MODEL_USE_TYPE_ERROR.getCode(),
-                        "AI 工作流暂不支持 {} 平台，请在工作流大模型节点选择通义千问、DeepSeek 或 Ollama 模型", platform.getName());
+                        "AI 工作流暂不支持 {} 平台，请在工作流大模型节点选择通义千问、DeepSeek、AIHubMix 或 Ollama 模型", platform.getName());
         }
     }
 

@@ -13,7 +13,11 @@ import {
 } from '@/utils/wpfAiAgentTaskPoller'
 import { closeBrowser, onCollectionBatch, onCollectionComplete } from '@/utils/wpfBridge'
 import { onCollectionError } from '@/utils/wpfBridge'
-import { FbAccountApi } from '@/api/facebook/account'
+import {
+  FbAccountApi,
+  isFbAccountLoginFailureReason,
+  isFbAccountLoginStatusUnconfirmed
+} from '@/api/facebook/account'
 import { FbCollectApi } from '@/api/facebook/collect'
 import { isWarmupDetail, reportWarmupDetail } from '@/utils/wpfWarmupTaskPoller'
 
@@ -61,8 +65,8 @@ export function setupWpfOperationSync() {
       }
       return
     }
-    if (isAiAgentClaimedDetail(data.detailId)
-      && (isCollectTaskType(data.taskType) || isAiAgentCollectDetail(data.detailId))) {
+    if (Number(data.taskType) === 11 || (isAiAgentClaimedDetail(data.detailId)
+      && (isCollectTaskType(data.taskType) || isAiAgentCollectDetail(data.detailId)))) {
       await saveCollectResult(data)
       return
     }
@@ -111,7 +115,7 @@ export function setupWpfOperationSync() {
           ? String(nextDetail.accountId || nextDetail.fbAccount || '')
           : ''
         if (!nextDetail || nextAccountId !== accountId) {
-          closeBrowser(accountId)
+          closeBrowser(accountId, detailId)
         }
       }
     }
@@ -153,13 +157,21 @@ export function setupWpfOperationSync() {
           detailId,
           errorMessage: reason || '浏览器加载失败'
         })
-        await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+        const nextDetail = await finishQueuedAccountTaskAndStartNext(accountId, detailId)
+        const nextAccountId = nextDetail
+          ? String(nextDetail.accountId || nextDetail.fbAccount || '')
+          : ''
+        if (!nextDetail || nextAccountId !== accountId) {
+          closeBrowser(accountId, detailId)
+        }
         window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId } }))
       } catch (error) {
         console.error('[采集异常] 明细失败状态保存失败:', error)
       }
     }
-    if (!/cookie|登录页|重新登录|checkpoint|账号被封/i.test(reason) || !data.accountId) return
+    const cookieInvalid = isFbAccountLoginFailureReason(reason)
+    const loginStatusUnconfirmed = isFbAccountLoginStatusUnconfirmed(reason)
+    if ((!cookieInvalid && !loginStatusUnconfirmed) || !data.accountId) return
 
     try {
       const page = await FbAccountApi.getFbAccountPage({
@@ -169,6 +181,19 @@ export function setupWpfOperationSync() {
       })
       const account = page?.list?.[0]
       if (!account?.id) return
+      const storedStatus = String(account.loginStatus || '').trim().toUpperCase()
+      if (!cookieInvalid) {
+        if (storedStatus !== 'COOKIE_INVALID' || !isFbAccountLoginStatusUnconfirmed(account.loginErrorReason)) return
+        await FbAccountApi.updateFbAccountLoginResult({
+          id: account.id,
+          loginStatus: 'UNKNOWN',
+          loginErrorReason: reason
+        })
+        window.dispatchEvent(new CustomEvent('fb:account:status:changed', {
+          detail: { accountId: String(data.accountId), loginStatus: 'UNKNOWN', errorMessage: reason }
+        }))
+        return
+      }
       await FbAccountApi.updateFbAccountLoginResult({
         id: account.id,
         loginStatus: 'COOKIE_INVALID',
@@ -246,7 +271,7 @@ async function saveCollectResult(data: any) {
     if (!nextDetail || nextAccountId !== String(data.accountId || '')) {
       // 只要当前账号没有下一条任务，就关闭当前账号自己的 Tab；
       // 其他账号有任务不影响当前账号的收尾。
-      closeBrowser(String(data.accountId || ''))
+      closeBrowser(String(data.accountId || ''), detailId)
     }
     window.dispatchEvent(new CustomEvent('fb:ai-agent:collect:saved', { detail: { detailId, taskType } }))
     window.dispatchEvent(new CustomEvent('fb:collect:saved', { detail: { detailId, taskType } }))
@@ -282,7 +307,7 @@ async function saveGroupPublishResult(data: any) {
       await markOperationDetailFailed({ detailId, errorMsg: '发群帖未返回执行结果' })
       const nextDetail = await finishQueuedAccountTaskAndStartNext(data.accountId, detailId)
       const nextAccountId = nextDetail ? String(nextDetail.accountId || nextDetail.fbAccount || '') : ''
-      if (!nextDetail || nextAccountId !== String(data.accountId)) closeBrowser(String(data.accountId || ''))
+      if (!nextDetail || nextAccountId !== String(data.accountId)) closeBrowser(String(data.accountId || ''), detailId)
     } catch (error) {
       console.error('[发群帖结果] 空结果状态上报失败', error)
     }
@@ -308,7 +333,7 @@ async function saveGroupPublishResult(data: any) {
       ? String(nextDetail.accountId || nextDetail.fbAccount || '')
       : ''
     if (!nextDetail || nextAccountId !== String(data.accountId)) {
-      closeBrowser(String(data.accountId))
+      closeBrowser(String(data.accountId), detailId)
     }
   } catch (error) {
     handledGroupPublishDetailIds.delete(detailId)
@@ -342,7 +367,7 @@ async function savePublishPostResult(data: any) {
       ? String(nextDetail.accountId || nextDetail.fbAccount || '')
       : ''
     if (accountId && (!nextDetail || nextAccountId !== accountId)) {
-      closeBrowser(accountId)
+      closeBrowser(accountId, detailId)
     }
   } catch (error) {
     handledPublishPostDetailIds.delete(detailId)

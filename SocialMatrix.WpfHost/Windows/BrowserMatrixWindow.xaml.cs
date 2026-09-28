@@ -681,7 +681,7 @@ namespace SocialMatrix.WpfHost.Windows
                         System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 指纹脚本注入完成 (DeviceName={fingerprint.DeviceName})");
 
                         var pageState = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
-                        if (pageState != FacebookPageState.Authenticated
+                        if (pageState == FacebookPageState.LoginPage
                             && (!string.IsNullOrWhiteSpace(cookie)
                                 || !string.IsNullOrWhiteSpace(password)
                                 || !string.IsNullOrWhiteSpace(tfa)))
@@ -709,18 +709,26 @@ namespace SocialMatrix.WpfHost.Windows
                         }
                         // 账号管理登录没有采集 URL，登录状态由 LoginAccountWithBrowserAsync
                         // 统一判断；不要在首页 DOM 尚未完成时用通用采集回调误报 Unknown。
-                        if (!string.IsNullOrEmpty(cookie) && !string.IsNullOrEmpty(searchUrl))
+                        if (!string.IsNullOrEmpty(searchUrl))
                         {
-                            if (pageState != FacebookPageState.Authenticated)
+                            if (IsExplicitAuthenticationFailure(pageState))
                             {
                                 var message = GetPageStateMessage(pageState);
                                 System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 页面状态: {pageState}，{message}");
-                                ReleaseAccountTask(accountId, detailId);
                                 OnCollectionError?.Invoke(accountId, message);
+                                ReleaseAccountTask(accountId, detailId);
                             }
-                            else if (!string.IsNullOrEmpty(searchUrl))
+                            else
                             {
-                                System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Cookie 验证通过");
+                                if (pageState == FacebookPageState.Authenticated)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} 登录状态已确认");
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine(
+                                        $"⚠️ 账号 {accountId} 状态为 {pageState}，无法确认登录态，继续执行任务");
+                                }
                                 if (isOperation)
                                 {
                                     await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config, detailId);
@@ -731,17 +739,6 @@ namespace SocialMatrix.WpfHost.Windows
                                 }
                             }
                         }
-                        else if (!string.IsNullOrEmpty(searchUrl))
-                        {
-                            if (isOperation)
-                            {
-                                await StartOperationTask(browser, accountId, searchUrl, expectedCount, taskType, config, detailId);
-                            }
-                            else
-                            {
-                                await StartAutoCollect(browser, accountId, searchUrl, expectedCount, taskType, config, detailId);
-                            }
-                        }
                     }
                     catch (Exception ex)
                     {
@@ -750,8 +747,8 @@ namespace SocialMatrix.WpfHost.Windows
                         {
                             failedReadySignal.TrySetException(ex);
                         }
-                        ReleaseAccountTask(accountId, detailId);
                         OnCollectionError?.Invoke(accountId, $"浏览器初始化失败: {ex.Message}");
+                        ReleaseAccountTask(accountId, detailId);
                     }
                 });
             };
@@ -1036,24 +1033,37 @@ namespace SocialMatrix.WpfHost.Windows
         /// <summary>
         /// 关闭浏览器实例
         /// </summary>
-        public void CloseBrowser(string accountId, bool notifyTaskBrowserClosed = false)
+        public bool CloseBrowser(string accountId, bool notifyTaskBrowserClosed = false,
+            string? expectedDetailId = null)
         {
             if (Application.Current?.Dispatcher != null
                 && !Application.Current.Dispatcher.CheckAccess())
             {
-                Application.Current.Dispatcher.Invoke(() => CloseBrowser(accountId, notifyTaskBrowserClosed));
-                return;
+                return Application.Current.Dispatcher.Invoke(
+                    () => CloseBrowser(accountId, notifyTaskBrowserClosed, expectedDetailId));
             }
 
-            if (!_browsers.ContainsKey(accountId)) return;
-            RemoveBrowserState(accountId, disposeBrowser: true, notifyTaskBrowserClosed: notifyTaskBrowserClosed);
+            if (!_browsers.ContainsKey(accountId)) return false;
+            if (!string.IsNullOrWhiteSpace(expectedDetailId)
+                && (!_accountDetailIds.TryGetValue(accountId, out var activeDetailId)
+                    || !string.Equals(activeDetailId, expectedDetailId, StringComparison.Ordinal)))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"⏭️ 忽略旧任务关闭请求: account={accountId}, requestedDetailId={expectedDetailId}, activeDetailId={activeDetailId ?? "<none>"}");
+                return false;
+            }
+
+            RemoveBrowserState(accountId, disposeBrowser: true,
+                notifyTaskBrowserClosed: notifyTaskBrowserClosed, expectedDetailId: expectedDetailId);
             System.Diagnostics.Debug.WriteLine($"✅ 已关闭账号 {accountId} 的浏览器");
+            return true;
         }
 
-        private void RemoveBrowserState(string accountId, bool disposeBrowser, bool notifyTaskBrowserClosed = false)
+        private void RemoveBrowserState(string accountId, bool disposeBrowser, bool notifyTaskBrowserClosed = false,
+            string? expectedDetailId = null)
         {
             // 手动关闭或异常清理必须立即释放账号任务锁；旧任务稍后返回时会按明细ID校验，不能误释放新任务。
-            ReleaseAccountTask(accountId);
+            ReleaseAccountTask(accountId, expectedDetailId);
 
             if (notifyTaskBrowserClosed
                 && _accountTaskTypes.TryGetValue(accountId, out var taskType)
@@ -1112,6 +1122,11 @@ namespace SocialMatrix.WpfHost.Windows
                 System.Diagnostics.Debug.WriteLine(
                     $"🔓 释放账号任务锁: account={accountId}, detailId={activeDetailId}");
             }
+        }
+
+        public bool HasTrackedAccountDetail(string accountId)
+        {
+            return _accountDetailIds.ContainsKey(accountId);
         }
 
         private async Task<FacebookPageState> DetectFacebookPageStateWithRetryAsync(ChromiumWebBrowser browser, string accountId)
@@ -1276,6 +1291,15 @@ namespace SocialMatrix.WpfHost.Windows
             FacebookPageState.PageLoading => "页面仍在加载，暂未判定 Cookie 失效",
             _ => "账号状态暂时无法确认"
         };
+
+        private static bool IsExplicitAuthenticationFailure(FacebookPageState state)
+        {
+            return state is FacebookPageState.LoginPage
+                or FacebookPageState.AccountDisabled
+                or FacebookPageState.Checkpoint
+                or FacebookPageState.VerificationRequired
+                or FacebookPageState.NetworkError;
+        }
 
         /// <summary>
         /// 预注入 Cookie（在首次页面加载前写入，无需 Reload）
@@ -1981,8 +2005,8 @@ namespace SocialMatrix.WpfHost.Windows
                     // ❗ 每次循环都检查浏览器是否被关闭
                     if (browser.IsDisposed)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已被用户关闭，停止采集");
-                        OnCollectionError?.Invoke(accountId, "浏览器已被关闭，请重新启动任务");
+                        System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器实例已释放，停止采集");
+                        OnCollectionError?.Invoke(accountId, "浏览器实例已关闭，当前采集已停止");
                         return;
                     }
 
@@ -2072,8 +2096,8 @@ namespace SocialMatrix.WpfHost.Windows
                 // ❗ 再次检查浏览器是否被关闭
                 if (browser.IsDisposed)
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器已被用户关闭，停止采集");
-                    OnCollectionError?.Invoke(accountId, "浏览器已被关闭，请重新启动任务");
+                    System.Diagnostics.Debug.WriteLine($"❌ 账号 {accountId} 浏览器实例已释放，停止采集");
+                    OnCollectionError?.Invoke(accountId, "浏览器实例已关闭，当前采集已停止");
                     return;
                 }
 
@@ -2099,12 +2123,18 @@ namespace SocialMatrix.WpfHost.Windows
                 var pageStateAfterNav = await DetectFacebookPageStateWithRetryAsync(browser, accountId);
                 System.Diagnostics.Debug.WriteLine($"🔍 导航后账号状态: {pageStateAfterNav}");
 
-                if (pageStateAfterNav != FacebookPageState.Authenticated)
+                if (IsExplicitAuthenticationFailure(pageStateAfterNav))
                 {
                     var message = GetPageStateMessage(pageStateAfterNav);
                     System.Diagnostics.Debug.WriteLine($"⚠️ 账号 {accountId} 导航后状态为 {pageStateAfterNav}: {message}");
                     OnCollectionError?.Invoke(accountId, message);
                     return;
+                }
+
+                if (pageStateAfterNav != FacebookPageState.Authenticated)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"⚠️ 账号 {accountId} 导航后状态为 {pageStateAfterNav}，无法确认登录态，继续执行采集");
                 }
 
                 System.Diagnostics.Debug.WriteLine($"🔍 URL检查通过，准备生成采集脚本...");
@@ -2882,11 +2912,19 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 }
                 const groupPost = path.match(/\/groups\/([^/]+)\/posts\/([^/]+)/);
                 if (groupPost) {
-                    return u.origin + path + u.search;
+                    q.delete('comment_id');
+                    q.delete('reply_comment_id');
+                    q.delete('__cft__');
+                    q.delete('__tn__');
+                    return u.origin + path + (q.toString() ? '?' + q.toString() : '');
                 }
                 const groupPermalink = path.match(/\/groups\/([^/]+)\/permalink\/([^/]+)/);
                 if (groupPermalink) {
-                    return u.origin + path + u.search;
+                    q.delete('comment_id');
+                    q.delete('reply_comment_id');
+                    q.delete('__cft__');
+                    q.delete('__tn__');
+                    return u.origin + path + (q.toString() ? '?' + q.toString() : '');
                 }
                 if (/\/posts\//i.test(path)) return u.origin + path + u.search;
                 if (path.includes('/photo/') && q.get('fbid')) {
@@ -3049,7 +3087,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                     feedCards.push(card);
                 }
             });
-            return Array.from(new Set([...articleCards, ...feedCards, ...pageletCards]));
+            return Array.from(new Set([...feedCards, ...pageletCards, ...articleCards]));
         };
 
         const getPostCardsSignature = (cards) => cards.map(card => {
@@ -3210,7 +3248,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                 const postKey = itemId || url;
                 if (!url || seenPostKeys.has(postKey)) return null;
                 const parsedTime = postLinkEl
-                    ? parsePostTime(postLinkEl.textContent || postLinkEl.getAttribute('aria-label'))
+                    ? parsePostTime(postLinkEl.getAttribute('aria-label') || postLinkEl.textContent)
                     : { date: null, daysAgo: null, raw: '' };
                 const authorLink = findAuthorLink(card);
                 const authorInfo = parseAuthorFromLink(authorLink);
@@ -3404,7 +3442,20 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             }
         };
 
-        doScroll();
+        const waitForInitialFeed = async () => {
+            const deadline = Date.now() + 12000;
+            while (Date.now() < deadline) {
+                const cards = getPostCards();
+                const hasPostContent = cards.some(card => card.querySelector('[data-ad-rendering-role=""story_message""], [data-ad-comet-preview=""message""], [data-testid=""post_message""]'));
+                if (cards.length && hasPostContent) {
+                    console.log('[帖子采集] 初始Feed已就绪:', 'cards=' + cards.length);
+                    return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            console.log('[帖子采集] 等待初始Feed超时，继续滚动扫描:', 'cards=' + getPostCards().length);
+        };
+        waitForInitialFeed().then(doScroll);
 ");
 
             return JsScriptHelper.CreatePromiseWrapper(js.ToString(), detailId);
@@ -4027,12 +4078,20 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
                         throw new TimeoutException($"账号 {accountId} Facebook 首页初始化超时");
                     }
                     var homeState = await readyTask;
-                    if (homeState != FacebookPageState.Authenticated)
+                    if (IsExplicitAuthenticationFailure(homeState))
                     {
                         throw new InvalidOperationException(
                             $"Facebook 首页未完成登录态确认: {GetPageStateMessage(homeState)}");
                     }
-                    System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Facebook 首页已加载并确认登录");
+                    if (homeState == FacebookPageState.Authenticated)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"✅ 账号 {accountId} Facebook 首页已加载并确认登录");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ 账号 {accountId} Facebook 首页状态为 {homeState}，无法确认登录态，继续执行语言设置");
+                    }
                     _browserReadySignals.Remove(accountId);
                 }
                 else
@@ -4560,7 +4619,8 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine($"        const SOURCE_POST_ID = {Newtonsoft.Json.JsonConvert.SerializeObject(sourcePostId)};");
             js.AppendLine($"        const SOURCE_POST_URL = {Newtonsoft.Json.JsonConvert.SerializeObject(sourcePostUrl)};");
 
-            js.AppendLine("        const seenUserIds = new Set();");
+            js.AppendLine("        const seenLikeUserIds = new Set();");
+            js.AppendLine("        const seenCommentKeys = new Set();");
             js.AppendLine("        const results = [];");
             js.AppendLine("");
             js.AppendLine("        let scrollCount = 0;");
@@ -4634,11 +4694,9 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("");
             js.AppendLine("                // 查找用户链接（在 span.xjp7ctv 内的 a 标签）");
             js.AppendLine("                const authorSpan = commentElement.querySelector('span.xjp7ctv');");
-            js.AppendLine("                if (!authorSpan) {");
-            js.AppendLine("                    console.log('❌ 未找到用户span');");
-            js.AppendLine("                    return null;");
-            js.AppendLine("                }");
-            js.AppendLine("                const authorLink = authorSpan.querySelector('a');");
+            js.AppendLine("                const authorLink = authorSpan?.querySelector('a') || Array.from(commentElement.querySelectorAll('a[href]')).find(link => {");
+            js.AppendLine("                    try { const profileUrl = new URL(link.href); const path = profileUrl.pathname; return /\\/groups\\/[^/]+\\/user\\//i.test(path) || (/profile\\.php/i.test(path) && profileUrl.searchParams.has('id')) || (!path.includes('/groups/') && path.split('/').filter(Boolean).length === 1); } catch (e) { return false; }");
+            js.AppendLine("                });");
             js.AppendLine("                if (!authorLink) {");
             js.AppendLine("                    console.log('❌ 未找到用户链接');");
             js.AppendLine("                    return null;");
@@ -4668,11 +4726,6 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("                    }");
             js.AppendLine("                } catch (e) {");
             js.AppendLine("                    url = originalUrl.split('?')[0].split('&')[0];");
-            js.AppendLine("                }");
-            js.AppendLine("");
-            js.AppendLine("                if (seenUserIds.has(url)) {");
-            js.AppendLine("                    console.log('❌ URL已存在:', url);");
-            js.AppendLine("                    return null;");
             js.AppendLine("                }");
             js.AppendLine("");
             js.AppendLine("                // 提取头像");
@@ -4724,7 +4777,6 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("                    return null;");
             js.AppendLine("                }");
             js.AppendLine("");
-            js.AppendLine("                seenUserIds.add(url);");
             js.AppendLine("                console.log('✅ 采集到评论用户:', userName, fbUserId);");
             js.AppendLine("");
             js.AppendLine("                return {");
@@ -4773,7 +4825,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("                    url = url.split('?')[0] + '?' + url.split('?')[1].split('&')[0];");
             js.AppendLine("                }");
             js.AppendLine("");
-            js.AppendLine("                if (seenUserIds.has(url)) {");
+            js.AppendLine("                if (seenLikeUserIds.has(url)) {");
             js.AppendLine("                    console.log('❌ 点赞用户URL已存在:', url);");
             js.AppendLine("                    return null;");
             js.AppendLine("                }");
@@ -4802,7 +4854,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("                    return null;");
             js.AppendLine("                }");
             js.AppendLine("");
-            js.AppendLine("                seenUserIds.add(url);");
+            js.AppendLine("                seenLikeUserIds.add(url);");
             js.AppendLine("                console.log('✅ 采集到点赞用户:', userName, fbUserId);");
             js.AppendLine("");
             js.AppendLine("                return {");
@@ -4925,14 +4977,25 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("            let commentCount = 0;");
             js.AppendLine("            for (let i = 0; i < commentElements.length; i++) {");
             js.AppendLine("                const element = commentElements[i];");
-            js.AppendLine("                if (results.length >= targetCount) break;");
+            js.AppendLine("                if (commentCount >= commentTarget) break;");
             js.AppendLine("");
             js.AppendLine("                if (COLLECT_COMMENT && commentCount < commentTarget) {");
             js.AppendLine("                    const data = extractCommentData(element);");
             js.AppendLine("                    if (data) {");
-            js.AppendLine("                        results.push(data);");
-            js.AppendLine("                        commentCount++;");
-            js.AppendLine("                        newCount++;");
+            js.AppendLine("                        const commentKey = `${data.fbUserId}|${data.commentContent || ''}`;");
+            js.AppendLine("                        if (!seenCommentKeys.has(commentKey)) {");
+            js.AppendLine("                            seenCommentKeys.add(commentKey);");
+            js.AppendLine("                            const existingUser = results.find(item => item.fbUserId === data.fbUserId && item.sourcePostId === data.sourcePostId && item.leadType === data.leadType);");
+            js.AppendLine("                            if (existingUser) {");
+            js.AppendLine("                                const comments = String(existingUser.commentContent || '').split('\\n').filter(Boolean);");
+            js.AppendLine("                                if (data.commentContent && !comments.includes(data.commentContent)) comments.push(data.commentContent);");
+            js.AppendLine("                                existingUser.commentContent = comments.join('\\n');");
+            js.AppendLine("                            } else {");
+            js.AppendLine("                                results.push(data);");
+            js.AppendLine("                            }");
+            js.AppendLine("                            commentCount++;");
+            js.AppendLine("                            newCount++;");
+            js.AppendLine("                        }");
             js.AppendLine("                    }");
             js.AppendLine("                }");
             js.AppendLine("            }");
@@ -4980,7 +5043,7 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("                if (link) {");
             js.AppendLine("                    // 过滤掉已采集的用户（去重）");
             js.AppendLine("                    const url = link.href;");
-            js.AppendLine("                    if (!seenUserIds.has(url)) {");
+            js.AppendLine("                    if (!seenLikeUserIds.has(url)) {");
             js.AppendLine("                        likeElements.push(link);");
             js.AppendLine("                    }");
             js.AppendLine("                }");
@@ -5121,7 +5184,17 @@ return JSON.stringify({success:true,messengerUnreadCount:count(['Messenger','Mes
             js.AppendLine("            }");
             js.AppendLine("        };");
             js.AppendLine("");
-            js.AppendLine("        mainLoop();");
+            js.AppendLine("        const waitForInitialComments = async () => {");
+            js.AppendLine("            const deadline = Date.now() + 12000;");
+            js.AppendLine("            while (Date.now() < deadline) {");
+            js.AppendLine("                const comments = Array.from(document.querySelectorAll('[role=\\\"article\\\"]')).filter(element => /^Comment by\\b/i.test(element.getAttribute('aria-label') || ''));");
+            js.AppendLine("                const hasAuthor = comments.some(element => Array.from(element.querySelectorAll('a[href]')).some(link => /\\/groups\\/[^/]+\\/user\\//i.test(new URL(link.href).pathname) || /profile\\.php/i.test(new URL(link.href).pathname)));");
+            js.AppendLine("                if (hasAuthor) { console.log('[评论采集] 初始评论DOM已就绪:', comments.length); return; }");
+            js.AppendLine("                await new Promise(resolve => setTimeout(resolve, 500));");
+            js.AppendLine("            }");
+            js.AppendLine("            console.warn('[评论采集] 等待初始评论DOM超时，继续检查');");
+            js.AppendLine("        };");
+            js.AppendLine("        waitForInitialComments().then(mainLoop);");
             js.AppendLine("    });");
             js.AppendLine("})();");
 

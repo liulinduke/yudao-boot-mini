@@ -7,6 +7,8 @@ public class AiSearchTaskSaveReqVO {
     private Long id;
     @NotBlank private String userGoal;
     private String name;
+    private String company;
+    private String keywords;
     private String targetCountry;
     @Min(1) private Integer targetCount = 100;
     private String customerType;
@@ -17,4 +19,5 @@ public class AiSearchTaskSaveReqVO {
     private String positionStrategy;
     private String scheduleType = "ONCE";
     private String scheduleInterval;
+    private AiSearchSnapshotVO searchSnapshot;
 }

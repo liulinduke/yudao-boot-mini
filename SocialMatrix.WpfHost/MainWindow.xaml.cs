@@ -222,13 +222,27 @@ namespace SocialMatrix.WpfHost
         {
             try
             {
-                // Keep WebView2 localStorage/cookies outside the Velopack version
-                // directory. Otherwise every update can create a new profile and
-                // discard the system login token.
-                var webViewUserDataFolder = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "EyochSocial",
-                    "WebView2");
+                // Velopack owns and may replace the EyochSocial install directory,
+                // so WebView2 data must live in a sibling directory.
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var legacyWebViewUserDataFolder = Path.Combine(localAppData, "EyochSocial", "WebView2");
+                var webViewUserDataFolder = Path.Combine(localAppData, "EyochSocialData", "WebView2");
+                if (!Directory.Exists(webViewUserDataFolder) && Directory.Exists(legacyWebViewUserDataFolder))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(webViewUserDataFolder)!);
+                        Directory.Move(legacyWebViewUserDataFolder, webViewUserDataFolder);
+                        System.Diagnostics.Debug.WriteLine(
+                            $"✅ 已将 WebView2 用户数据迁移到独立目录: {webViewUserDataFolder}");
+                    }
+                    catch (Exception ex)
+                    {
+                        webViewUserDataFolder = legacyWebViewUserDataFolder;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"⚠️ WebView2 用户数据迁移失败，暂时沿用旧目录: {ex.Message}");
+                    }
+                }
                 Directory.CreateDirectory(webViewUserDataFolder);
                 var webViewEnvironment = await CoreWebView2Environment.CreateAsync(
                     null,
@@ -559,7 +573,7 @@ namespace SocialMatrix.WpfHost
                     if (IsNetworkLoadError(errorMessage)
                         && !BrowserMatrixWindow.KeepBrowserAfterTaskForDebug)
                     {
-                        browserMatrixWindow.CloseBrowser(accId);
+                        browserMatrixWindow.CloseBrowser(accId, expectedDetailId: detailId);
                     }
                 }));
             };
@@ -678,9 +692,29 @@ namespace SocialMatrix.WpfHost
         /// <summary>
         /// 关闭指定账号的浏览器
         /// </summary>
-        public void CloseBrowserForAccount(string accountId)
+        public void CloseBrowserForAccount(string accountId, string expectedDetailId = null)
         {
             _browserMatrixWindows.TryGetValue(accountId, out var browserMatrixWindow);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"📨 收到 Vue 关闭浏览器请求: account={accountId}, expectedDetailId={expectedDetailId ?? "<none>"}");
+
+            if (browserMatrixWindow != null && string.IsNullOrWhiteSpace(expectedDetailId)
+                && browserMatrixWindow.HasTrackedAccountDetail(accountId))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"⏭️ 忽略未携带明细ID的过期关闭请求: account={accountId}");
+                return;
+            }
+
+            if (browserMatrixWindow != null
+                && !string.IsNullOrWhiteSpace(expectedDetailId)
+                && !browserMatrixWindow.HasActiveBrowser(accountId))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"⏭️ 忽略浏览器已不存在时的过期关闭请求: account={accountId}, expectedDetailId={expectedDetailId}");
+                return;
+            }
 
             // 调试保留模式下，拦截 Vue/队列的自动关闭请求，避免旧前端构建或超时兜底绕过
             // BrowserMatrixWindow 任务 finally 的保留判断。Tab 头部的手动关闭仍直接调用
@@ -699,7 +733,10 @@ namespace SocialMatrix.WpfHost
             {
                 if (browserMatrixWindow.HasActiveBrowser(accountId))
                 {
-                    browserMatrixWindow.CloseBrowser(accountId);
+                    if (!browserMatrixWindow.CloseBrowser(accountId, expectedDetailId: expectedDetailId))
+                    {
+                        return;
+                    }
                 }
                 _browserMatrixWindows.Remove(accountId);
                 UpdateStatus($"已清理账号 {accountId} 的浏览器状态");

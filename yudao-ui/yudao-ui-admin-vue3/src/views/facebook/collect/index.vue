@@ -574,7 +574,7 @@ const continueNextCollectDetailOrClose = async (
     message.info(`账号 ${fbAccount} 本轮采集已结束`)
     // 当前账号队列没有后续任务时，只关闭该账号自己的浏览器 Tab。
     // 不关闭矩阵窗口，也不影响其他账号的任务。
-    closeBrowser(fbAccount)
+    closeBrowser(fbAccount, String(currentDetailId || ''))
   } catch (error) {
     console.warn('查询下一条采集明细失败，交由 WPF 按全局配置处理浏览器', error)
   }
@@ -610,7 +610,7 @@ onMounted(() => {
 
   // 注册采集完成事件监听
   onCollectionComplete(async (data) => {
-    if (isAiAgentClaimedDetail(data.detailId)) {
+    if (isAiAgentClaimedDetail(data.detailId) || Number(data.taskType) === 11) {
       return
     }
     console.log('收到采集完成事件:', data)
