@@ -4,6 +4,8 @@ export interface AiSearchTaskVO {
   id?: string | number
   name?: string
   userGoal: string
+  company?: string
+  keywords?: string
   targetCountry?: string
   targetCount?: number
   customerType?: string
@@ -18,8 +20,31 @@ export interface AiSearchTaskVO {
   scheduleType?: string
   scheduleInterval?: string
   status?: string
+  searchSnapshot?: AiSearchSnapshotVO
 }
-export interface AiSearchExpansionVO { keywords: string[]; scenes: string[]; productTerms?: string[]; customerRoles?: string[]; localTerms?: string[] }
+export interface AiSearchExpansionVO {
+  keywords: string[]
+  scenes: string[]
+  productTerms?: string[]
+  customerRoles?: string[]
+  purchasingTerms?: string[]
+  localTerms?: string[]
+  applications?: string[]
+  ecommerceChannelTerms?: string[]
+  upstreamDownstreamTerms?: string[]
+}
+export interface AiSearchSnapshotVO {
+  version: number
+  selectedKeywords: string[]
+  productTerms: string[]
+  customerRoleTerms: string[]
+  purchasingTerms: string[]
+  localLanguageTerms: string[]
+  applications: string[]
+  scenarios: string[]
+  ecommerceChannelTerms: string[]
+  upstreamDownstreamTerms: string[]
+}
 
 export interface AiSearchCompanyVO {
   id: string | number
@@ -52,7 +77,7 @@ export interface AiSearchContactVO {
 export interface AiSearchStatsVO { taskId: string | number; companyCount: number; qualifiedCompanyCount: number; contactCount: number; contactWithEmailCount: number; contactWithPhoneCount: number }
 export interface AiSearchTradeEvidenceVO { id?: string | number; companyId: string | number; url?: string; hsCode?: string; product?: string; tradeType?: string; tradeDate?: string; partnerCountry?: string; evidenceText?: string; confidence?: number }
 export interface AiSearchCompanyDetailVO { company: AiSearchCompanyVO; contacts: AiSearchContactVO[]; evidences: Array<{ id?: string | number; url?: string; evidenceText?: string; confidence?: number }>; tradeEvidences: AiSearchTradeEvidenceVO[] }
-export interface AiSearchRunVO { id: string | number; taskId: string | number; status?: string; roundCount?: number; queryCount?: number; newCompanyCount?: number; qualifiedCompanyCount?: number; tradeVerificationCount?: number; tradeFoundCount?: number; contactCount?: number; errorCount?: number; startedAt?: string; completedAt?: string }
+export interface AiSearchRunVO { id: string | number; taskId: string | number; status?: string; targetQualifiedCount?: number; qualifiedCountBefore?: number; roundCount?: number; queryCount?: number; newCompanyCount?: number; qualifiedCompanyCount?: number; tradeVerificationCount?: number; tradeFoundCount?: number; contactCount?: number; errorCount?: number; startedAt?: string; completedAt?: string }
 export interface AiSearchRoundVO { id: string | number; taskId: string | number; runId: string | number; roundNo?: number; strategy?: string; resultCount?: number; newCompanyCount?: number; qualifiedCompanyCount?: number; duplicateCount?: number; newSourceCount?: number }
 
 export const AiSearchApi = {

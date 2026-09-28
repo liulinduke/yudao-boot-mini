@@ -8,7 +8,7 @@
       v-loading="formLoading"
     >
       <el-form-item label="所属平台" prop="platform">
-        <el-select v-model="formData.platform" placeholder="请输入平台" clearable>
+        <el-select v-model="formData.platform" placeholder="请输入平台" clearable @change="handlePlatformChange">
           <el-option
             v-for="dict in getStrDictOptions(DICT_TYPE.AI_PLATFORM)"
             :key="dict.value"
@@ -64,7 +64,7 @@ const formData = ref({
   name: undefined,
   apiKey: undefined,
   platform: undefined,
-  url: undefined,
+  url: undefined as string | undefined,
   status: CommonStatusEnum.ENABLE
 })
 const formRules = reactive({
@@ -74,6 +74,12 @@ const formRules = reactive({
   status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
 })
 const formRef = ref() // 表单 Ref
+
+const handlePlatformChange = (platform: string) => {
+  if (platform === 'AIHubMix' && !formData.value.url) {
+    formData.value.url = 'https://aihubmix.com/v1'
+  }
+}
 
 /** 打开弹窗 */
 const open = async (type: string, id?: number) => {

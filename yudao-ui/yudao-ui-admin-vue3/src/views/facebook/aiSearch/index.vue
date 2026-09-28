@@ -13,7 +13,7 @@
     <el-table v-loading="loading" :data="tasks" row-key="id">
       <el-table-column prop="name" label="任务" min-width="220" />
       <el-table-column prop="userGoal" label="获客目标" min-width="300" show-overflow-tooltip />
-      <el-table-column prop="targetCount" label="目标企业" width="100" />
+      <el-table-column prop="targetCount" label="每次新增目标" width="120" />
       <el-table-column label="状态" width="110">
         <template #default="{ row }">{{ statusText(row.status) }}</template>
       </el-table-column>
@@ -27,11 +27,17 @@
             @click.stop="openEdit(row)"
             >编辑</el-button
           ><el-button
-            v-if="['RUNNING', 'STOPPED', 'COMPLETED'].indexOf(row.status || '') === -1"
+            v-if="['RUNNING', 'STOPPED', 'COMPLETED', 'SEARCH_SPACE_EXHAUSTED'].indexOf(row.status || '') === -1"
             link
             type="primary"
             @click.stop="start(row)"
             >开始搜索</el-button
+          ><el-button
+            v-if="row.status === 'COMPLETED' || row.status === 'SEARCH_SPACE_EXHAUSTED'"
+            link
+            type="primary"
+            @click.stop="start(row)"
+            >再找 {{ row.targetCount || 100 }} 家</el-button
           ><el-button v-if="row.status === 'RUNNING'" link @click.stop="changeStatus(row, 'PAUSED')"
             >暂停</el-button
           ><el-button
@@ -152,7 +158,7 @@
           <el-form-item label="HS Code"
             ><el-input v-model="form.hsCodes" placeholder="可选，用于后续贸易背景核验"
           /></el-form-item>
-          <el-form-item label="目标企业数"
+          <el-form-item label="每次新增合格企业"
             ><el-input-number v-model="form.targetCount" :min="1" :max="100000"
           /></el-form-item>
           <div class="form-tip plain-tip"
@@ -161,7 +167,7 @@
         </template>
         <template v-else-if="createStep === 1">
           <el-form-item label="最佳匹配关键词"
-            ><el-checkbox-group v-model="form.searchKeywords"
+            ><el-checkbox-group v-model="form.searchSnapshot.selectedKeywords" :max="6"
               ><el-checkbox
                 v-for="item in expansion.keywords"
                 :key="item"
@@ -174,35 +180,30 @@
               >首轮最多选择 6 个，任务运行后 AI 会继续扩展。</div
             ></el-form-item
           >
-          <el-form-item v-if="expansion.productTerms?.length" label="产品扩展词"
-            ><div class="tag-list"
-              ><el-tag v-for="item in expansion.productTerms" :key="item">{{ item }}</el-tag></div
-            ></el-form-item
-          >
-          <el-form-item v-if="expansion.customerRoles?.length" label="客户角色"
-            ><div class="tag-list"
-              ><el-tag v-for="item in expansion.customerRoles" :key="item" type="success">{{
-                item
-              }}</el-tag></div
-            ></el-form-item
-          >
-          <el-form-item v-if="expansion.localTerms?.length" label="当地语言"
-            ><div class="tag-list"
-              ><el-tag v-for="item in expansion.localTerms" :key="item" type="warning">{{
-                item
-              }}</el-tag></div
-            ></el-form-item
-          >
-          <el-form-item label="应用行业 / 使用场景"
-            ><el-checkbox-group v-model="form.searchScenes"
+          <el-form-item v-if="expansion.productTerms.length" label="产品扩展词"
+            ><el-checkbox-group v-model="form.searchSnapshot.productTerms"><el-checkbox v-for="item in expansion.productTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item v-if="expansion.customerRoles.length" label="客户角色词"
+            ><el-checkbox-group v-model="form.searchSnapshot.customerRoleTerms"><el-checkbox v-for="item in expansion.customerRoles" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item v-if="expansion.purchasingTerms.length" label="采购词"
+            ><el-checkbox-group v-model="form.searchSnapshot.purchasingTerms"><el-checkbox v-for="item in expansion.purchasingTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item v-if="expansion.localTerms.length" label="当地语言词"
+            ><el-checkbox-group v-model="form.searchSnapshot.localLanguageTerms"><el-checkbox v-for="item in expansion.localTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item v-if="expansion.applications.length" label="应用行业"
+            ><el-checkbox-group v-model="form.searchSnapshot.applications"><el-checkbox v-for="item in expansion.applications" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item label="使用场景"
+            ><el-checkbox-group v-model="form.searchSnapshot.scenarios" :max="4"
               ><el-checkbox
                 v-for="item in expansion.scenes"
                 :key="item"
                 :label="item" /></el-checkbox-group
             ><div class="form-tip inline-tip"
-              >首轮最多选择 4 个，仅展示 AI 判断有价值的场景。</div
+              >最多选择 4 个，仅展示 AI 判断有价值的场景。</div
             ></el-form-item
           >
+          <el-form-item v-if="expansion.ecommerceChannelTerms.length" label="电商/渠道词"
+            ><el-checkbox-group v-model="form.searchSnapshot.ecommerceChannelTerms"><el-checkbox v-for="item in expansion.ecommerceChannelTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+          <el-form-item v-if="expansion.upstreamDownstreamTerms.length" label="上下游词"
+            ><el-checkbox-group v-model="form.searchSnapshot.upstreamDownstreamTerms"><el-checkbox v-for="item in expansion.upstreamDownstreamTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
           <el-form-item label="联系人发现"
             ><el-switch v-model="form.contactEnrichment" /><div class="form-tip"
               >自动发现企业的多个关键联系人。</div
@@ -231,12 +232,12 @@
             <el-descriptions-item label="获客目标">{{
               form.userGoal || '未填写'
             }}</el-descriptions-item>
-            <el-descriptions-item label="目标企业数">{{ form.targetCount }}</el-descriptions-item>
+            <el-descriptions-item label="每次新增合格企业">{{ form.targetCount }}</el-descriptions-item>
             <el-descriptions-item label="基础信息"
               >AI 自动判断国家、客户类型和搜索方向</el-descriptions-item
             >
             <el-descriptions-item label="搜索扩展"
-              >最多 6 个关键词，最多 4 个首轮行业/场景；运行中继续扩展</el-descriptions-item
+              >本次搜索使用已确认快照；每次运行目标为新增合格企业</el-descriptions-item
             >
             <el-descriptions-item label="关键联系人">{{
               form.contactEnrichment ? '开启' : '关闭'
@@ -317,7 +318,8 @@ import {
   type AiSearchCompanyVO,
   type AiSearchTaskVO,
   type AiSearchCompanyDetailVO,
-  type AiSearchRoundVO
+  type AiSearchRoundVO,
+  type AiSearchSnapshotVO
 } from '@/api/facebook/aiSearch'
 const message = useMessage()
 const loading = ref(false)
@@ -371,29 +373,39 @@ const removeTask = async (row: any) => {
 }
 const editingTaskId = ref<string | number>()
 const originalSearchTarget = ref('')
-const form = ref<
-  AiSearchTaskVO & {
-    company?: string
-    keywords?: string
-    searchKeywords?: string[]
-    searchScenes?: string[]
-  }
->({
+const emptySnapshot = (): AiSearchSnapshotVO => ({
+  version: 1,
+  selectedKeywords: [],
+  productTerms: [],
+  customerRoleTerms: [],
+  purchasingTerms: [],
+  localLanguageTerms: [],
+  applications: [],
+  scenarios: [],
+  ecommerceChannelTerms: [],
+  upstreamDownstreamTerms: []
+})
+type AiSearchForm = AiSearchTaskVO & { company?: string; keywords?: string; searchSnapshot: AiSearchSnapshotVO }
+const form = ref<AiSearchForm>({
   userGoal: '',
   targetCount: 100,
   aiKeywordExpand: true,
   contactEnrichment: true,
   scheduleType: 'ONCE',
   scheduleInterval: '1',
-  searchKeywords: [],
-  searchScenes: []
+  searchSnapshot: emptySnapshot()
 })
+const hasSavedSnapshot = ref(false)
 const expansion = ref({
   keywords: [] as string[],
   scenes: [] as string[],
   productTerms: [] as string[],
   customerRoles: [] as string[],
-  localTerms: [] as string[]
+  localTerms: [] as string[],
+  purchasingTerms: [] as string[],
+  applications: [] as string[],
+  ecommerceChannelTerms: [] as string[],
+  upstreamDownstreamTerms: [] as string[]
 })
 const keywordInput = ref('')
 const expansionLoading = ref(false)
@@ -438,36 +450,47 @@ const openCreate = () => {
     contactEnrichment: true,
     scheduleType: 'ONCE',
     scheduleInterval: '1',
-    searchKeywords: [],
-    searchScenes: []
+    searchSnapshot: emptySnapshot()
   }
+  hasSavedSnapshot.value = false
+  originalSearchTarget.value = JSON.stringify(['', '', '', '', '', ''])
   expansion.value = {
     keywords: [],
     scenes: [],
     productTerms: [],
     customerRoles: [],
-    localTerms: []
+    localTerms: [],
+    purchasingTerms: [],
+    applications: [],
+    ecommerceChannelTerms: [],
+    upstreamDownstreamTerms: []
   }
   createStep.value = 0
   dialogVisible.value = true
 }
 const openEdit = (row: AiSearchTaskVO) => {
   editingTaskId.value = row.id
-  form.value = { ...row, searchKeywords: [], searchScenes: [] }
+  hasSavedSnapshot.value = !!row.searchSnapshot
+  const snapshot = row.searchSnapshot ? { ...emptySnapshot(), ...row.searchSnapshot } : emptySnapshot()
+  form.value = { ...row, searchSnapshot: snapshot }
   originalSearchTarget.value = JSON.stringify([
     row.userGoal,
     row.targetCountry,
     row.customerType,
-    (row as any).company,
-    (row as any).keywords,
+    row.company,
+    row.keywords,
     row.hsCodes
   ])
   expansion.value = {
-    keywords: [],
-    scenes: [],
-    productTerms: [],
-    customerRoles: [],
-    localTerms: []
+    keywords: [...snapshot.selectedKeywords],
+    scenes: [...snapshot.scenarios],
+    productTerms: [...snapshot.productTerms],
+    customerRoles: [...snapshot.customerRoleTerms],
+    localTerms: [...snapshot.localLanguageTerms],
+    purchasingTerms: [...snapshot.purchasingTerms],
+    applications: [...snapshot.applications],
+    ecommerceChannelTerms: [...snapshot.ecommerceChannelTerms],
+    upstreamDownstreamTerms: [...snapshot.upstreamDownstreamTerms]
   }
   createStep.value = 0
   dialogVisible.value = true
@@ -476,24 +499,22 @@ const addKeyword = () => {
   const value = keywordInput.value.trim()
   if (value && !expansion.value.keywords.includes(value) && expansion.value.keywords.length < 6) {
     expansion.value.keywords.push(value)
-    form.value.searchKeywords?.push(value)
+    form.value.searchSnapshot.selectedKeywords.push(value)
   }
   keywordInput.value = ''
 }
 const nextCreateStep = async () => {
   if (createStep.value === 0 && !form.value.userGoal.trim())
     return message.warning('请输入获客目标')
-  const targetChanged =
-    !editingTaskId.value ||
-    originalSearchTarget.value !==
-      JSON.stringify([
-        form.value.userGoal,
-        form.value.targetCountry,
-        form.value.customerType,
-        form.value.company,
-        form.value.keywords,
-        form.value.hsCodes
-      ])
+  const targetKey = JSON.stringify([
+    form.value.userGoal,
+    form.value.targetCountry,
+    form.value.customerType,
+    form.value.company,
+    form.value.keywords,
+    form.value.hsCodes
+  ])
+  const targetChanged = !hasSavedSnapshot.value || originalSearchTarget.value !== targetKey
   if (createStep.value === 0 && targetChanged) {
     expansionLoading.value = true
     try {
@@ -506,8 +527,20 @@ const nextCreateStep = async () => {
         hsCode: form.value.hsCodes
       })
       expansion.value = result as any
-      form.value.searchKeywords = [...expansion.value.keywords]
-      form.value.searchScenes = [...expansion.value.scenes]
+      form.value.searchSnapshot = {
+        version: 1,
+        selectedKeywords: [...expansion.value.keywords].slice(0, 6),
+        productTerms: [...expansion.value.productTerms],
+        customerRoleTerms: [...expansion.value.customerRoles],
+        purchasingTerms: [...expansion.value.purchasingTerms],
+        localLanguageTerms: [...expansion.value.localTerms],
+        applications: [...expansion.value.applications],
+        scenarios: [...expansion.value.scenes].slice(0, 4),
+        ecommerceChannelTerms: [...expansion.value.ecommerceChannelTerms],
+        upstreamDownstreamTerms: [...expansion.value.upstreamDownstreamTerms]
+      }
+      originalSearchTarget.value = targetKey
+      hasSavedSnapshot.value = true
     } catch (e) {
       message.error('AI 搜索扩展生成失败，请稍后重试')
       return
@@ -519,6 +552,8 @@ const nextCreateStep = async () => {
 }
 const create = async () => {
   if (!form.value.userGoal.trim()) return message.warning('请输入获客目标')
+  form.value.searchSnapshot.selectedKeywords = form.value.searchSnapshot.selectedKeywords.slice(0, 6)
+  form.value.searchSnapshot.scenarios = form.value.searchSnapshot.scenarios.slice(0, 4)
   if (editingTaskId.value) await AiSearchApi.update({ ...form.value, id: editingTaskId.value })
   else await AiSearchApi.create(form.value)
   dialogVisible.value = false
@@ -555,6 +590,7 @@ const statusText = (status?: string) => {
     PAUSED: '已暂停',
     STOPPED: '已停止',
     COMPLETED: '已完成',
+    SEARCH_SPACE_EXHAUSTED: '搜索空间不足',
     FAILED: '失败'
   }
   return labels[status || ''] || status || '未知'

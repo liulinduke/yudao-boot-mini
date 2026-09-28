@@ -14,6 +14,7 @@ export const AiPlatformEnum = {
   TONG_YI: 'TongYi', // 阿里
   YI_YAN: 'YiYan', // 百度
   DEEP_SEEK: 'DeepSeek', // DeepSeek
+  AIHUBMIX: 'AIHubMix',
   ZHI_PU: 'ZhiPu', // 智谱 AI
   XING_HUO: 'XingHuo', // 讯飞
   SiliconFlow: 'SiliconFlow', // 硅基流动
