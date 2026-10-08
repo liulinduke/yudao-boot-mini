@@ -171,7 +171,7 @@ public class AiModelFactoryImpl implements AiModelFactory {
                 case OPENAI:
                     return buildOpenAiChatModel(apiKey, url);
                 case AIHUBMIX:
-                    return buildOpenAiChatModel(apiKey, StrUtil.blankToDefault(url, "https://aihubmix.com/v1"));
+                    return buildOpenAiChatModel(apiKey, normalizeAiHubMixBaseUrl(url));
                 case AZURE_OPENAI:
                     return buildAzureOpenAiChatModel(apiKey, url);
                 case ANTHROPIC:
@@ -518,6 +518,11 @@ public class AiModelFactoryImpl implements AiModelFactory {
                 .openAiApi(openAiApi)
                 .toolCallingManager(getToolCallingManager())
                 .build();
+    }
+
+    private static String normalizeAiHubMixBaseUrl(String url) {
+        String baseUrl = StrUtil.blankToDefault(url, "https://aihubmix.com/v1").replaceAll("/+$", "");
+        return baseUrl.endsWith("/v1") ? baseUrl.substring(0, baseUrl.length() - 3) : baseUrl;
     }
 
     /**

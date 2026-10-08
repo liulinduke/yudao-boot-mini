@@ -2,7 +2,7 @@
   <ContentWrap>
     <div class="search-header">
       <div>
-        <h2>AI 全网企业获客</h2>
+        <h2>AI 企业获客</h2>
         <p>输入客户目标，AI 搜索企业并整理可用结果。</p>
       </div>
       <div
@@ -27,7 +27,11 @@
             @click.stop="openEdit(row)"
             >编辑</el-button
           ><el-button
-            v-if="['RUNNING', 'STOPPED', 'COMPLETED', 'SEARCH_SPACE_EXHAUSTED'].indexOf(row.status || '') === -1"
+            v-if="
+              ['RUNNING', 'STOPPED', 'COMPLETED', 'SEARCH_SPACE_EXHAUSTED'].indexOf(
+                row.status || ''
+              ) === -1
+            "
             link
             type="primary"
             @click.stop="start(row)"
@@ -72,7 +76,7 @@
         label="重复"
         width="75" /><el-table-column prop="newSourceCount" label="新渠道" width="75"
     /></el-table>
-    <el-dialog v-model="runDetailVisible" title="运行详情" width="1300px">
+    <el-dialog v-model="runDetailVisible" title="运行详情" width="96vw" class="run-detail-dialog">
       <el-form :inline="true" :model="runQuery"
         ><el-form-item label="公司名称"
           ><el-input v-model="runQuery.companyName" clearable /></el-form-item
@@ -86,10 +90,19 @@
         ><el-button type="primary" @click="loadRunContacts">筛选</el-button></el-form
       >
       <el-table :data="runContacts" v-loading="runLoading"
-        ><el-table-column prop="companyName" label="公司名称" min-width="190" /><el-table-column
-          prop="icpLevel"
-          label="AI推荐等级"
-          width="110" /><el-table-column
+        ><el-table-column
+          prop="companyName"
+          label="公司名称"
+          min-width="190"
+          show-overflow-tooltip /><el-table-column label="推荐指数" width="140">
+          <template #default="{ row }">
+            <el-rate :model-value="recommendationStars(row.icpScore)" disabled :max="5" />
+          </template> </el-table-column
+        ><el-table-column
+          prop="companyNote"
+          label="推荐说明"
+          min-width="220"
+          show-overflow-tooltip /><el-table-column
           prop="companySize"
           label="公司规模"
           width="120" /><el-table-column
@@ -101,23 +114,27 @@
           width="130" /><el-table-column
           prop="companyWebsite"
           label="公司官网"
-          min-width="210" /><el-table-column
+          min-width="210"
+          show-overflow-tooltip /><el-table-column
           prop="name"
           label="联系人"
           width="130" /><el-table-column prop="jobTitle" label="职位" width="150" /><el-table-column
           prop="email"
           label="邮箱"
-          min-width="200" /><el-table-column
+          min-width="200"
+          show-overflow-tooltip /><el-table-column
           prop="phone"
           label="电话"
           width="140" /><el-table-column prop="linkedinUrl" label="社交媒体" min-width="180"
       /></el-table>
-      <Pagination
-        :total="runTotal"
-        v-model:page="runQuery.pageNo"
-        v-model:limit="runQuery.pageSize"
-        @pagination="loadRunContacts"
-      />
+      <div class="run-detail-pagination">
+        <Pagination
+          :total="runTotal"
+          v-model:page="runQuery.pageNo"
+          v-model:limit="runQuery.pageSize"
+          @pagination="loadRunContacts"
+        />
+      </div>
     </el-dialog>
     <el-dialog
       v-model="dialogVisible"
@@ -181,15 +198,40 @@
             ></el-form-item
           >
           <el-form-item v-if="expansion.productTerms.length" label="产品扩展词"
-            ><el-checkbox-group v-model="form.searchSnapshot.productTerms"><el-checkbox v-for="item in expansion.productTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.productTerms"
+              ><el-checkbox
+                v-for="item in expansion.productTerms"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item v-if="expansion.customerRoles.length" label="客户角色词"
-            ><el-checkbox-group v-model="form.searchSnapshot.customerRoleTerms"><el-checkbox v-for="item in expansion.customerRoles" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.customerRoleTerms"
+              ><el-checkbox
+                v-for="item in expansion.customerRoles"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item v-if="expansion.purchasingTerms.length" label="采购词"
-            ><el-checkbox-group v-model="form.searchSnapshot.purchasingTerms"><el-checkbox v-for="item in expansion.purchasingTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.purchasingTerms"
+              ><el-checkbox
+                v-for="item in expansion.purchasingTerms"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item v-if="expansion.localTerms.length" label="当地语言词"
-            ><el-checkbox-group v-model="form.searchSnapshot.localLanguageTerms"><el-checkbox v-for="item in expansion.localTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.localLanguageTerms"
+              ><el-checkbox
+                v-for="item in expansion.localTerms"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item v-if="expansion.applications.length" label="应用行业"
-            ><el-checkbox-group v-model="form.searchSnapshot.applications"><el-checkbox v-for="item in expansion.applications" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.applications"
+              ><el-checkbox
+                v-for="item in expansion.applications"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item label="使用场景"
             ><el-checkbox-group v-model="form.searchSnapshot.scenarios" :max="4"
               ><el-checkbox
@@ -201,9 +243,19 @@
             ></el-form-item
           >
           <el-form-item v-if="expansion.ecommerceChannelTerms.length" label="电商/渠道词"
-            ><el-checkbox-group v-model="form.searchSnapshot.ecommerceChannelTerms"><el-checkbox v-for="item in expansion.ecommerceChannelTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.ecommerceChannelTerms"
+              ><el-checkbox
+                v-for="item in expansion.ecommerceChannelTerms"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item v-if="expansion.upstreamDownstreamTerms.length" label="上下游词"
-            ><el-checkbox-group v-model="form.searchSnapshot.upstreamDownstreamTerms"><el-checkbox v-for="item in expansion.upstreamDownstreamTerms" :key="item" :label="item" /></el-checkbox-group></el-form-item>
+            ><el-checkbox-group v-model="form.searchSnapshot.upstreamDownstreamTerms"
+              ><el-checkbox
+                v-for="item in expansion.upstreamDownstreamTerms"
+                :key="item"
+                :label="item" /></el-checkbox-group
+          ></el-form-item>
           <el-form-item label="联系人发现"
             ><el-switch v-model="form.contactEnrichment" /><div class="form-tip"
               >自动发现企业的多个关键联系人。</div
@@ -232,7 +284,9 @@
             <el-descriptions-item label="获客目标">{{
               form.userGoal || '未填写'
             }}</el-descriptions-item>
-            <el-descriptions-item label="每次新增合格企业">{{ form.targetCount }}</el-descriptions-item>
+            <el-descriptions-item label="每次新增合格企业">{{
+              form.targetCount
+            }}</el-descriptions-item>
             <el-descriptions-item label="基础信息"
               >AI 自动判断国家、客户类型和搜索方向</el-descriptions-item
             >
@@ -359,6 +413,11 @@ const loadRunContacts = async () => {
     runLoading.value = false
   }
 }
+const recommendationStars = (score?: number) => {
+  if (score == null || Number.isNaN(Number(score))) return 0
+  const numericScore = Number(score)
+  return Math.max(0, Math.min(5, Math.round(numericScore > 5 ? numericScore / 20 : numericScore)))
+}
 const openRunDetail = (row: any) => {
   runTaskId.value = row.id
   runQuery.pageNo = 1
@@ -385,7 +444,11 @@ const emptySnapshot = (): AiSearchSnapshotVO => ({
   ecommerceChannelTerms: [],
   upstreamDownstreamTerms: []
 })
-type AiSearchForm = AiSearchTaskVO & { company?: string; keywords?: string; searchSnapshot: AiSearchSnapshotVO }
+type AiSearchForm = AiSearchTaskVO & {
+  company?: string
+  keywords?: string
+  searchSnapshot: AiSearchSnapshotVO
+}
 const form = ref<AiSearchForm>({
   userGoal: '',
   targetCount: 100,
@@ -471,7 +534,9 @@ const openCreate = () => {
 const openEdit = (row: AiSearchTaskVO) => {
   editingTaskId.value = row.id
   hasSavedSnapshot.value = !!row.searchSnapshot
-  const snapshot = row.searchSnapshot ? { ...emptySnapshot(), ...row.searchSnapshot } : emptySnapshot()
+  const snapshot = row.searchSnapshot
+    ? { ...emptySnapshot(), ...row.searchSnapshot }
+    : emptySnapshot()
   form.value = { ...row, searchSnapshot: snapshot }
   originalSearchTarget.value = JSON.stringify([
     row.userGoal,
@@ -552,7 +617,10 @@ const nextCreateStep = async () => {
 }
 const create = async () => {
   if (!form.value.userGoal.trim()) return message.warning('请输入获客目标')
-  form.value.searchSnapshot.selectedKeywords = form.value.searchSnapshot.selectedKeywords.slice(0, 6)
+  form.value.searchSnapshot.selectedKeywords = form.value.searchSnapshot.selectedKeywords.slice(
+    0,
+    6
+  )
   form.value.searchSnapshot.scenarios = form.value.searchSnapshot.scenarios.slice(0, 4)
   if (editingTaskId.value) await AiSearchApi.update({ ...form.value, id: editingTaskId.value })
   else await AiSearchApi.create(form.value)
@@ -620,6 +688,28 @@ onMounted(load)
 }
 .runs-table {
   margin: 0 0 16px;
+}
+.run-detail-dialog {
+  max-width: 1600px;
+  margin-top: 3vh !important;
+}
+.run-detail-dialog :deep(.el-dialog__body) {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.run-detail-pagination {
+  display: flex;
+  justify-content: flex-end;
+  clear: both;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.run-detail-pagination :deep(.el-pagination) {
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .create-form {
   margin-top: 24px;

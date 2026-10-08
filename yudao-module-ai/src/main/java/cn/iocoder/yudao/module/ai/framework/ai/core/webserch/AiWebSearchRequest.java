@@ -28,7 +28,7 @@ public class AiWebSearchRequest {
      */
     @NotNull(message = "返回结果条数不能为空")
     @Min(message = "返回结果条数最小为 1", value = 1)
-    @Max(message = "返回结果条数最大为 50", value = 50)
+    @Max(message = "返回结果条数最大为 500", value = 500)
     private Integer count;
 
 }

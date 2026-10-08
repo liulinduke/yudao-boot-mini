@@ -40,7 +40,7 @@
           v-model="formData.maxTokens"
           placeholder="请输入回复数 Token 数"
           :min="0"
-          :max="8192"
+          :max="100000"
           class="!w-1/1"
         />
       </el-form-item>

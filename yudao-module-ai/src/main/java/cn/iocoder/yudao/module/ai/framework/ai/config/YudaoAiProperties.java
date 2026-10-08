@@ -181,8 +181,6 @@ public class YudaoAiProperties {
 
         private String workflowCode = "ai_enterprise_search_web_v1";
 
-        private boolean resultsVerified;
-
     }
 
 }

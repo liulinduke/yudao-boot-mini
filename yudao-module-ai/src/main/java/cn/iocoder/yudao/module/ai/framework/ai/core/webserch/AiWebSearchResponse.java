@@ -59,6 +59,12 @@ public class AiWebSearchResponse {
 
         private String source;
 
+        /** 企业获客搜索结果中的企业类型 */
+        private String companyType;
+
+        /** 企业获客搜索结果中的推荐证据 */
+        private String evidence;
+
     }
 
 }

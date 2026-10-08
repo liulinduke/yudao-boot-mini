@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.facebook.dal.dataobject.aisearch;
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -28,6 +29,7 @@ public class AiSearchTaskDO extends TenantBaseDO {
     private String status;
     private String scheduleType;
     private String scheduleInterval;
+    @TableField("search_snapshot")
     private String searchSnapshotJson;
     private java.time.LocalDateTime startedAt;
     private java.time.LocalDateTime completedAt;

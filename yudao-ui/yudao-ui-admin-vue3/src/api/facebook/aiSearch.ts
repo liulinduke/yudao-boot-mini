@@ -73,6 +73,8 @@ export interface AiSearchContactVO {
   phone?: string
   linkedinUrl?: string
   otherSocialUrl?: string
+  icpScore?: number
+  companyNote?: string
 }
 export interface AiSearchStatsVO { taskId: string | number; companyCount: number; qualifiedCompanyCount: number; contactCount: number; contactWithEmailCount: number; contactWithPhoneCount: number }
 export interface AiSearchTradeEvidenceVO { id?: string | number; companyId: string | number; url?: string; hsCode?: string; product?: string; tradeType?: string; tradeDate?: string; partnerCountry?: string; evidenceText?: string; confidence?: number }

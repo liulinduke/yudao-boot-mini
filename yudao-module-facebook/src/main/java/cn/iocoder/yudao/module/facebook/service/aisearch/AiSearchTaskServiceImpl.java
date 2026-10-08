@@ -40,12 +40,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -61,12 +60,13 @@ import java.util.Locale;
 import java.util.Map;
 
 @Service
+@Slf4j
 public class AiSearchTaskServiceImpl implements AiSearchTaskService {
 
     private static final int DEFAULT_RESULT_COUNT = 20;
     private static final int MAX_RESULT_COUNT = 50;
-    private static final int MAX_SEARCH_ROUNDS = 20;
-    private static final int MAX_TOOL_CALLS = 20;
+    private static final int MAX_SEARCH_ROUNDS = 5;
+    private static final int MAX_TOOL_CALLS = 15;
     private static final long MAX_RUN_MILLIS = 10 * 60 * 1000L;
 
     @Resource
@@ -166,26 +166,10 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         if (task.getTargetCount() == null || task.getTargetCount() < 1) {
             task.setTargetCount(100);
         }
-        inferGoalFields(task);
         task.setStatus("DRAFT");
         taskMapper.insert(task);
+        log.info("AI 企业获客任务创建: taskId={}, targetCount={}", task.getId(), task.getTargetCount());
         return task.getId();
-    }
-
-    private void inferGoalFields(AiSearchTaskDO task) {
-        if (task.getUserGoal() == null || task.getUserGoal().isBlank()
-                || (task.getTargetCountry() != null && task.getCustomerType() != null)) return;
-        try {
-            var model = aiModelService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
-            String prompt = "从以下外贸获客目标提取国家、客户类型、目标企业数量。只输出JSON：{\"country\":\"\",\"customerType\":\"\",\"count\":0}。无法确定的字段留空。目标：" + task.getUserGoal();
-            String content = aiModelService.getChatModel(model.getId()).call(new Prompt(new UserMessage(prompt))).getResult().getOutput().getText();
-            JsonNode node = new ObjectMapper().readTree(stripJsonFence(content));
-            if ((task.getTargetCountry() == null || task.getTargetCountry().isBlank()) && node.path("country").isTextual()) task.setTargetCountry(node.path("country").asText());
-            if ((task.getCustomerType() == null || task.getCustomerType().isBlank()) && node.path("customerType").isTextual()) task.setCustomerType(node.path("customerType").asText());
-            if ((task.getTargetCount() == null || task.getTargetCount() == 100) && node.path("count").canConvertToInt() && node.path("count").asInt() > 0) task.setTargetCount(node.path("count").asInt());
-        } catch (Exception ignored) {
-            // Keep the original goal when the optional inference call is unavailable.
-        }
     }
 
     @Override
@@ -252,7 +236,6 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         if ("RUNNING".equals(task.getStatus())) {
             throw new IllegalStateException("任务正在运行，请勿重复启动");
         }
-        searchAgentService.assertSearchReady();
         int companyBaseline = companyCount(task.getId());
         int qualifiedBaseline = qualifiedCompanyCount(task.getId());
         task.setStatus("RUNNING");
@@ -269,31 +252,36 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         run.setQualifiedCompanyCount(0);
         run.setErrorCount(0);
         int target = task.getTargetCount() == null ? DEFAULT_RESULT_COUNT : task.getTargetCount();
+        log.info("AI 企业获客本次运行目标: taskId={}, savedTargetCount={}, runTarget={}, qualifiedBaseline={}",
+                task.getId(), task.getTargetCount(), target, qualifiedBaseline);
         run.setTargetQualifiedCount(target);
         run.setQualifiedCountBefore(qualifiedBaseline);
         runMapper.insert(run);
         try {
             ensureFrontier(task);
             int rounds = 0;
-            int lowYieldRounds = 0;
             int toolCalls = 0;
             long runDeadline = System.currentTimeMillis() + MAX_RUN_MILLIS;
             while (qualifiedCompanyCount(task.getId()) - qualifiedBaseline < target
                     && rounds < MAX_SEARCH_ROUNDS
                     && toolCalls < MAX_TOOL_CALLS
-                    && lowYieldRounds < 2 && System.currentTimeMillis() < runDeadline) {
+                    && System.currentTimeMillis() < runDeadline) {
                 int round = nextRound(task.getId());
+                int runRound = rounds + 1;
                 int qualifiedAddedThisRun = qualifiedCompanyCount(task.getId()) - qualifiedBaseline;
                 int remainingQualifiedTarget = Math.max(0, target - qualifiedAddedThisRun);
-                AiSearchAgentService.AgentTurn turn = searchAgentService.search(task, round,
+                log.info("AI 企业获客搜索轮次开始: taskId={}, runId={}, runRound={}/{}, historyRound={}, queriesUsed={}/{}, remainingTarget={}",
+                        task.getId(), run.getId(), runRound, MAX_SEARCH_ROUNDS, round,
+                        toolCalls, MAX_TOOL_CALLS, remainingQualifiedTarget);
+                AiSearchAgentService.AgentTurn turn = searchAgentService.search(task, runRound,
                         MAX_TOOL_CALLS - toolCalls, qualifiedAddedThisRun, remainingQualifiedTarget);
+                log.info("AI 搜索 Agent 本轮结果: taskId={}, runId={}, round={}, toolCalls={}, remainingTarget={}",
+                        task.getId(), run.getId(), round, turn.getInvocations().size(), remainingQualifiedTarget);
                 rounds++;
-                int qualifiedAddedThisRound = 0;
                 for (AiSearchAgentService.SearchInvocation invocation : turn.getInvocations()) {
                     toolCalls++;
-                    qualifiedAddedThisRound += searchOnce(task, run.getId(), round, invocation);
+                    searchOnce(task, run.getId(), round, invocation);
                 }
-                lowYieldRounds = qualifiedAddedThisRound == 0 ? lowYieldRounds + 1 : 0;
             }
             int added = companyCount(task.getId()) - companyBaseline;
             int qualifiedAdded = qualifiedCompanyCount(task.getId()) - qualifiedBaseline;
@@ -413,31 +401,52 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         int qualifiedBefore = qualifiedCompanyCount(task.getId());
         int duplicates = 0;
         Long sourceId = sourceIdFromQuery(queryText);
-        int newSources = registerDiscoveredSources(task, pages);
+        int newSources = 0;
+        Set<String> enterpriseSourceDomains = sourceMapper.selectList(Wrappers.lambdaQuery(AiSearchSourceDO.class)
+                        .eq(AiSearchSourceDO::getSourceType, "ENTERPRISE"))
+                .stream().map(AiSearchSourceDO::getDomain).filter(domain -> domain != null && !domain.isBlank())
+                .map(domain -> domain.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", ""))
+                .collect(java.util.stream.Collectors.toSet());
         for (AiWebSearchResponse.WebPage page : pages) {
             if (page == null || page.getUrl() == null || page.getUrl().isBlank()) {
                 duplicates++;
                 continue;
             }
             String domain = canonicalDomain(page.getUrl());
-            if (domain.isBlank() || companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
-                    .eq(AiSearchCompanyDO::getNormalizedName, normalize(domain))) > 0) {
+            boolean directoryResult = enterpriseSourceDomains.contains(domain.toLowerCase(Locale.ROOT));
+            String name = firstNonBlank(page.getName(), page.getTitle(), domain);
+            String normalizedName = normalize(name);
+            boolean alreadyExists = directoryResult
+                    ? companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
+                    .and(wrapper -> wrapper.eq(AiSearchCompanyDO::getNormalizedName, normalizedName)
+                            .or().eq(AiSearchCompanyDO::getName, name))) > 0
+                    : companyMapper.selectCount(Wrappers.lambdaQuery(AiSearchCompanyDO.class)
+                    .and(wrapper -> wrapper.eq(AiSearchCompanyDO::getDomain, domain)
+                            .or().eq(AiSearchCompanyDO::getNormalizedName, normalize(domain)))) > 0;
+            if (domain.isBlank() || alreadyExists) {
                 duplicates++;
                 continue;
             }
             page = enrichPage(page);
             AiSearchCompanyDO company = new AiSearchCompanyDO();
-            String name = firstNonBlank(page.getName(), page.getTitle(), canonicalDomain(page.getUrl()));
             company.setTaskId(task.getId());
             company.setName(name);
-            company.setWebsite(page.getUrl());
-            company.setDomain(canonicalDomain(page.getUrl()));
-            company.setNormalizedName(normalize(company.getDomain()));
+            company.setWebsite(directoryResult ? null : page.getUrl());
+            company.setDomain(directoryResult ? null : domain);
+            company.setNormalizedName(normalizedName);
             company.setDescription(firstNonBlank(page.getSummary(), page.getSnippet()));
             company.setCountry(task.getTargetCountry());
-            company.setCustomerType(task.getCustomerType());
+            company.setCustomerType(firstNonBlank(page.getCompanyType(), task.getCustomerType()));
             company.setVerificationStatus("UNKNOWN");
-            evaluateIcp(task, company);
+            String recommendation = page.getEvidence();
+            if (recommendation == null || recommendation.isBlank()) {
+                recommendation = page.getSummary();
+            }
+            if (recommendation == null || recommendation.isBlank()) {
+                recommendation = page.getSnippet();
+            }
+            company.setCompanyNote(recommendation == null || recommendation.isBlank() ? null : recommendation.trim());
+            company.setIcpScore(5);
             companyMapper.insert(company);
             saveEvidence(company, page, sourceId, runId);
             if (Boolean.TRUE.equals(task.getContactEnrichment())) {
@@ -451,6 +460,8 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         }
         int added = companyCount(task.getId()) - before;
         int qualifiedAdded = Math.max(0, qualifiedCompanyCount(task.getId()) - qualifiedBefore);
+        log.info("AI 搜索结果处理完成: taskId={}, runId={}, round={}, pageCount={}, newCompanies={}, duplicates={}, qualifiedAdded={}",
+                task.getId(), runId, round, pages.size(), added, duplicates, qualifiedAdded);
         AiSearchQueryDO query = new AiSearchQueryDO(); query.setTaskId(task.getId()); query.setRoundNo(round);
         query.setRunId(runId);
         query.setQuery(queryText); query.setCountry(task.getTargetCountry()); query.setLanguage(languageFor(task.getTargetCountry())); query.setResultCount(pages.size());
@@ -474,22 +485,6 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         return qualifiedAdded;
     }
 
-    private int registerDiscoveredSources(AiSearchTaskDO task, List<AiWebSearchResponse.WebPage> pages) {
-        int added = 0;
-        for (AiWebSearchResponse.WebPage page : pages) {
-            if (page == null || page.getUrl() == null || page.getUrl().isBlank()) continue;
-            String domain = canonicalDomain(page.getUrl());
-            if (domain.isBlank() || domain.contains("google.") || domain.contains("bing.com")) continue;
-            if (sourceMapper.selectCount(Wrappers.lambdaQuery(AiSearchSourceDO.class).eq(AiSearchSourceDO::getDomain, domain)) > 0) continue;
-            AiSearchSourceDO source = new AiSearchSourceDO(); source.setName(domain); source.setDomain(domain);
-            source.setSourceType("OTHER"); source.setSourceRole("COMPANY_DISCOVERY"); source.setDiscoveryMethods("SEARCH_ENGINE,DETAIL_PAGE");
-            source.setCountries(task.getTargetCountry()); source.setCustomerTypes(task.getCustomerType()); source.setKeywords(task.getUserGoal());
-            source.setStatus("CANDIDATE"); source.setVerified(false); source.setPriority(0); source.setUsageCount(0);
-            source.setCompanyCount(0); source.setQualifiedCompanyCount(0); sourceMapper.insert(source); added++;
-        }
-        return added;
-    }
-
     private Long sourceIdFromQuery(String query) {
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\bsite:([^\\s]+)", java.util.regex.Pattern.CASE_INSENSITIVE)
                 .matcher(query == null ? "" : query);
@@ -497,7 +492,8 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         String domain = canonicalDomain(matcher.group(1));
         if (domain.isBlank()) return null;
         AiSearchSourceDO source = sourceMapper.selectOne(Wrappers.lambdaQuery(AiSearchSourceDO.class)
-                .eq(AiSearchSourceDO::getDomain, domain).last("LIMIT 1"));
+                .eq(AiSearchSourceDO::getDomain, domain)
+                .eq(AiSearchSourceDO::getSourceType, "ENTERPRISE").last("LIMIT 1"));
         return source == null ? null : source.getId();
     }
 
@@ -580,7 +576,9 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\bsite:([^\\s]+)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(query == null ? "" : query);
         if (!matcher.find()) return;
         String domain = matcher.group(1).toLowerCase(Locale.ROOT);
-        AiSearchSourceDO source = sourceMapper.selectOne(Wrappers.lambdaQuery(AiSearchSourceDO.class).eq(AiSearchSourceDO::getDomain, domain).last("LIMIT 1"));
+        AiSearchSourceDO source = sourceMapper.selectOne(Wrappers.lambdaQuery(AiSearchSourceDO.class)
+                .eq(AiSearchSourceDO::getDomain, domain)
+                .eq(AiSearchSourceDO::getSourceType, "ENTERPRISE").last("LIMIT 1"));
         if (source == null) return;
         int usage = (source.getUsageCount() == null ? 0 : source.getUsageCount()) + 1;
         int companies = (source.getCompanyCount() == null ? 0 : source.getCompanyCount()) + resultCount;
@@ -676,28 +674,6 @@ public class AiSearchTaskServiceImpl implements AiSearchTaskService {
         if (text == null) return null;
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(regex, java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text);
         return matcher.find() ? matcher.group().replaceAll("[),.;]+$", "") : null;
-    }
-
-    private void evaluateIcp(AiSearchTaskDO task, AiSearchCompanyDO company) {
-        try {
-            var model = aiModelService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
-            ChatModel chatModel = aiModelService.getChatModel(model.getId());
-            String system = "你是企业客户筛选助手。只输出JSON对象：{\\\"level\\\":\\\"A/B/C/D\\\",\\\"score\\\":0,\\\"reason\\\":\\\"不超过40字\\\"}。"
-                    + "A高度符合，B大概率符合，C相关但证据不足，D明显不符合。只能依据给出的证据，不要猜测。";
-            String user = "目标：" + firstNonBlank(task.getUserGoal()) + "\\n客户类型："
-                    + firstNonBlank(task.getCustomerType()) + "\\n国家：" + firstNonBlank(task.getTargetCountry())
-                    + "\\n企业：" + company.getName() + "\\n官网：" + company.getWebsite()
-                    + "\\n证据：" + firstNonBlank(company.getDescription());
-            String content = chatModel.call(new Prompt(List.of(new SystemMessage(system), new UserMessage(user))))
-                    .getResult().getOutput().getText();
-            JsonNode json = new ObjectMapper().readTree(stripJsonFence(content));
-            String level = json.path("level").asText(null);
-            if (level != null && level.matches("[ABCD]")) company.setIcpLevel(level);
-            if (json.has("score") && json.get("score").canConvertToInt()) company.setIcpScore(json.get("score").asInt());
-            if (json.has("reason")) company.setCompanyNote(json.get("reason").asText());
-        } catch (Exception ignored) {
-            company.setIcpLevel("UNKNOWN");
-        }
     }
 
     private String stripJsonFence(String value) {
